@@ -1,0 +1,14 @@
+:root{color-scheme:dark;font:14px system-ui;color:#e4f3f0;background:#0e151a}
+*{box-sizing:border-box}
+body{margin:0;display:grid;justify-items:center;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+main{width:min(100%,375px);padding:8px}
+header{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0 8px}
+header strong{font-size:19px}
+header span,p{color:#a9bfbd}
+.arena{position:relative;border:1px solid #324347;border-radius:8px;overflow:hidden;width:min(100%,calc((100dvh - 145px)*.5625));margin:auto}
+canvas{display:block;width:100%;height:auto;touch-action:none;background:#15262a}
+#pauseBanner{position:absolute;top:43%;left:50%;width:max-content;transform:translateX(-50%);padding:10px 16px;border-radius:8px;background:#122328ef;pointer-events:none}
+#stats{padding:7px 0;color:#8fdcc8;font-variant-numeric:tabular-nums}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+button{border:1px solid #46625e;border-radius:6px;background:#203936;color:#ecf8f6;padding:7px 8px;cursor:pointer}
+p{margin:7px 0 0;font-size:12px}

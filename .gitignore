@@ -1,0 +1,9 @@
+node_modules/
+.m0-build/
+library/
+local/
+temp/
+build/
+profiles/
+.DS_Store
+.env*
