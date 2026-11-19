@@ -1,4 +1,5 @@
-import { _decorator, Color, Component, EventTouch, Game, game, Graphics, Label, Node, UITransform, Vec2, Vec3 } from 'cc';
+import { _decorator, Color, Component, EventTouch, Game, game, Graphics, Label, Node, profiler, UITransform, Vec2, Vec3 } from 'cc';
+import { DEBUG } from 'cc/env';
 import { ARENA_HEIGHT, ARENA_WIDTH } from '../core/StressWorld';
 import { Session } from '../m0/Session';
 
@@ -19,6 +20,7 @@ const PLAYER = new Color(80, 190, 247);
 const PLAYER_EDGE = new Color(224, 249, 255);
 const PANEL = new Color(35, 56, 76, 245);
 const JOYSTICK = new Color(80, 190, 247, 100);
+const qaHost = globalThis as typeof globalThis & { __nightShiftM0State?: () => object };
 
 /** Add to one centered 360 × 640 UI node under a Cocos 2D Canvas. */
 @ccclass('M0Bootstrap')
@@ -37,6 +39,9 @@ export class M0Bootstrap extends Component {
     private originY = 0;
     private lastStatus = '';
     private lastPauseLabel = '';
+    private frameIntervals: number[] = [];
+    private frameElapsed = 0;
+    private lastFrameAt: number | null = null;
 
     onLoad(): void {
         this.surface = this.node.getComponent(UITransform)!;
@@ -51,6 +56,11 @@ export class M0Bootstrap extends Component {
         this.makeLabel('Reset', 'RESET', BUTTON_CENTERS[3], BUTTON_CENTER_Y, 13);
         this.makeLabel('Help', 'Drag arena to move | load restores seed, not tick', 0, -266, 11);
         this.session = new Session();
+        if (DEBUG) {
+            profiler?.hideStats();
+            qaHost.__nightShiftM0State = this.inspect;
+            this.trace('start');
+        }
         this.draw();
     }
 
@@ -59,8 +69,8 @@ export class M0Bootstrap extends Component {
         this.node.on(Node.EventType.TOUCH_MOVE, this.touchMove, this);
         this.node.on(Node.EventType.TOUCH_END, this.touchEnd, this);
         this.node.on(Node.EventType.TOUCH_CANCEL, this.touchEnd, this);
-        game.on(Game.EVENT_HIDE, this.suspend, this);
-        game.on(Game.EVENT_SHOW, this.suspend, this);
+        game.on(Game.EVENT_HIDE, this.onHide, this);
+        game.on(Game.EVENT_SHOW, this.onShow, this);
     }
 
     onDisable(): void {
@@ -68,22 +78,72 @@ export class M0Bootstrap extends Component {
         this.node.off(Node.EventType.TOUCH_MOVE, this.touchMove, this);
         this.node.off(Node.EventType.TOUCH_END, this.touchEnd, this);
         this.node.off(Node.EventType.TOUCH_CANCEL, this.touchEnd, this);
-        game.off(Game.EVENT_HIDE, this.suspend, this);
-        game.off(Game.EVENT_SHOW, this.suspend, this);
+        game.off(Game.EVENT_HIDE, this.onHide, this);
+        game.off(Game.EVENT_SHOW, this.onShow, this);
         this.suspend();
     }
 
     onDestroy(): void {
+        if (qaHost.__nightShiftM0State === this.inspect) delete qaHost.__nightShiftM0State;
         this.session?.dispose();
         this.session = null;
+    }
+
+    private readonly inspect = () => {
+        const session = this.session;
+        if (!session) return {};
+        const { tick, player, enemies, projectiles, pickups } = session.world;
+        return {
+            tick,
+            player: { x: player.x, y: player.y },
+            counts: { enemies: enemies.length, projectiles: projectiles.length, pickups: pickups.length },
+            input: { x: session.x, y: session.y, owner: this.owner },
+            paused: session.paused,
+            background: session.background,
+            checkpointOk: session.checkpointOk,
+            platform: session.platform.kind,
+        };
+    };
+
+    private trace(event: string): void {
+        if (DEBUG) console.log('[M0] ' + JSON.stringify({ event, ...this.inspect() }));
     }
 
     update(dt: number): void {
         const session = this.session;
         if (!session) return;
         if (session.paused && this.owner !== null) this.release();
+        if (DEBUG) this.measureFrames(session.paused);
         session.advance(dt);
         this.draw();
+    }
+
+    private measureFrames(paused: boolean): void {
+        if (paused) {
+            this.lastFrameAt = null;
+            this.frameIntervals.length = 0;
+            this.frameElapsed = 0;
+            return;
+        }
+        const now = performance.now();
+        const previous = this.lastFrameAt;
+        this.lastFrameAt = now;
+        if (previous === null || now <= previous) return;
+        const interval = now - previous;
+        this.frameIntervals.push(interval);
+        this.frameElapsed += interval;
+        if (this.frameElapsed < 60_000) return;
+        const sorted = this.frameIntervals.sort((left, right) => left - right);
+        console.log('[M0] ' + JSON.stringify({
+            event: 'frames',
+            elapsedMs: this.frameElapsed,
+            frames: sorted.length,
+            p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1],
+            peakMs: sorted[sorted.length - 1],
+            ...this.inspect(),
+        }));
+        this.frameIntervals = [];
+        this.frameElapsed = 0;
     }
 
     private touchStart(event: EventTouch): void {
@@ -92,15 +152,16 @@ export class M0Bootstrap extends Component {
         const point = this.local(event);
         if (Math.abs(point.y - BUTTON_CENTER_Y) <= BUTTON_HEIGHT / 2) {
             const button = BUTTON_CENTERS.findIndex((x) => Math.abs(point.x - x) <= BUTTON_WIDTH / 2);
-            if (button === 0) { if (session.paused) session.resume(); else this.suspend(); return; }
-            if (button === 1) { session.save(); return; }
-            if (button === 2) { this.release(); session.checkpointOk = session.load(); return; }
-            if (button === 3) { this.release(); session.restart(); return; }
+            if (button === 0) { if (session.paused) session.resume(); else this.suspend(); this.trace('toggle-pause'); return; }
+            if (button === 1) { session.save(); this.trace('save'); return; }
+            if (button === 2) { this.release(); session.checkpointOk = session.load(); this.trace('load'); return; }
+            if (button === 3) { this.release(); session.restart(); this.trace('reset'); return; }
         }
         if (session.paused || this.owner !== null) return;
         this.owner = event.getID();
         this.originX = point.x;
         this.originY = point.y;
+        this.trace('drag-start');
     }
 
     private touchMove(event: EventTouch): void {
@@ -115,7 +176,10 @@ export class M0Bootstrap extends Component {
     }
 
     private touchEnd(event: EventTouch): void {
-        if (event.getID() === this.owner) this.release();
+        if (event.getID() === this.owner) {
+            this.release();
+            this.trace('drag-end');
+        }
     }
 
     private local(event: EventTouch): Vec3 {
@@ -134,6 +198,16 @@ export class M0Bootstrap extends Component {
     private suspend(): void {
         this.release();
         this.session?.pause();
+    }
+
+    private onHide(): void {
+        this.suspend();
+        this.trace('hide');
+    }
+
+    private onShow(): void {
+        this.suspend();
+        this.trace('show');
     }
 
     private makeLabel(name: string, string: string, x: number, y: number, fontSize: number): Label {
@@ -194,6 +268,7 @@ export class M0Bootstrap extends Component {
         if (this.status && status !== this.lastStatus) {
             this.lastStatus = status;
             this.status.string = status;
+            if (seconds > 0 && seconds % 5 === 0) this.trace('sample');
         }
         const pause = session.paused ? 'RESUME' : 'PAUSE';
         if (this.pauseLabel && pause !== this.lastPauseLabel) {

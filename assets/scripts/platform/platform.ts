@@ -24,7 +24,8 @@ type Store = { get(key: string): unknown; put(key: string, text: string): void }
 type Host = { tt?: TT; localStorage?: StorageLike; document?: Document };
 type Entry = { format: 1; sequence: number; version: number; payload: string; check: string };
 type Slot = { key: string; entry: Entry };
-const KEYS = ['night-shift.checkpoint.a', 'night-shift.checkpoint.b'] as const;
+const DEFAULT_CHECKPOINT = 'night-shift.checkpoint';
+type SlotKeys = readonly [string, string];
 const MAX_TEXT_LENGTH = 64 * 1024;
 
 function noInsets(): SafeInsets { return { top: 0, right: 0, bottom: 0, left: 0 }; }
@@ -62,19 +63,19 @@ function readSlot(store: Store, key: string): Slot | null {
     return null;
   }
 }
-function slots(store: Store): Slot[] {
-  return KEYS.map((key) => readSlot(store, key))
+function slots(store: Store, keys: SlotKeys): Slot[] {
+  return keys.map((key) => readSlot(store, key))
     .filter((slot): slot is Slot => slot !== null)
     .sort((a, b) => b.entry.sequence - a.entry.sequence);
 }
-function commit(store: Store, version: number, payload: string): boolean {
-  const previous = slots(store)[0];
+function commit(store: Store, keys: SlotKeys, version: number, payload: string): boolean {
+  const previous = slots(store, keys)[0];
   const sequence = (previous?.entry.sequence ?? 0) + 1;
   if (!revision(sequence) || payload.length > MAX_TEXT_LENGTH) return false;
   const entry: Entry = { format: 1, sequence, version, payload, check: fingerprint(sequence, version, payload) };
   const raw = JSON.stringify(entry);
   if (raw.length > MAX_TEXT_LENGTH) return false;
-  const key = previous?.key === KEYS[0] ? KEYS[1] : KEYS[0];
+  const key = previous?.key === keys[0] ? keys[1] : keys[0];
   try {
     store.put(key, raw);
     return store.get(key) === raw;
@@ -113,7 +114,8 @@ function browserInsets(doc?: Document): SafeInsets {
   }
 }
 
-export function makePlatform(host: Host = globalThis as Host): Platform {
+export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAULT_CHECKPOINT): Platform {
+  const keys = [`${checkpoint}.a`, `${checkpoint}.b`] as const;
   const tt = host.tt;
   const doc = host.document;
   let storage: StorageLike | undefined;
@@ -170,7 +172,7 @@ export function makePlatform(host: Host = globalThis as Host): Platform {
     },
     readCheckpoint<T>(version: number, validate?: (value: unknown) => boolean): T | null {
       if (!revision(version)) return null;
-      for (const { entry } of slots(store)) {
+      for (const { entry } of slots(store, keys)) {
         // A tombstone or incompatible current version is intentional, not corruption.
         if (entry.version !== version) return null;
         try {
@@ -184,11 +186,11 @@ export function makePlatform(host: Host = globalThis as Host): Platform {
       if (!revision(version)) return false;
       try {
         const payload = JSON.stringify(value);
-        return typeof payload === 'string' && commit(store, version, payload);
+        return typeof payload === 'string' && commit(store, keys, version, payload);
       } catch {
         return false;
       }
     },
-    clearCheckpoint() { return commit(store, 0, ''); },
+    clearCheckpoint() { return commit(store, keys, 0, ''); },
   };
 }

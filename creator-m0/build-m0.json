@@ -1,0 +1,14 @@
+{
+  "platform": "bytedance-mini-game",
+  "name": "night-shift-repair-m0",
+  "outputName": "bytedance-mini-game",
+  "buildPath": "project://build",
+  "debug": true,
+  "startScene": "c11436a3-5e05-45d4-a29a-7b40811ec976",
+  "scenes": [
+    { "url": "db://assets/scenes/M0.scene", "uuid": "c11436a3-5e05-45d4-a29a-7b40811ec976" }
+  ],
+  "packages": {
+    "bytedance-mini-game": { "orientation": "portrait" }
+  }
+}

@@ -17,9 +17,13 @@ npm run preview
 
 ## Cocos 与抖音
 
-[Creator 3.8.8 编辑器接入、构建与扫码步骤](docs/COCOS-EDITOR.md)。当前交付 Cocos 宿主组件与可运行浏览器压测页；首次在 Creator 的 2D 模板中挂组件并保存正式场景仍待执行。
+[Creator 3.8.8 编辑器接入、构建与扫码步骤](docs/COCOS-EDITOR.md)。`creator-m0/` 包含已挂载 M0 组件的 2D 工程、360 × 640 场景和抖音竖屏构建配置。
 
 [已验证与待验证清单](docs/M0-CHECKLIST.md)
+
+[M1 灰盒试玩与构建](docs/M1-PLAYTEST.md)
+
+[M2 完整一局与真机验收](docs/M2-PLAYTEST.md)
 
 - `assets/scripts/core/`：纯 TypeScript 固定 30 Hz、固定种子压力模型，可脱离引擎测试。
 - `assets/scripts/platform/`：浏览器与抖音适配、A/B 本地检查点。

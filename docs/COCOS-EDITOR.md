@@ -1,6 +1,8 @@
 # M0 Cocos 预览与抖音导出
 
-适用 **Cocos Creator 3.8.8 LTS**。这里提交的是宿主组件，不是已验证的 Creator 序列化场景或抖音包。当前 Linux 环境未运行 Creator，需在 macOS 或 Windows 上完成以下步骤。
+适用 **Cocos Creator 3.8.8 LTS**。本地 M0 工程位于 `creator-m0/`。用 Creator 打开该目录并打开 `assets/scenes/M0.scene`，可直接预览已挂载组件的 360 × 640 场景。修改仓库根目录的脚本后，构建前将改动同步到 `creator-m0/assets/scripts/`，保留 Creator 已生成的 `.meta` 文件。
+
+在构建发布面板导入 `creator-m0/build-m0.json` 可复用 M0 构建配置。竖屏调试包输出到 `creator-m0/build/bytedance-mini-game/`，使用测试号。调试包在控制台输出 `[M0]` 事件，每连续运行约 60 秒报告一轮 p95 和峰值帧间隔。Windows 验证结果见 [M0 验收记录](M0-CHECKLIST.md)。以下是从模板重建工程的步骤。
 
 1. 用 Cocos Dashboard 创建一个 **2D** 项目，使用 3.8.8；把仓库的 `assets/scripts/` 复制到该项目对应目录。保留项目由 Creator 生成的场景、`.meta` 和设置，勿手写 UUID。
 2. 打开项目默认 2D 场景，保留 Canvas 及其 UI 相机。在 **项目 → 项目设置 → 项目数据** 把设计分辨率改为 **360 × 640**，让画布在预览设备上保持整块场地可见（优先 Fit Width 和 Fit Height 同时启用）。在 Canvas 下新建一个位置 `(0, 0, 0)`、图层 `UI_2D` 的子节点 `StressView`，添加脚本组件 **M0Bootstrap**。该组件初始化本节点的 `UITransform` 和 `Graphics`，运行时生成标签，不需要资源绑定。保存场景。
