@@ -1,5 +1,7 @@
-import { Battle } from './Battle';
+import { Battle, HIT_SOURCES } from './Battle';
 import type { HitSource } from './Battle';
+import { BLUEPRINT_IDS, CHALLENGE_MODES, ESCORT_HP, RELAY_HP } from './Encounter';
+import type { BlueprintId, ChallengeMode, MissionState } from './Encounter';
 import {
     FIRST_PAIR, M1_RULES, MODS, REFRESH_COST, RUN_SEED, STARTER, TICK_RATE,
     hasPair, isMod, isTool, offer, randomStream,
@@ -10,9 +12,9 @@ import type { Platform } from '../platform/platform';
 
 const CHECKPOINT_VERSION = 1;
 const STEP = 1 / TICK_RATE;
-type Phase = 'battle' | 'shop' | 'won' | 'lost';
+type Phase = 'battle' | 'shop' | 'won' | 'lost' | 'revive';
 interface Shop { offers: OfferId[]; refreshed: boolean }
-export type FinishReason = 'cleared' | 'defeated' | 'timeout';
+export type FinishReason = 'cleared' | 'defeated' | 'timeout' | 'objective-failed';
 export interface WaveReport {
     wave: number;
     ticks: number;
@@ -23,6 +25,7 @@ export interface WaveReport {
     hits: number;
     triggers: { arc: number; magnet: number; heat: number };
     defeatedBy: HitSource | null;
+    heatRecovered?: boolean;
 }
 export interface Checkpoint {
     schemaVersion: 1;
@@ -38,6 +41,11 @@ export interface Checkpoint {
     shop: Shop | null;
     reports?: WaveReport[];
     finishReason?: FinishReason;
+    blueprint?: BlueprintId;
+    mode?: ChallengeMode;
+    mission?: MissionState;
+    revived?: boolean;
+    firstWaveMoved?: boolean;
 }
 
 function integer(value: unknown, minimum: number, maximum: number): value is number {
@@ -58,11 +66,18 @@ function validReports(data: Checkpoint, rules: RunRules): boolean {
             || !integer(report.shopCredit, 0, 6)
             || !integer(report.triggers?.arc, 0, 10000) || !integer(report.triggers?.magnet, 0, 10000)
             || !integer(report.triggers?.heat, 0, 10000)
-            || [null, 'crawler', 'charger', 'turret', 'armored', 'inspector', 'projectile', 'boss-sweep', 'boss-charge', 'live-puddle']
-                .indexOf(report.defeatedBy) < 0) return false;
+            || (report.heatRecovered !== undefined && typeof report.heatRecovered !== 'boolean')
+            || (report.defeatedBy !== null && !HIT_SOURCES.includes(report.defeatedBy))) return false;
         previous = report.wave;
     }
     return true;
+}
+
+function validMission(value: unknown): value is MissionState {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const state = value as MissionState;
+    return (state.escortHp === undefined || integer(state.escortHp, 1, ESCORT_HP))
+        && (state.relayHp === undefined || integer(state.relayHp, 1, RELAY_HP));
 }
 
 function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
@@ -73,13 +88,20 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
         || !integer(data.revision, 1, Number.MAX_SAFE_INTEGER - 1)
         || !integer(data.seed, 0, 0xffffffff) || !integer(data.parts, 0, 10000)
         || !integer(data.wave, 0, rules.waves.length - 1) || (data.route !== 'arc' && data.route !== 'magnet')
-        || ['battle', 'shop', 'won', 'lost'].indexOf(data.phase) < 0
+        || ['battle', 'shop', 'won', 'lost', 'revive'].indexOf(data.phase) < 0
+        || (data.blueprint !== undefined && !BLUEPRINT_IDS.includes(data.blueprint))
+        || (data.mode !== undefined && (!CHALLENGE_MODES.includes(data.mode) || !rules.encounter?.overtime))
+        || (data.firstWaveMoved !== undefined && typeof data.firstWaveMoved !== 'boolean')
+        || (data.revived !== undefined && typeof data.revived !== 'boolean')
+        || (data.mission !== undefined && !validMission(data.mission))
         || !Array.isArray(data.tools) || data.tools.length < 1 || data.tools.length > 2
         || !(rules.startingTools ?? ['wrench']).includes(data.tools[0]?.id)) return false;
     const installed = new Set<string>();
     const slots = new Set<string>();
-    for (const tool of data.tools) {
-        if (!tool || typeof tool.id !== 'string' || rules.tools.indexOf(tool.id) < 0 || slots.has(tool.id)
+    for (let index = 0; index < data.tools.length; index++) {
+        const tool = data.tools[index];
+        const allowed = index === 0 ? rules.startingTools ?? ['wrench'] : rules.tools;
+        if (!tool || typeof tool.id !== 'string' || !allowed.includes(tool.id) || slots.has(tool.id)
             || !Array.isArray(tool.mods) || tool.mods.length > 2) return false;
         slots.add(tool.id);
         for (const mod of tool.mods) {
@@ -89,9 +111,14 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
     }
     if (!installed.has(STARTER[data.route]) || !validReports(data, rules)) return false;
     const reason = data.finishReason;
+    if (data.phase === 'revive' && (reason !== 'defeated' || !reviveEligible(rules, data) ||
+        data.reports?.[data.reports.length - 1]?.wave !== data.wave)) return false;
     if (reason !== undefined && !(
         (data.phase === 'won' && reason === 'cleared')
-        || (data.phase === 'lost' && (reason === 'defeated' || (reason === 'timeout' && rules.waves[data.wave].boss)))
+        || (data.phase === 'revive' && reason === 'defeated')
+        || (data.phase === 'lost' && (reason === 'defeated'
+            || reason === 'objective-failed' && rules.waves[data.wave].directive
+            || reason === 'timeout' && (rules.waves[data.wave].boss || rules.waves[data.wave].directive || rules.waves[data.wave].escalation)))
     )) return false;
     if (data.phase !== 'shop') return data.shop === null && (data.phase !== 'won' || data.wave === rules.waves.length - 1);
     const shop = data.shop;
@@ -101,6 +128,11 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
         && shop.offers.every((id) => typeof id === 'string' && (isTool(id)
             ? rules.tools.indexOf(id) >= 0 && !slots.has(id) && slots.size < 2
             : isMod(id) && rules.mods.indexOf(id) >= 0 && !installed.has(id)));
+}
+
+function reviveEligible(rules: RunRules, data: Checkpoint): boolean {
+    return !!rules.encounter?.revive && data.wave >= 1 && data.wave <= 4 && !rules.waves[data.wave].boss
+        && !data.revived && (!data.mode || data.mode === 'normal');
 }
 
 function nextOffers(data: Checkpoint, refreshed: boolean, rules: RunRules): OfferId[] {
@@ -156,7 +188,8 @@ export class Run {
 
     readonly platform: Platform;
 
-    constructor(platform?: Platform, readonly rules: RunRules = M1_RULES) {
+    constructor(platform?: Platform, readonly rules: RunRules = M1_RULES,
+        private readonly options: { readonly offerRevive?: boolean } = {}) {
         this.platform = platform ?? makePlatform(undefined, rules.stage === 'M2' ? 'night-shift.m2' : 'night-shift.m1');
         this.data = this.platform.readCheckpoint<Checkpoint>(CHECKPOINT_VERSION, (value) => validCheckpoint(value, rules));
         this.restoreBattle();
@@ -170,13 +203,17 @@ export class Run {
     dispose(): void { this.disposeEvents.forEach((unsubscribe) => unsubscribe()); }
     get waitingForSave(): boolean { return this.pending !== null; }
 
-    start(route: Route, seed = RUN_SEED, starterTool: ToolId = 'wrench', attemptId?: string): void {
+    start(route: Route, seed = RUN_SEED, starterTool: ToolId = 'wrench', attemptId?: string,
+        blueprint?: BlueprintId, mode: ChallengeMode = 'normal'): void {
         if (!(this.rules.startingTools ?? ['wrench']).includes(starterTool) ||
+            (blueprint !== undefined && !BLUEPRINT_IDS.includes(blueprint)) ||
+            (mode !== 'normal' && (!this.rules.encounter?.overtime || !CHALLENGE_MODES.includes(mode))) ||
             (attemptId !== undefined && (!attemptId || attemptId.length > 80))) return;
         const data: Checkpoint = {
             schemaVersion: CHECKPOINT_VERSION, contentVersion: this.rules.contentVersion,
             runId: attemptId ?? `${Date.now()}-${++this.nonce}`, revision: 1, seed: seed >>> 0,
             route, wave: 0, phase: 'battle', parts: 0, tools: [{ id: starterTool, mods: [STARTER[route]] }], shop: null, reports: [],
+            ...(blueprint ? { blueprint } : {}), ...(mode !== 'normal' ? { mode } : {}),
         };
         this.pending = null;
         if (!this.save(data) && attemptId !== undefined) return;
@@ -185,13 +222,37 @@ export class Run {
         this.resume();
     }
 
-    pause(): void { this.elapsed = 0; this.paused = true; }
+    get canRevive(): boolean { return this.data?.phase === 'revive'; }
+
+    revive(runId: string, revision: number): boolean {
+        const data = this.data;
+        if (!data || data.phase !== 'revive' || data.runId !== runId || data.revision !== revision ||
+            this.background || !this.options.offerRevive) return false;
+        const { finishReason: _reason, ...rest } = data;
+        if (!this.commit({ ...rest, revision: revision + 1, phase: 'battle', revived: true,
+            reports: data.reports?.slice(0, -1) })) return false;
+        this.restoreBattle();
+        this.resume();
+        return true;
+    }
+
+    declineRevive(): boolean {
+        const data = this.data;
+        return !!data && data.phase === 'revive' && !this.background &&
+            this.commit({ ...data, revision: data.revision + 1, phase: 'lost' });
+    }
+
+    pause(): void {
+        this.elapsed = 0;
+        this.paused = true;
+        if (this.battle) this.battle.destination = null;
+    }
     resume(): void {
         this.elapsed = 0;
         if (!this.background && !this.pending) this.paused = false;
     }
 
-    advance(dt: number, x: number, y: number): void {
+    advance(dt: number, x = 0, y = 0): void {
         const battle = this.battle;
         if (!battle || this.paused || this.pending || !Number.isFinite(dt) || dt <= 0) return;
         this.elapsed = Math.min(this.elapsed + dt, STEP * 3);
@@ -250,28 +311,34 @@ export class Run {
 
     private restoreBattle(): void {
         const data = this.data;
-        this.battle = data?.phase === 'battle' ? new Battle(data.wave, data.seed, data.tools, this.rules) : null;
+        this.battle = data?.phase === 'battle' ? new Battle(data.wave, data.seed, data.tools, this.rules,
+            { blueprint: data.blueprint, mode: data.mode, mission: data.mission }) : null;
         this.elapsed = 0;
     }
 
     private finish(battle: Battle): void {
         const data = this.data!;
         const survived = battle.player.hp > 0;
-        const cleared = survived && (!battle.boss || battle.bossDefeated);
-        const phase = cleared ? (data.wave === this.rules.waves.length - 1 ? 'won' : 'shop') : 'lost';
+        const cleared = battle.waveCleared;
+        const offerRevive = !survived && !battle.objectiveFailed && this.options.offerRevive && reviveEligible(this.rules, data);
+        const phase = cleared ? (data.wave === this.rules.waves.length - 1 ? 'won' : 'shop') : offerRevive ? 'revive' : 'lost';
         const salvaged = cleared ? Math.floor(battle.parts.length * battle.salvageRate) : 0;
         const earned = cleared ? battle.collected + salvaged : 0;
-        const finishReason = phase === 'won' ? 'cleared' : phase === 'lost' ? (survived ? 'timeout' : 'defeated') : undefined;
+        const finishReason = phase === 'won' ? 'cleared' : phase === 'shop' ? undefined : !survived ? 'defeated'
+            : battle.objectiveFailed ? 'objective-failed' : 'timeout';
         const shopCredit = phase === 'shop' && data.wave === 0
             ? Math.max(0, MODS[FIRST_PAIR[data.route]].price + REFRESH_COST - data.parts - earned) : 0;
         const report: WaveReport = {
             wave: data.wave, ticks: battle.tick, kills: battle.kills, collected: battle.collected, salvaged, shopCredit,
             hits: this.rules.maxHp - battle.player.hp, triggers: { ...battle.triggers },
             defeatedBy: survived ? null : battle.lastHit,
+            ...(battle.heatRecovered ? { heatRecovered: true } : {}),
         };
         const parts = data.parts + earned + shopCredit;
         const next: Checkpoint = { ...data, revision: data.revision + 1, phase, parts,
             reports: [...(data.reports ?? []), report],
+            ...(cleared && battle.missionState ? { mission: battle.missionState } : {}),
+            ...(data.wave === 0 && battle.moved ? { firstWaveMoved: true } : {}),
             ...(this.rules.stage === 'M2' && finishReason ? { finishReason } : {}),
             shop: phase === 'shop' ? { offers: nextOffers(data, false, this.rules), refreshed: false } : null };
         this.pause();
@@ -280,7 +347,7 @@ export class Run {
     }
 
     private save(next: Checkpoint): boolean {
-        const saved = this.platform.writeCheckpoint(CHECKPOINT_VERSION, next);
+        const saved = this.platform.writeCheckpoint(CHECKPOINT_VERSION, next, (value) => validCheckpoint(value, this.rules));
         this.storageFailed = !saved;
         return saved;
     }

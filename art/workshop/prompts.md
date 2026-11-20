@@ -2,6 +2,36 @@
 
 使用内置 ImageGen。角色、步态与工具图要求透明背景，场地单独生成为不透明图片。
 
+## 四章扩展美术
+
+本次使用内置 ImageGen 制作三组俯视场地母版与独立地标、三列章节长图、江岸连续长图、四类敌机与四类章末机体、六件首通工具、阿阮与陈栖的通信头像，以及复电终幕。江岸长图使用本项目先前的江岸场景和上游概念图作参考。地图和场地按章分包，轨迹、墙体、灯、警示与目标状态由战斗表现层叠加。机体动作由游戏状态驱动，分别处理行进、预警、出手和恢复。五个作业音效采用项目本地合成的短音序列。
+
+逐项记录工具、源图文件、裁切、透明度、尺寸与 SHA-256。[四章素材清单](campaign-assets.json) · [战役音效清单](campaign-audio.json)
+
+## 沿江抢修地图（2026-11-20）
+
+内置 ImageGen 文字生成。配电站在近岸，泵房在对岸，地图节点、关名和引导光圈由 Creator 按游戏存档叠加。早期两站版原图保存在 `art/workshop/source/riverside-map.jpg`，尺寸 720 × 1280，RGB，JPEG 质量 84。SHA-256 为 `2b9a24227e763614dd3a199ac9efdfd2843a60bd94c584ce564dd70f5ea571f7`。运行时使用第一章分包的长图。
+
+Vertical 9:16 edge-to-edge illustrated world map for a side-story videogame set in a Chinese riverfront industrial district at night. Original gouache and dark ink print graphic novel, tactile dry brush, vintage petrol-green, midnight indigo, tiny apricot lit windows. View from high above, isometric toy-like blocky buildings, simplified distinct silhouettes and atmospheric depth, visually readable on a phone, no typography or UI. A snaking river flows from upper left to lower right, diagonal old stone service bridge in middle, tiny moored sampan, sparse residential silhouettes. EXACTLY TWO prominent landmarks: bottom left at 30% x 68% y a beautifully readable electrical transformer yard with 3 porcelain coils, warm yellow light and small brick utility building; upper right at 70% x 37% y a large moody teal municipal pump house with distinctive curved green water outlet pipes over the river and a big fan. A winding service road travels from the yard over the bridge to the pump house. Very top 15% a quiet dark hazy skyline with room for chapter title added later; bottom 12% mostly shadowed quayside, left and right edges no critical subjects. Intimate miniature diorama, rich narrative landscape, scene fills entire canvas. NO game UI, labels, flags, map pins, symbols, circles, dotted paths, markers, playing pieces, letters, numbers, logos, parchment, borders or cards.
+
+## 江岸值班室（2026-11-20）
+
+内置 ImageGen 原创竖屏场景。主角戴琥珀色头灯，在江边工作台坐着喝茶。左侧有示波器、右侧挂着工具，远景是熄灯的江城。墨线、靛蓝夜色与锈铜色沿用维修局美术。所有入口文字、图标和灯下尘粒由引擎绘制。运行时资源 `night-depot.jpg` 为 720 × 1280 RGB，SHA-256 为 `ff22d60807984a92c025477e59ae7bc54ad5c2142bc94b5681b1d6b30858f580`。
+
+## 战役工单与地下泵房（2026-11-20）
+
+本项目用内置 ImageGen 从文字生成两张原画。第一张上下对分为配电站和泵房两幅工单插画，第二张单独生成正俯视战场。三张运行时 JPEG 均为 RGB 不透明图片，工单字样和危险区由 Creator 绘制。外部资料仅用于指导信息层次，未取用其中的图片。
+
+| 资源（位于 `creator-m0/assets/resources/skins/workshop/`） | 运行时用途与加工 | SHA-256 |
+|---|---|---|
+| `dispatch-01.jpg` | 取双联画上半幅，缩至 656 × 328，JPEG 质量 83 | `5e16f64a121e650d26e18dc3edef156cf725282b6db6fab38c8c202c8ccce674` |
+| `dispatch-02.jpg` | 取同一张图下半幅，同尺寸、同编码 | `b43cae57c6d9a7e7901a1385725c6a9495f246f145257ad8c53153b9c86335cd` |
+| `pump-floor.jpg` | 缩至 660 × 800，JPEG 质量 81，游戏内对应 330 × 400 场地 | `25ecc127eb66bcef9f4a417024aa14978d0ec6624949843b39f35c96a2704a64` |
+
+工单插画提示词：One square game illustration atlas made of exactly TWO equal horizontal panoramic paintings stacked flush, each panel precisely 2:1, no border, no gutter. Each is a landscape key art shot for a distinctive industrial maintenance adventure during a nighttime blackout in an older Chinese river city. Art-directed restrained screenprinted gouache, angular hand-inked contours, rich petroleum greens, charcoal indigo, aged ochre and warm cream practical light, gritty painterly steel and paper grain. TOP HALF: hero establishing shot of a small lonely orange-hardhat maintenance worker seen from behind at lower left, repair tool bag, looking up at an old concrete power substation, big porcelain insulators and transformers, overhead electrical cables silhouetted against the distant dark city, warm amber work lamp and pale copper sky; clear strong silhouette and bold large forms. BOTTOM HALF: cinematic establishing shot of the cavernous underground pump house, gigantic sea-green elbow pipes and round brass valves, winding elevated catwalk with one tiny amber hardhat engineer, a narrow shaft of pale turquoise light over black water. Strong atmosphere, tight cinematic composition. Each panel edge to edge art, independent, distinctive edition print quality for tiny mobile game. NO lettering or numbers, no logos, no HUD, no captions, no graphic design mockup. Important silhouettes in upper 75 percent of each panel; label will be outside the art.
+
+泵房战场提示词：A single in-game 2D orthographic overhead arena floor texture, portrait 4:5, fully edge-to-edge. Underground municipal pump station at night. Match an inked, hand-painted industrial mechanic game with broad graphic forms. At the very top edge, compressed to top 9%, a side-facing bank of two large aged sea-green pipes with recognizable brass valve wheels and a warm inspection lamp. At far left and right very slim edge gutters with bolts and drainage slots, lower edge low steel sill with two dim signal lamps. The entire middle 84% is FLAT WALKABLE uninterrupted dull midnight-green oxidized steel floor, very low contrast quiet patina, a few large panel seams, narrow drain channels confined to outside edges and faint wet sheen. Detailed trim only at perimeter, no obstacles, no pools with clear boundaries, NO bright areas or high contrast floor marks, no signage, no characters, no words, no letters, no numbers, no paths, no wires crossing arena, no perspective vanishing point, no isometric tilt. Outer border maximum 5% on sides. Polished game background, atmospheric dim teal, grayed verdigris and subdued ochre. Actual texture for a mobile game, not a promotional poster.
+
 ## crew.png
 
 Stylized-concept game production character sprite ATLAS, ONE transparent landscape sheet with a mathematically regular 3 column x 2 row grid of six isolated sprites, one sprite precisely centered per equal cell, generous empty transparent margins, no cell borders, no lettering or UI. Clean chunky illustrated dieselpunk arcade industrial salvage in a Chinese night repair shop; game-ready graphic 2D overhead three quarter view with hard ink outlines, simplified block shading and large high contrast shapes for 28 pixel display. Upper left: friendly human mechanic facing down, bright amber hard hat with pale headlamp, teal overalls, chunky silver wrench. Upper middle: tiny red four-legged scrapper beetle with one red lens. Upper right: fast orange wedge-shaped ramming machine pointing right, racing wheels and pointed industrial nose. Bottom left: squat ochre stationary gun turret with long barrel pointing right. Bottom middle: green tracked armored bot with huge silver protective plow on its RIGHT end. Bottom right: large intimidating purple inspection walker boss with twin magenta searchlights, broad shoulders and striped armor, facing down. All six complete, separated, consistent graphic language, each scaled to fill about 75 percent of its own cell. Transparent background. No contact shadows outside silhouettes.

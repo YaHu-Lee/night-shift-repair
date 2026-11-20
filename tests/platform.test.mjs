@@ -105,3 +105,22 @@ test('browser lifecycle de-duplicates page and visibility notifications', () => 
   doc.defaultView.dispatchEvent(new Event('pagehide'));
   assert.deepEqual(received, ['hide', 'show']);
 });
+
+test('native capsule position supplements the safe area when the geometry is available', () => {
+  const tt = {
+    getSystemInfoSync() {
+      return { screenWidth: 393, screenHeight: 852, safeArea: { top: 59, right: 393, bottom: 818, left: 0 } };
+    },
+    getMenuButtonLayout() {
+      assert.equal(this, tt);
+      return { bottom: 101 };
+    },
+  };
+  const platform = makePlatform({ tt });
+  const safeArea = { top: 59, right: 0, bottom: 34, left: 0 };
+  assert.deepEqual(platform.getSafeInsets(), { ...safeArea, menuBottom: 101 });
+  tt.getMenuButtonLayout = () => { throw new Error('unsupported'); };
+  assert.deepEqual(platform.getSafeInsets(), safeArea);
+  tt.getMenuButtonLayout = () => ({ bottom: 853 });
+  assert.deepEqual(platform.getSafeInsets(), safeArea);
+});

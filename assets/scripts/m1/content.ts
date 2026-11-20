@@ -1,3 +1,5 @@
+import type { CampaignEncounter, WaveDirective } from './Encounter';
+
 export const CONTENT_VERSION = 1;
 export const TICK_RATE = 30;
 export const FIELD = { left: 15, right: 345, bottom: 153, top: 553 } as const;
@@ -16,6 +18,11 @@ export const TOOLS = {
     riveter: { name: '铆钉枪', reach: 185, cooldown: 19, damage: 2, price: 5, detail: '沿直线穿刺，最多命中三个敌人' },
     torch: { name: '喷火管', reach: 82, cooldown: 10, damage: 1, price: 5, detail: '近距离扇形喷射' },
     induction: { name: '感应线圈', reach: 71, cooldown: 24, damage: 3, price: 5, detail: '以自身为圆心，周期攻击近处所有敌人' },
+    hydraulic_nailer: { name: '液压钉枪', reach: 155, cooldown: 32, damage: 4, price: 5, detail: '穿一层盾掩体，最多命中两个敌人；弱点开启时伤害更高' },
+    pulse_nozzle: { name: '脉冲喷管', reach: 78, cooldown: 23, damage: 2, price: 5, detail: '喷开前方近敌，适合替电池车清路' },
+    traction_coil: { name: '牵引线圈', reach: 98, cooldown: 28, damage: 2, price: 5, detail: '最多拉近两只敌机，打散护甲掩护；关底机不会被拉动' },
+    split_probe: { name: '分束探针', reach: 140, cooldown: 22, damage: 2, price: 5, detail: '每次朝两个独立敌人发射，善于守住两路' },
+    bypass_wrench: { name: '旁路扳手', reach: 78, cooldown: 15, damage: 2, price: 5, detail: '三次近身命中后的下一击加强，离开战斗会失去连击' },
 } as const;
 export const MODS = {
     contact: { name: '导电触点', tag: 'arc', price: 4, detail: '每次开火，标记瞄准的敌人。' },
@@ -36,6 +43,10 @@ export const ENEMIES = {
     charger: { hp: 6, speed: 35 },
     turret: { hp: 5, speed: 24 },
     armored: { hp: 7, speed: 34 },
+    pursuer: { hp: 5, speed: 56 },
+    reclaimer: { hp: 8, speed: 30 },
+    jammer: { hp: 6, speed: 32 },
+    ambusher: { hp: 5, speed: 45 },
     inspector: { hp: 116, speed: 52 },
 } as const;
 
@@ -64,6 +75,14 @@ export interface WaveSpec {
     readonly enemies: readonly RegularEnemyId[];
     readonly boss?: boolean;
     readonly livePuddles?: readonly PuddleSpec[];
+    readonly directive?: WaveDirective;
+    readonly liftGroups?: readonly { readonly floor: number; readonly enemies: readonly RegularEnemyId[] }[];
+    readonly escalation?: {
+        readonly atTick: number;
+        readonly requiredTicks?: number;
+        readonly spawnEvery?: number;
+        readonly enemies: readonly RegularEnemyId[];
+    };
 }
 
 export interface RunRules {
@@ -75,6 +94,7 @@ export interface RunRules {
     readonly startingTools?: readonly ToolId[];
     readonly tools: readonly ToolId[];
     readonly mods: readonly ModId[];
+    readonly encounter?: CampaignEncounter;
 }
 
 export const M1_RULES: RunRules = {

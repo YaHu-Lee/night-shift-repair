@@ -8,16 +8,21 @@ import { makePlatform } from '../.m0-build/platform/platform.js';
 function fixture() {
     const slots = new Map();
     let fail = false;
+    let interrupt = false;
     const platform = makePlatform({
         localStorage: {
             getItem: (key) => slots.get(key) ?? null,
             setItem: (key, value) => {
+                if (interrupt) {
+                    slots.set(key, '{interrupted');
+                    throw new Error('interrupted checkpoint write');
+                }
                 if (fail) throw new Error('storage full');
                 slots.set(key, value);
             },
         },
     }, 'm1-test');
-    return { platform, slots, fail: (next) => { fail = next; } };
+    return { platform, slots, fail: (next) => { fail = next; }, interrupt: (next) => { interrupt = next; } };
 }
 
 function finishWave(run, collected = 0, remaining = 0) {
@@ -31,6 +36,33 @@ function finishWave(run, collected = 0, remaining = 0) {
 function enemy(id, x, y, marked = false, hp = 4) {
     return { id, x, y, marked, hp, kind: 'crawler', state: 'walk', next: 0, vx: 0, vy: 0 };
 }
+
+test('tap movement retargets, stops exactly during catch-up, and respects bearings and field edges', () => {
+    const run = new Run(fixture().platform);
+    run.start('arc');
+    const battle = run.battle;
+    battle.moveTo(START.x + 30, START.y + 40);
+    run.advance(1 / 30);
+    assert.ok(Math.abs(Math.hypot(battle.player.x - START.x, battle.player.y - START.y) - 5.2) < 1e-9);
+    battle.moveTo(START.x - 2, START.y);
+    run.advance(3 / 30);
+    assert.deepEqual([battle.player.x, battle.player.y, battle.destination], [START.x - 2, START.y, null]);
+    battle.moveTo(FIELD.right, FIELD.bottom);
+    for (let i = 0; i < 20; i++) run.advance(3 / 30);
+    assert.deepEqual([battle.player.x, battle.player.y, battle.destination], [FIELD.right - 10, FIELD.bottom + 10, null]);
+    battle.moveTo(START.x, START.y);
+    run.pause();
+    run.resume();
+    run.advance(3 / 30);
+    assert.equal(battle.player.x, FIELD.right - 10);
+    assert.equal(battle.destination, null);
+    run.dispose();
+
+    const fast = new Battle(0, RUN_SEED, [{ id: 'wrench', mods: ['bearings'] }]);
+    fast.moveTo(START.x + 20, START.y);
+    fast.step(0, 0);
+    assert.ok(Math.abs(fast.player.x - START.x - 5.2 * 1.12) < 1e-9);
+});
 
 test('M1 combat replays deterministically and uses the 25/30/35-second waves', () => {
     assert.deepEqual(WAVES.map((wave) => wave.seconds), [25, 30, 35]);
@@ -111,6 +143,30 @@ test('shop and wave transactions survive restart without reissuing rewards or sp
     assert.equal(fallback.data.phase, 'shop');
     assert.equal(fallback.data.parts, 5);
     assert.ok(hasPair(fallback.data.tools, 'arc'));
+});
+
+test('a torn recovery write preserves the last valid shop purchase', () => {
+    const storage = fixture();
+    const run = new Run(storage.platform);
+    run.start('arc');
+    finishWave(run, 7, 5);
+    assert.ok(run.buy('splitter', 0, run.data.revision));
+    const purchased = run.data;
+    assert.ok(storage.platform.writeCheckpoint(1, {
+        ...purchased, revision: purchased.revision + 1, shop: { ...purchased.shop, offers: ['splitter'] },
+    }));
+    const recovered = new Run(storage.platform);
+    assert.deepEqual(recovered.data, purchased);
+
+    storage.interrupt(true);
+    assert.equal(recovered.nextWave(purchased.revision), false);
+    storage.interrupt(false);
+    const restarted = new Run(storage.platform);
+    assert.deepEqual(restarted.data, purchased);
+    assert.equal(restarted.buy('splitter', 0, purchased.revision), false);
+    assert.ok(restarted.nextWave(purchased.revision));
+    assert.equal(restarted.data.parts, purchased.parts);
+    assert.ok(hasPair(restarted.data.tools, 'arc'));
 });
 
 test('failed commits preserve the previous checkpoint and bounded tick advancement', () => {

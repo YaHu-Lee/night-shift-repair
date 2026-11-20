@@ -1,12 +1,13 @@
 /** Local, best-effort platform boundary. No network, credentials, or engine dependencies. */
-export interface SafeInsets { top: number; right: number; bottom: number; left: number }
+export interface SafeInsets { top: number; right: number; bottom: number; left: number; menuBottom?: number }
+type CheckpointValidator = (value: unknown) => boolean;
 export interface Platform {
   readonly kind: 'douyin' | 'browser' | 'memory';
   onShow(cb: () => void): () => void;
   onHide(cb: () => void): () => void;
   getSafeInsets(): SafeInsets;
-  readCheckpoint<T>(version: number, validate?: (value: unknown) => boolean): T | null;
-  writeCheckpoint<T>(version: number, value: T): boolean;
+  readCheckpoint<T>(version: number, validate?: CheckpointValidator): T | null;
+  writeCheckpoint<T>(version: number, value: T, validate?: CheckpointValidator): boolean;
   clearCheckpoint(): boolean;
   checkpointPresence?(): 'empty' | 'present' | 'unreadable';
 }
@@ -14,6 +15,7 @@ type NativeEvent = 'onShow' | 'onHide' | 'offShow' | 'offHide';
 type TT = Partial<Record<NativeEvent, (cb: () => void) => void>> & {
   getStorageSync?(key: string): unknown;
   setStorageSync?(key: string, text: string): void;
+  getMenuButtonLayout?(): { bottom?: number };
   getSystemInfoSync?(): {
     screenWidth?: number;
     screenHeight?: number;
@@ -69,14 +71,28 @@ function slots(store: Store, keys: SlotKeys): Slot[] {
     .filter((slot): slot is Slot => slot !== null)
     .sort((a, b) => b.entry.sequence - a.entry.sequence);
 }
-function commit(store: Store, keys: SlotKeys, version: number, payload: string): boolean {
-  const previous = slots(store, keys)[0];
+function readCompatibleSlot(journal: readonly Slot[], version: number, validate?: CheckpointValidator) {
+  for (const { key, entry } of journal) {
+    // A tombstone or incompatible current version is intentional, not corruption.
+    if (entry.version !== version) return null;
+    try {
+      const value: unknown = JSON.parse(entry.payload);
+      if (!validate || validate(value)) return { key, value };
+    } catch { /* a rejected schema can recover the previous same-version checkpoint */ }
+  }
+  return null;
+}
+function commit(store: Store, keys: SlotKeys, version: number, payload: string, validate?: CheckpointValidator): boolean {
+  const journal = slots(store, keys);
+  const previous = journal[0];
   const sequence = (previous?.entry.sequence ?? 0) + 1;
   if (!revision(sequence) || payload.length > MAX_TEXT_LENGTH) return false;
   const entry: Entry = { format: 1, sequence, version, payload, check: fingerprint(sequence, version, payload) };
   const raw = JSON.stringify(entry);
   if (raw.length > MAX_TEXT_LENGTH) return false;
-  const key = previous?.key === keys[0] ? keys[1] : keys[0];
+  const recovered = validate ? readCompatibleSlot(journal, version, validate) : null;
+  const protectedKey = recovered?.key ?? previous?.key;
+  const key = protectedKey === keys[0] ? keys[1] : keys[0];
   try {
     store.put(key, raw);
     return store.get(key) === raw;
@@ -90,13 +106,23 @@ function ttInsets(tt: TT): SafeInsets {
   const width = info?.screenWidth;
   const height = info?.screenHeight;
   const area = info?.safeArea;
-  if (!area || !Number.isFinite(width) || !Number.isFinite(height)) return noInsets();
-  const { top, right, bottom, left } = area;
-  if (!Number.isFinite(top) || !Number.isFinite(right)
-    || !Number.isFinite(bottom) || !Number.isFinite(left)
-    || left! < 0 || top! < 0 || right! <= left! || bottom! <= top!
-    || right! > width! || bottom! > height!) return noInsets();
-  return { top: top!, right: width! - right!, bottom: height! - bottom!, left: left! };
+  const insets = noInsets();
+  if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0) return insets;
+  if (area && Number.isFinite(width)) {
+    const { top, right, bottom, left } = area;
+    if (Number.isFinite(top) && Number.isFinite(right) && Number.isFinite(bottom) && Number.isFinite(left)
+      && left! >= 0 && top! >= 0 && right! > left! && bottom! > top!
+      && right! <= width! && bottom! <= height) {
+      Object.assign(insets, { top, right: width! - right!, bottom: height - bottom!, left });
+    }
+  }
+  try {
+    const bottom = tt.getMenuButtonLayout?.()?.bottom;
+    if (typeof bottom === 'number' && Number.isFinite(bottom) && bottom > 0 && bottom <= height) {
+      insets.menuBottom = bottom;
+    }
+  } catch { /* Older clients can still provide a safe area. */ }
+  return insets;
 }
 function browserInsets(doc?: Document): SafeInsets {
   if (!doc?.body || !doc.defaultView) return noInsets();
@@ -172,23 +198,16 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
     getSafeInsets() {
       try { return tt ? ttInsets(tt) : browserInsets(doc); } catch { return noInsets(); }
     },
-    readCheckpoint<T>(version: number, validate?: (value: unknown) => boolean): T | null {
+    readCheckpoint<T>(version: number, validate?: CheckpointValidator): T | null {
       if (!revision(version)) return null;
-      for (const { entry } of slots(store, keys)) {
-        // A tombstone or incompatible current version is intentional, not corruption.
-        if (entry.version !== version) return null;
-        try {
-          const value: unknown = JSON.parse(entry.payload);
-          if (!validate || validate(value)) return value as T;
-        } catch { /* a rejected schema can recover the previous same-version checkpoint */ }
-      }
-      return null;
+      return (readCompatibleSlot(slots(store, keys), version, validate)?.value ?? null) as T | null;
     },
-    writeCheckpoint<T>(version: number, value: T): boolean {
+    writeCheckpoint<T>(version: number, value: T, validate?: CheckpointValidator): boolean {
       if (!revision(version)) return false;
       try {
         const payload = JSON.stringify(value);
-        return typeof payload === 'string' && commit(store, keys, version, payload);
+        return typeof payload === 'string' && (!validate || validate(JSON.parse(payload)))
+          && commit(store, keys, version, payload, validate);
       } catch {
         return false;
       }

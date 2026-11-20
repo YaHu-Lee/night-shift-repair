@@ -1,0 +1,51 @@
+{
+  "provenance": {
+    "source": "Short audio sequences synthesized locally for the project.",
+    "sourceRecord": "art/workshop/prompts.md",
+    "generationDetails": "The project record gives no per-cue synthesis recipe, exact tool or creation date.",
+    "derivation": "The checked Creator Web and Douyin builds carry byte-identical native WAV files under these import UUIDs.",
+    "licenseNotice": "The project record identifies local synthesis. It provides no separate reuse or redistribution license."
+  },
+  "clips": [
+    {
+      "id": "power",
+      "event": "合闸",
+      "file": "creator-m0/assets/resources/campaign/power.wav",
+      "runtimePath": "campaign/power",
+      "creatorUuid": "8ccbbe47-8710-4277-98ea-80afd95fa993",
+      "sha256": "2ca1f9a10373875ee35abbfe0405351402d995dac3a48dffa749dea6393cad15"
+    },
+    {
+      "id": "cut",
+      "event": "断索",
+      "file": "creator-m0/assets/resources/campaign/cut.wav",
+      "runtimePath": "campaign/cut",
+      "creatorUuid": "b49b29eb-1afc-447d-864d-db9eff694415",
+      "sha256": "b6e6980469cf0ee9e9b0db3326148a4a4d18b69ff301f7cc4a5236809673e554"
+    },
+    {
+      "id": "connect",
+      "event": "接通",
+      "file": "creator-m0/assets/resources/campaign/connect.wav",
+      "runtimePath": "campaign/connect",
+      "creatorUuid": "3423d189-dba1-4918-b965-6999eb0dc428",
+      "sha256": "09b16ed9bc7ee212984239d96f2365b34cd120f17b86c1bdf42c4dfc9525be93"
+    },
+    {
+      "id": "confirm",
+      "event": "双签",
+      "file": "creator-m0/assets/resources/campaign/confirm.wav",
+      "runtimePath": "campaign/confirm",
+      "creatorUuid": "42f40aa8-b8a5-4143-92aa-91485149c587",
+      "sha256": "6a5ecb38c23ab4f23371d63794c59640b68949657947cf78cc2ecb5ca553a5ba"
+    },
+    {
+      "id": "restored",
+      "event": "复电",
+      "file": "creator-m0/assets/resources/campaign/restored.wav",
+      "runtimePath": "campaign/restored",
+      "creatorUuid": "559319c9-f34d-45dc-b69f-19db7e48c7cf",
+      "sha256": "aeee5d847b227a8f25caca507006730933f39cdc27a2354b117669b8023b4258"
+    }
+  ]
+}

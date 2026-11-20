@@ -13,3 +13,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Campaign fixed-seed regression
+        if: github.event_name == 'pull_request'
+        run: node scripts/campaign-balance.mjs

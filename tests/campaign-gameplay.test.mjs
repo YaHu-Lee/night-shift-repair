@@ -4,7 +4,9 @@ import { Battle } from '../.m0-build/m1/Battle.js';
 import { Run } from '../.m0-build/m1/Run.js';
 import { CAMPAIGN_01_RULES, CAMPAIGN_02_RULES, M2_RULES, FIRST_PAIR, START, PUDDLE_WARNING, isTool } from '../.m0-build/m1/content.js';
 import { Campaign, CAMPAIGN_NAMESPACE } from '../.m0-build/campaign/Campaign.js';
+import { CAMPAIGN_CATALOG } from '../.m0-build/campaign/CampaignCatalog.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
+import { playCampaignBattle } from '../scripts/campaign-balance.mjs';
 
 const step = 1 / 30;
 
@@ -143,4 +145,93 @@ test('puddles telegraph before damage, alternate and leave an unaffected central
         assert.ok(live.every(puddle => Math.hypot(puddle.x - START.x, puddle.y - START.y) >= puddle.radius));
     }
     assert.deepEqual(new Battle(0, 42, [], M2_RULES).livePuddles, []);
+});
+
+test('all 20 played clears settle from cold checkpoints, award six tools, and allow a new replay of each stage', () => {
+    const { platform, fail } = fixture();
+    const journal = platform(CAMPAIGN_NAMESPACE);
+    const seed = 20261120;
+    const awards = [];
+    let starter = 'wrench';
+    let campaign = new Campaign(journal);
+
+    function start(stage, tool) {
+        assert.ok(campaign.canUseStarter(stage.id, tool), stage.id + ' ' + tool);
+        const id = campaign.newAttemptId(stage.id, seed);
+        const checkpoint = platform(CAMPAIGN_NAMESPACE + '.run.' + stage.id);
+        assert.ok(campaign.prepareAttempt(stage.id, id));
+        const run = new Run(checkpoint, stage.rules);
+        run.start('magnet', seed, tool, id);
+        assert.equal(run.data.runId, id);
+        assert.ok(campaign.commitAttempt(run.data));
+        return { run, checkpoint, id };
+    }
+
+    for (const [index, stage] of CAMPAIGN_CATALOG.entries()) {
+        assert.deepEqual(CAMPAIGN_CATALOG.filter(candidate => campaign.isUnlocked(candidate.id)).map(candidate => candidate.id),
+            CAMPAIGN_CATALOG.slice(0, index + 1).map(candidate => candidate.id));
+        const { run, checkpoint, id } = start(stage, starter);
+        const { firstShop } = playCampaignBattle(run);
+        assert.equal(run.data.phase, 'won', stage.id);
+        assert.ok(firstShop?.pairAffordable, stage.id + ' first shop');
+        assert.equal(run.data.wave, stage.finalWave);
+        run.dispose();
+
+        const coldRun = new Run(checkpoint, stage.rules);
+        const terminal = coldRun.data;
+        assert.equal(terminal.runId, id);
+        assert.equal(terminal.finishReason, 'cleared', stage.id);
+        assert.equal(terminal.reports.length, stage.finalWave + 1, stage.id);
+        coldRun.dispose();
+        campaign = new Campaign(journal);
+        if (stage.id === '20') {
+            fail(CAMPAIGN_NAMESPACE);
+            assert.equal(campaign.replayResult(stage.id, terminal), 'storage-failed');
+            assert.equal(campaign.profile.clearedStages.length, 19);
+            assert.equal(campaign.profile.credits, 228);
+            assert.equal(campaign.profile.storySeen.includes('clear-20'), false);
+            fail('');
+            campaign = new Campaign(journal);
+        }
+        assert.equal(campaign.replayResult(stage.id, terminal), 'committed', stage.id);
+        assert.equal(campaign.receipt(id).weapon, stage.firstClearWeapon);
+        assert.equal(campaign.receipt(id).credits, 12);
+        campaign = new Campaign(journal);
+        assert.equal(campaign.replayResult(stage.id, terminal), 'already-cleared', stage.id);
+        assert.equal(campaign.profile.credits, 12 * (index + 1));
+        assert.deepEqual(campaign.profile.storySeen, CAMPAIGN_CATALOG.slice(0, index + 1).map(candidate => 'clear-' + candidate.id));
+        if (stage.firstClearWeapon) {
+            awards.push(stage.firstClearWeapon);
+            starter = stage.firstClearWeapon;
+        }
+        assert.deepEqual(campaign.profile.unlockedWeapons, awards);
+    }
+    assert.equal(awards.length, 6);
+    assert.equal(campaign.isUnlocked('21'), false);
+    const completed = campaign.profile.clearedStages;
+    const finaleId = campaign.profile.activeAttempt.runId;
+    const archivedStories = campaign.profile.storySeen;
+    for (const stage of CAMPAIGN_CATALOG) {
+        const { run, id } = start(stage, 'bypass_wrench');
+        assert.notEqual(id, finaleId);
+        assert.equal(run.data.phase, 'battle');
+        assert.equal(run.data.wave, 0);
+        assert.equal(run.data.tools[0].id, 'bypass_wrench');
+        assert.equal(campaign.profile.activeAttempt.stageId, stage.id);
+        assert.equal(campaign.profile.credits, 240);
+        assert.deepEqual(campaign.profile.clearedStages, completed);
+        run.dispose();
+    }
+
+    const replay = start(CAMPAIGN_CATALOG[0], 'wrench');
+    playCampaignBattle(replay.run);
+    assert.equal(replay.run.data.phase, 'won');
+    assert.equal(campaign.replayResult('01', replay.run.data), 'committed');
+    replay.run.dispose();
+    campaign = new Campaign(journal);
+    assert.equal(campaign.receipt(replay.id).firstClear, false);
+    assert.equal(campaign.profile.credits, 252);
+    assert.deepEqual(campaign.profile.storySeen, archivedStories);
+    assert.deepEqual(CAMPAIGN_CATALOG.filter(stage => stage.archiveClue
+        && campaign.profile.clearedStages.includes(stage.id)).map(stage => stage.id), ['10', '15', '20']);
 });

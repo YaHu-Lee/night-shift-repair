@@ -1,0 +1,14 @@
+{
+  "ver": "1.2.0",
+  "importer": "directory",
+  "imported": true,
+  "uuid": "bfde2be8-ebc3-4d78-9b75-0394d58d6ed7",
+  "files": [],
+  "subMetas": {},
+  "userData": {
+    "isBundle": true,
+    "bundleConfigID": "campaign-local-chapter",
+    "bundleName": "campaign-ch03",
+    "priority": 4
+  }
+}
