@@ -6,7 +6,9 @@
 
 ## 现有工程与缺口
 
-公开 main 核对至 [113cdac](https://github.com/YaHu-Lee/night-shift-repair/commit/113cdaca614aad86194eab1c212b2d7cf82f49c6)，不代表本地未推送工作。[M2 记录](https://github.com/YaHu-Lee/night-shift-repair/blob/113cdaca614aad86194eab1c212b2d7cf82f49c6/docs/M2-PLAYTEST.md)显示已有六波、Boss、四工具、12 模组、整备及模拟器验证；[Run.ts](https://github.com/YaHu-Lee/night-shift-repair/blob/113cdaca614aad86194eab1c212b2d7cf82f49c6/creator-m0/assets/scripts/m1/Run.ts) 有局内快照，绑定波表、内容版本、扳手与起手流派。仓库 CI 只验证 TS/Node；现有 [M2 构建配置](https://github.com/YaHu-Lee/night-shift-repair/blob/113cdaca614aad86194eab1c212b2d7cf82f49c6/creator-m0/build-m2.json)是调试包。缺口是战役内容和产线、跨关存档、武器开班、剧情呈现、数值验证、真实广告和双端发布验收，不是把 M2 复制 20 次。
+公开 main 核对至 [113cdac](https://github.com/YaHu-Lee/night-shift-repair/commit/113cdaca614aad86194eab1c212b2d7cf82f49c6)，不代表本地未推送工作。[M2 记录](https://github.com/YaHu-Lee/night-shift-repair/blob/113cdaca614aad86194eab1c212b2d7cf82f49c6/docs/M2-PLAYTEST.md)显示已有六波、Boss、四工具、12 模组、整备及模拟器验证；[Run.ts](https://github.com/YaHu-Lee/night-shift-repair/blob/113cdaca614aad86194eab1c212b2d7cf82f49c6/creator-m0/assets/scripts/m1/Run.ts) 有局内快照，绑定波表、内容版本、扳手与起手流派。仓库 CI 只验证 TS/Node；现有 [M2 构建配置](https://github.com/YaHu-Lee/night-shift-repair/blob/113cdaca614aad86194eab1c212b2d7cf82f49c6/creator-m0/build-m2.json)是调试包。缺口是战役内容和产线、跨关成长与存档的完整实现、剧情呈现、数值验证、真实广告和双端发布验收，不是把 M2 复制 20 次。
+
+战役分支 [`000bd66`](https://github.com/YaHu-Lee/night-shift-repair/commit/000bd66f4c70b96c62194ef167a7b10f029d26e5) 已实现 01→02 的本地首通结算、电弧枪解锁、同设备冷启动续玩；[GitHub Actions](https://github.com/YaHu-Lee/night-shift-repair/actions/runs/44702445740) 类型检查及 43 项测试通过。未验证 Creator 真机包，未接云存档。
 
 ## 素材获取与生成
 
@@ -72,9 +74,29 @@
 | Cocos 表现 | 新战役入口和通用战斗场景；复用 M2 的 HUD、皮肤、对象池和特效；以图集映射加载章节 | 不改 M2 对照场景，不用关卡场景复制来做变体 |
 | 平台适配 | 统一 Web 测试与 Douyin 的存储、生命周期、触控安全区、广告、事件出口；广告可以完全关掉 | 不把账号、广告、网络故障变成单机开局依赖 |
 
-**双存档与恢复顺序。** 复用 [A/B 写入、校验与回读](https://github.com/YaHu-Lee/night-shift-repair/blob/113cdaca614aad86194eab1c212b2d7cf82f49c6/creator-m0/assets/scripts/platform/platform.ts)，为战役永久进度与当前关快照开独立命名空间。用稳定的关卡／武器／事件 ID；永久档只认自身 schema 迁移与已知记录，不因新章更改波表就失效。局内快照另带关卡规则版本；不兼容时提示只重开当前关，不能清档。控制快照大小并压测平台封装的 64 KiB 单份边界，不无限保留事件流水。M2 胜利默认保留为历史记录，不自动兑换战役首通。
+### 存档机制与跨设备恢复
 
-**先落胜利凭据，再结算。** 持久化当前关胜利凭据（关卡 ID、唯一 attemptId 与结算数据），再一次提交首通、武器、下一关访问和局外到账，最后展示结果。启动时发现凭据但档案未处理就补做；已处理就只补显示。准备三种杀进程点：凭据写入前（不送首通）、凭据后档案前（补一次）、档案后结果前（只展示）。复活、退出和手动继续不可覆盖未处理凭据。加一个仅在测试配置中开放的后续关，读旧档验证不需重打。
+**本地档已实现，云档未接入。** [战役档案](../creator-m0/assets/scripts/campaign/Campaign.ts)保存已首通关卡、已解锁武器和当前出勤标识；[关内快照](../creator-m0/assets/scripts/m1/Run.ts)保存关卡版本、局 ID、种子、波次、商店及已提交装配。两档各用 [A/B 双槽](../creator-m0/assets/scripts/platform/platform.ts)写入后回读，冷启选最新有效版本。通过 [`tt.setStorageSync`](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/api/javascript-api/data-caching/tt-set-storage-sync)存的是设备本地数据：强退恢复到最近检查点，不续精确战斗帧；清缓存、卸载或换机不能保证找回。
+
+**本地结算及升级。** 先持久化胜利凭据（关卡 ID、唯一出勤 ID、规则版本），再提交首通和首通武器；下一关访问由前置首通状态派生，不另写一份。冷启动仅补交与当前出勤相符的有效凭据；已提交只恢复结算界面。永久档使用稳定 ID 和独立 schema，追加章节不重置旧进度；快照版本不兼容只提示重开当前关，损坏的永久档不按新档覆盖。旧 M2 胜利不自动导入；凭证流水还未接入本切片。
+
+#### 云同步的数据边界
+
+正式上线前计划接入跨设备备份，但不自建战斗服务器，也不阻塞 03–05 内测。云端首期只存同一抖音账号下的长期进度：已首通关卡、已解锁武器和已解锁蓝图（蓝图系统上线后）。记录稳定 ID、档案 schema 版本及服务侧更新时间。出勤标识、种子、波次、血量、整备、复活和可花费的凭证余额留本地；余额不做跨端相加，后续若同步需独立、可去重的发放与消费流水。云端存档不作排行榜、支付或防作弊凭证。
+
+#### 同步与冲突处理
+
+优先验证[抖音云数据库的小游戏存档方案](https://developer.open-douyin.com/docs/resource/zh-CN/developer/tools/cloud/develop-guide/local-develop/douyincloud-basedon-app/mini-game-how-to-use-cloud)。存档身份由平台可信账号确定，不接受客户端自行指定他人归属，不采集手机号或证件；未确认账号时先本地玩，不自动将游客档并给当前账号。首次绑定应明确导入对象；切号时隔离档案、取消或隔离上一账号未完成的请求，迟到回包不能写入当前账号。
+
+先本地落盘，成功结算后把待同步的新增 ID 按账号持久排队；联网或回前台时读取、增量合并并重试。永久解锁只增不减，按集合去重合并，不能用较新时间戳或本地修订号整档覆盖。平台 [`addToSet`](https://developer.open-douyin.com/docs/resource/zh-CN/developer/tools/cloud/api-reference/cloud-database/client/sdk) 是候选原子操作；正式选用前必须验证同账号首次建档不会产生两条记录、两端并发不会丢更新。若客户端 SDK 无法满足，改用一层轻量云函数处理建档和合并，不改战斗逻辑。同步失败显示待同步，不能阻止进入关卡。
+
+#### 存档验收与开通前置
+
+- **本地**：在胜利凭据写入前、凭据写入后到档案提交前、档案提交后到结果显示前三处强退，分别验证不误发、只补发一次、只恢复界面；另测损坏档与扩章后旧档可读。
+
+- **两台真机**：A 机离线完成 01，联网后 B 机用同一账号可进入 02 并装备电弧枪；让旧档与新档、两机同时写入和重复重试各跑一次，须保留全部有效进度且不重复发奖；换不同账号不能读到或上传前一账号的进度。B 不恢复 A 的在打波次。
+
+- **开通**：先用目标 AppID 核对[抖音云审核与管理员权限](https://developer.open-douyin.com/docs/resource/zh-CN/developer/tools/cloud/develop-guide/active-douyin-cloud)，通过后用隔离开发环境做两机验证。资格未核实或云档未通过时，不对外承诺换机恢复；首章继续用本地档，正式上线前单列云档验收。
 
 **分包与构建。** 主入口只带开局必要逻辑和共享小资源；01–05 为首章内容，后续章节按 [Cocos Asset Bundle](https://docs.cocos.com/creator/3.8/manual/zh/asset/bundle.html) 和[抖音分包](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/guide/basic-function/subpackages/basic)按需加载，章末空档可预取；下载失败可重试或回维修站，不回退已完成进度。所有规则随已审核的版本发布，不做远程热更代码；先用平台分包，不默认搭 CDN。按 [Cocos 抖音发布指南](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-bytedance-mini-game.html)先以主包低于 4 MB、整包低于 20 MB 为工程约束，建议内部留余量到 3.5／18 MB，最终以当前控制台和实际产物为准。首章切片就实测分包、跨包依赖与弱网，不等第 20 关。
 
@@ -89,9 +111,9 @@
 | 里程碑 | 可以开工的任务 | 出口条件 |
 | --- | --- | --- |
 | A　01→02 技术闭环 | 锁 M2 对照；做工单配置、首通事务、选择电弧枪、版本兼容、真机分包骨架 | 两端能开 02；能用电弧枪；三处强退不丢不重；无广告可走全流程 |
-| B　03–05 首章样板 | 破甲窗口、供电区、首个章末 Boss、首版叙事 UI、图集烘焙和计时表；同步验证广告替身及真实接入资格 | 策划只改配置即可新增同模板关；无广告能通首章；记录实际每关人天和 Android/iOS 帧耗，再重估余量 |
+| B　03–05 首章样板 | 破甲窗口、供电区、首个章末 Boss、首版叙事 UI、图集烘焙和计时表；同步核对云存档与广告的 AppID 接入资格 | 策划只改配置即可新增同模板关；无广告能通首章；记录实际每关人天和 Android/iOS 帧耗，再重估余量 |
 | C　06–20 量产与终幕 | 护送与中继两模板、三场章末战、工具及故事；系统和内容拆开提交，按章收口 | 20 关可到达，无刷关门槛；四章首通奖完整，终幕复电，后续章能追加，广告异常有可玩回退 |
-| D　发布候选与商业试验 | 两端完整通关、快路线计时、真广告回调、包体性能、弱网、测试通道、送审资料 | ≥120 分钟已测；双端不阻断；能对广告与结算；提审与买量分别决策 |
+| D　发布候选与商业试验 | 两端完整通关、快路线计时、真广告回调、两机云档恢复、包体性能、弱网、测试通道、送审资料 | ≥120 分钟已测；双端不阻断；云档验收通过；能对广告与结算；提审与买量分别决策 |
 
 粗排用于判断量级，不是工期承诺：01–03 约 8–12 人日，04–05 与作者工具约 4–7 人日；06–20 若首章测得每关配置、调平与冒烟约 1–2 人日，则这 15 关仅单关工作就约 15–30 人日，新增共享美术、目标逻辑、广告资格等待与返工另计；最后留 5–8 人日做候选版验证。先按首章吞吐重估，不按 AI 出图速度或关卡文件数排完工日。
 
