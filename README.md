@@ -30,3 +30,8 @@ npm run preview
 - `assets/scripts/m0/`：共享控制器，暂停和每帧最多补 3 步。
 - `assets/scripts/cocos/`：Creator 宿主，调试图形、摇杆与控制。
 - `web/`：独立浏览器 QA 外壳。无广告、后端、账号和真实上报。
+
+## 战役切片
+
+- [战役 01→02 交接与验收](docs/CAMPAIGN-SLICE-PLAYTEST.md)：Linux 自动化覆盖和 Windows／Mac 真机清单。
+- [游戏策划 v0.3](docs/GDD-v0.3.md) · [MVP 剧情与关卡规划](docs/CAMPAIGN-STORY-OUTLINE.md) · [技术与制作 v0.2](docs/TECHNICAL-DESIGN-v0.2.md) · [免费素材与授权](docs/ASSET-SOURCES.md)。

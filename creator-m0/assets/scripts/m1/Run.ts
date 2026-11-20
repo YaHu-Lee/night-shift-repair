@@ -4,7 +4,7 @@ import {
     FIRST_PAIR, M1_RULES, MODS, REFRESH_COST, RUN_SEED, STARTER, TICK_RATE,
     hasPair, isMod, isTool, offer, randomStream,
 } from './content';
-import type { EquippedTool, OfferId, Route, RunRules } from './content';
+import type { EquippedTool, OfferId, Route, RunRules, ToolId } from './content';
 import { makePlatform } from '../platform/platform';
 import type { Platform } from '../platform/platform';
 
@@ -58,7 +58,7 @@ function validReports(data: Checkpoint, rules: RunRules): boolean {
             || !integer(report.shopCredit, 0, 6)
             || !integer(report.triggers?.arc, 0, 10000) || !integer(report.triggers?.magnet, 0, 10000)
             || !integer(report.triggers?.heat, 0, 10000)
-            || [null, 'crawler', 'charger', 'turret', 'armored', 'inspector', 'projectile', 'boss-sweep', 'boss-charge']
+            || [null, 'crawler', 'charger', 'turret', 'armored', 'inspector', 'projectile', 'boss-sweep', 'boss-charge', 'live-puddle']
                 .indexOf(report.defeatedBy) < 0) return false;
         previous = report.wave;
     }
@@ -75,7 +75,7 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
         || !integer(data.wave, 0, rules.waves.length - 1) || (data.route !== 'arc' && data.route !== 'magnet')
         || ['battle', 'shop', 'won', 'lost'].indexOf(data.phase) < 0
         || !Array.isArray(data.tools) || data.tools.length < 1 || data.tools.length > 2
-        || data.tools[0]?.id !== 'wrench') return false;
+        || !(rules.startingTools ?? ['wrench']).includes(data.tools[0]?.id)) return false;
     const installed = new Set<string>();
     const slots = new Set<string>();
     for (const tool of data.tools) {
@@ -108,7 +108,7 @@ function nextOffers(data: Checkpoint, refreshed: boolean, rules: RunRules): Offe
     for (const tool of data.tools) for (const id of tool.mods) installed.add(id);
     const mods = rules.mods.filter((id) => !installed.has(id));
     const tools = rules.tools.filter((id) =>
-        data.tools.length < 2 && !data.tools.some((tool) => tool.id === id));
+        data.tools.length < 2 && id !== 'arc_gun' && !data.tools.some((tool) => tool.id === id));
     const firstPair = FIRST_PAIR[data.route];
     const required: OfferId[] = [];
     if (data.wave === 0 && !installed.has(firstPair)) required.push(firstPair);
@@ -170,14 +170,16 @@ export class Run {
     dispose(): void { this.disposeEvents.forEach((unsubscribe) => unsubscribe()); }
     get waitingForSave(): boolean { return this.pending !== null; }
 
-    start(route: Route, seed = RUN_SEED): void {
+    start(route: Route, seed = RUN_SEED, starterTool: ToolId = 'wrench', attemptId?: string): void {
+        if (!(this.rules.startingTools ?? ['wrench']).includes(starterTool) ||
+            (attemptId !== undefined && (!attemptId || attemptId.length > 80))) return;
         const data: Checkpoint = {
             schemaVersion: CHECKPOINT_VERSION, contentVersion: this.rules.contentVersion,
-            runId: `${Date.now()}-${++this.nonce}`, revision: 1, seed: seed >>> 0,
-            route, wave: 0, phase: 'battle', parts: 0, tools: [{ id: 'wrench', mods: [STARTER[route]] }], shop: null, reports: [],
+            runId: attemptId ?? `${Date.now()}-${++this.nonce}`, revision: 1, seed: seed >>> 0,
+            route, wave: 0, phase: 'battle', parts: 0, tools: [{ id: starterTool, mods: [STARTER[route]] }], shop: null, reports: [],
         };
         this.pending = null;
-        this.save(data);
+        if (!this.save(data) && attemptId !== undefined) return;
         this.data = data;
         this.restoreBattle();
         this.resume();

@@ -8,6 +8,7 @@ export interface Platform {
   readCheckpoint<T>(version: number, validate?: (value: unknown) => boolean): T | null;
   writeCheckpoint<T>(version: number, value: T): boolean;
   clearCheckpoint(): boolean;
+  checkpointPresence?(): 'empty' | 'present' | 'unreadable';
 }
 type NativeEvent = 'onShow' | 'onHide' | 'offShow' | 'offHide';
 type TT = Partial<Record<NativeEvent, (cb: () => void) => void>> & {
@@ -122,9 +123,10 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
   if (!tt) {
     try { storage = host.localStorage; } catch { /* private/restricted context */ }
   }
+  const nativeStorage = !!tt && typeof tt.getStorageSync === 'function' && typeof tt.setStorageSync === 'function';
   const volatile = new Map<string, string>();
-  const store: Store = tt && typeof tt.getStorageSync === 'function' && typeof tt.setStorageSync === 'function'
-    ? { get: (key) => tt.getStorageSync!(key), put: (key, text) => { tt.setStorageSync!(key, text); } }
+  const store: Store = nativeStorage
+    ? { get: (key) => tt!.getStorageSync!(key), put: (key, text) => { tt!.setStorageSync!(key, text); } }
     : storage
       ? { get: (key) => storage!.getItem(key), put: (key, text) => storage!.setItem(key, text) }
       : { get: (key) => volatile.get(key), put: (key, text) => { volatile.set(key, text); } };
@@ -189,6 +191,15 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
         return typeof payload === 'string' && commit(store, keys, version, payload);
       } catch {
         return false;
+      }
+    },
+    checkpointPresence() {
+      if ((tt && !nativeStorage) || (doc && !tt && !storage)) return 'unreadable';
+      try {
+        const values = keys.map((key) => store.get(key));
+        return values.some((value) => value !== null && value !== undefined && value !== '') ? 'present' : 'empty';
+      } catch {
+        return 'unreadable';
       }
     },
     clearCheckpoint() { return commit(store, keys, 0, ''); },

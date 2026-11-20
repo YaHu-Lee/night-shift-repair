@@ -1,4 +1,4 @@
-import { ENEMIES, FIELD, M1_RULES, START, TICK_RATE, TOOLS, hasPair, randomStream } from './content';
+import { ENEMIES, FIELD, M1_RULES, PUDDLE_ACTIVE, PUDDLE_CYCLE, PUDDLE_WARNING, START, TICK_RATE, TOOLS, hasPair, randomStream } from './content';
 import type { EnemyId, EquippedTool, ModId, RegularEnemyId, RunRules, WaveSpec } from './content';
 
 export interface Position { x: number; y: number }
@@ -37,7 +37,11 @@ function covers(area: Area, position: Position): boolean {
 }
 interface ToolRuntime { next: number; heat: number }
 type BossAttack = 'sweep' | 'charge' | 'summon';
-export type HitSource = EnemyId | 'projectile' | 'boss-sweep' | 'boss-charge';
+export type HitSource = EnemyId | 'projectile' | 'boss-sweep' | 'boss-charge' | 'live-puddle';
+export interface LivePuddle extends Position {
+    readonly radius: number;
+    readonly phase: 'warning' | 'active';
+}
 export interface BossState {
     unit: Enemy;
     phase: 'patrol' | 'warning' | 'sweep' | 'charge' | 'recover';
@@ -49,6 +53,7 @@ export interface BossState {
 }
 
 const SPAWN_WARNING = 22;
+const NO_PUDDLES: readonly LivePuddle[] = [];
 const SPEED = 156 / TICK_RATE;
 const MAX_ENEMIES = 36;
 const MAX_BULLETS = 40;
@@ -115,6 +120,20 @@ export class Battle {
     get bossDefeated(): boolean { return this.boss !== null && this.boss.unit.hp <= 0; }
     get finished() { return this.player.hp <= 0 || this.tick >= this.duration || this.bossDefeated; }
 
+    get livePuddles(): readonly LivePuddle[] {
+        if (!this.spec.livePuddles || this.tick < 30) return NO_PUDDLES;
+        const result: LivePuddle[] = [];
+        for (const puddle of this.spec.livePuddles) {
+            const elapsed = this.tick - 30 - puddle.offset;
+            if (elapsed < 0) continue;
+            const phaseTick = elapsed % PUDDLE_CYCLE;
+            if (phaseTick >= PUDDLE_WARNING + PUDDLE_ACTIVE) continue;
+            result.push({ x: puddle.x, y: puddle.y, radius: puddle.radius,
+                phase: phaseTick < PUDDLE_WARNING ? 'warning' : 'active' });
+        }
+        return result;
+    }
+
     step(inputX: number, inputY: number): void {
         if (this.finished) return;
         this.tick++;
@@ -128,6 +147,9 @@ export class Battle {
         this.spawn();
         this.moveEnemies();
         this.moveBullets();
+        if (this.livePuddles.some((puddle) => puddle.phase === 'active' && distance(puddle, this.player) < puddle.radius)) {
+            this.hurt('live-puddle');
+        }
         if (this.player.hp <= 0) return;
         this.tools.forEach((tool, index) => this.fire(tool, this.runtime[index]));
         this.collect();
@@ -362,10 +384,10 @@ export class Battle {
         }
         const chain = this.arc && target.marked;
         if (tool.mods.indexOf('contact') >= 0 || (this.arc && tool.mods.indexOf('relay') >= 0)) target.marked = true;
-        if (tool.id === 'wrench') {
+        if (tool.id === 'wrench' || tool.id === 'arc_gun') {
             const excluded = new Set([target]);
             this.hit(target, damage, this.player, 'arc');
-            this.chainFrom(target, excluded, chain);
+            this.chainFrom(target, excluded, chain, tool.id === 'arc_gun');
             return;
         }
         if (tool.id === 'induction') {
@@ -394,11 +416,12 @@ export class Battle {
         if (chain && hits.indexOf(target) >= 0) this.chainFrom(target, new Set(hits), true);
     }
 
-    private chainFrom(first: Enemy, excluded: Set<Enemy>, enhanced: boolean): void {
+    private chainFrom(first: Enemy, excluded: Set<Enemy>, enhanced: boolean, gun = false): void {
         let origin = first;
         const reach = this.mods.has('relay') ? 82 : 66;
-        for (let hop = 0; hop < (enhanced ? 3 : 1); hop++) {
-            const next = this.nearest(origin, enhanced ? reach : 39, excluded);
+        const maximum = enhanced ? 3 : gun ? 2 : 1;
+        for (let hop = 0; hop < maximum; hop++) {
+            const next = this.nearest(origin, enhanced ? reach + (gun ? 12 : 0) : gun ? 56 : 39, excluded);
             if (!next) break;
             if (enhanced && hop === 0) this.triggers.arc++;
             excluded.add(next);

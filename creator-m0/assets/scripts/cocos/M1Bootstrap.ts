@@ -4,8 +4,10 @@ import {
 } from 'cc';
 import { DEBUG } from 'cc/env';
 import { Run } from '../m1/Run';
-import { ENEMIES, FIELD, M2_RULES, MODS, REFRESH_COST, STARTER, TICK_RATE, TOOLS, hasPair, isTool, offer } from '../m1/content';
-import type { EquippedTool, ModId, OfferId } from '../m1/content';
+import { Campaign, CAMPAIGN_STAGES } from '../campaign/Campaign';
+import { makePlatform } from '../platform/platform';
+import { CAMPAIGN_01_RULES, CAMPAIGN_02_RULES, ENEMIES, FIELD, M2_RULES, MODS, REFRESH_COST, STARTER, TICK_RATE, TOOLS, hasPair, isTool, offer } from '../m1/content';
+import type { EquippedTool, ModId, OfferId, Route } from '../m1/content';
 import { BOSS_CHARGE_SPEED, BOSS_CHARGE_TICKS, BOSS_SWEEP_REACH } from '../m1/Battle';
 import { drawSkillEffects } from './SkillEffectsView';
 import { BattleSkinView } from './BattleSkinView';
@@ -33,6 +35,7 @@ const ENEMY_COLOR = { crawler: RED, charger: AMBER, turret: PURPLE, armored: ARM
 const HIT_LABEL = {
     crawler: '慢爬虫接触', charger: '冲车撞击', turret: '炮台接触', armored: '护甲机接触',
     inspector: '巡检机', projectile: '炮台弹体', 'boss-sweep': '巡检机扫线', 'boss-charge': '巡检机冲撞',
+    'live-puddle': '带电积水',
 };
 const BOSS_LABEL = { sweep: '扫线', charge: '冲撞', summon: '召援' };
 const PAIR_LABEL = { arc: '电弧连锁', magnet: '拾取震击', heat: '过热增伤' };
@@ -43,7 +46,24 @@ function visibleReach(x: number, y: number, dx: number, dy: number, reach: numbe
     return Math.max(0, Math.min(reach, dx ? (edgeX - x) / dx : Infinity, dy ? (edgeY - y) / dy : Infinity));
 }
 type Sound = keyof typeof SOUND_PATHS;
-const qaHost = globalThis as typeof globalThis & { __nightShiftM1State?: () => object; __nightShiftM2State?: () => object };
+const qaHost = globalThis as typeof globalThis & {
+    __nightShiftM1State?: () => object;
+    __nightShiftM2State?: () => object;
+    __nightShiftCampaignState?: () => object;
+};
+const [FIRST_STAGE, SECOND_STAGE] = CAMPAIGN_STAGES;
+const PUDDLE_WARNING = new Color(251, 199, 108, 60);
+const PUDDLE_ACTIVE = new Color(241, 110, 96, 130);
+const CAMPAIGN_BRIEFS = [
+    ['阿阮：配电站停了，先把线路查清。', '撑过五波，拆掉巡检机。'],
+    ['阿阮：泵房进水，调度又切了电。', '避开带电积水，再拆泵房的巡检机。'],
+] as const;
+const CAMPAIGN_RESULTS = [
+    ['日志确认：配电站并非跳闸，而是被调度主动切断。', '已解锁工具：电弧枪'],
+    ['泵房记录：切电指令早于第一条过载报警。', '切片完成。更多工单尚未开放。'],
+] as const;
+type CampaignStart = { route: Route; starter: 'wrench' | 'arc_gun'; runId: string; seed: number };
+type CampaignError = 'read' | 'register' | 'start' | 'reward' | 'receipt';
 
 interface HitArea {
     left: number;
@@ -61,10 +81,20 @@ export class M1Bootstrap extends Component {
     fullRun = false;
 
     @property
+    campaignMode = false;
+
+    @property
     skinRoot = 'skins/workshop';
 
     private run!: Run;
     private skin?: BattleSkinView;
+    private campaign?: Campaign;
+    private stage = FIRST_STAGE;
+    private startWeapon: CampaignStart['starter'] = 'wrench';
+    private queuedStart?: CampaignStart;
+    private campaignError?: CampaignError;
+    private readonly reconciledWins = new Set<string>();
+    private puddles?: Graphics;
     private base!: Graphics;
     private surface!: UITransform;
     private art!: Graphics;
@@ -101,6 +131,7 @@ export class M1Bootstrap extends Component {
         this.base = this.node.addComponent(Graphics);
         this.drawBackground();
         const floor = this.layer('Ground');
+        if (this.campaignMode) this.puddles = this.layer('Puddles').addComponent(Graphics);
         const actors = this.layer('Actors');
         const clip = this.layer('SkillBounds');
         clip.setPosition(FIELD.left - WIDTH / 2, FIELD.bottom - HEIGHT / 2, 0);
@@ -121,7 +152,11 @@ export class M1Bootstrap extends Component {
         if (this.fullRun && this.skinRoot) {
             this.skin = new BattleSkinView(this.skinRoot, floor, actors, uiSprites, () => { this.visibleUi = ''; });
         }
-        this.run = new Run(undefined, this.fullRun ? M2_RULES : undefined);
+        if (this.campaignMode) this.loadCampaign();
+        else {
+            this.run = new Run(undefined, this.fullRun ? M2_RULES : undefined);
+            this.chooseRoute = !this.run.data;
+        }
         if (this.fullRun) {
             this.source = this.node.addComponent(AudioSource);
             for (const sound of Object.keys(SOUND_PATHS) as Sound[]) {
@@ -130,10 +165,9 @@ export class M1Bootstrap extends Component {
                 });
             }
         }
-        this.chooseRoute = !this.run.data;
         if (DEBUG) {
             profiler?.hideStats();
-            qaHost[this.fullRun ? '__nightShiftM2State' : '__nightShiftM1State'] = this.inspect;
+            qaHost[this.campaignMode ? '__nightShiftCampaignState' : this.fullRun ? '__nightShiftM2State' : '__nightShiftM1State'] = this.inspect;
             this.trace('ready');
         }
         this.draw();
@@ -162,6 +196,7 @@ export class M1Bootstrap extends Component {
         this.skin?.dispose();
         if (qaHost.__nightShiftM1State === this.inspect) delete qaHost.__nightShiftM1State;
         if (qaHost.__nightShiftM2State === this.inspect) delete qaHost.__nightShiftM2State;
+        if (qaHost.__nightShiftCampaignState === this.inspect) delete qaHost.__nightShiftCampaignState;
         this.run.dispose();
     }
 
@@ -172,7 +207,9 @@ export class M1Bootstrap extends Component {
         const warnings = battle?.warningSerial;
         const damage = battle?.damageTaken;
         const triggers = this.fullRun ? battle && { ...battle.triggers } : null;
-        this.run.advance(dt, this.axes.x, this.axes.y);
+        if (!this.campaign || (!this.chooseRoute && !this.campaignError && this.currentCampaignRun())) {
+            this.run.advance(dt, this.axes.x, this.axes.y);
+        }
         if (this.fullRun && battle) {
             if (battle.warningSerial !== warnings) this.play(battle.warningKind);
             if (battle.damageTaken !== damage) this.play('hit');
@@ -186,8 +223,88 @@ export class M1Bootstrap extends Component {
             this.clearInput();
             this.selection = null;
             this.traceOutcome();
+            this.reconcileCampaignWin();
         }
         this.draw();
+    }
+
+    private loadCampaign(): void {
+        const campaign = this.campaign = new Campaign();
+        const activeStage = CAMPAIGN_STAGES.find(stage => stage.id === campaign.profile.activeAttempt?.stageId);
+        const availableStage = campaign.isUnlocked(SECOND_STAGE.id) ? SECOND_STAGE : FIRST_STAGE;
+        this.loadCampaignStage(activeStage && campaign.isUnlocked(activeStage.id) ? activeStage : availableStage);
+        if (campaign.profileState === 'unreadable') this.campaignError = 'read';
+        else if (this.currentCampaignRun()) {
+            this.chooseRoute = false;
+            this.reconcileCampaignWin();
+        }
+    }
+
+    private loadCampaignStage(stage: typeof FIRST_STAGE): void {
+        this.run?.dispose();
+        this.stage = stage;
+        this.run = new Run(makePlatform(undefined, 'night-shift.campaign.run.' + stage.id),
+            stage.id === SECOND_STAGE.id ? CAMPAIGN_02_RULES : CAMPAIGN_01_RULES);
+        this.chooseRoute = true;
+        this.startWeapon = this.arcGunAvailable() ? 'arc_gun' : 'wrench';
+        this.campaignError = undefined;
+        this.queuedStart = undefined;
+        this.learnedMove = false;
+        this.receipt = '';
+        this.clearInput();
+        this.selection = null;
+        this.visibleUi = '';
+    }
+
+    private currentCampaignRun(): boolean {
+        const active = this.campaign?.profile.activeAttempt;
+        return !!active && active.stageId === this.stage.id && active.runId === this.run.data?.runId;
+    }
+
+    private arcGunAvailable(): boolean {
+        return this.stage.id === SECOND_STAGE.id && !!this.campaign?.canUseStarter(this.stage.id, 'arc_gun');
+    }
+
+    private beginCampaignRun(route: Route, starter = this.startWeapon): void {
+        const seed = Math.floor(Math.random() * 0x100000000);
+        this.queuedStart = { route, starter, runId: `${this.stage.id}-${Date.now().toString(36)}-${seed.toString(36)}`, seed };
+        this.commitCampaignStart();
+    }
+
+    private commitCampaignStart(): void {
+        const pending = this.queuedStart;
+        if (!this.campaign || !pending) return;
+        if (!this.campaign.canUseStarter(this.stage.id, pending.starter) || !this.campaign.beginAttempt(this.stage.id, pending.runId)) {
+            this.campaignError = 'register';
+            return;
+        }
+        this.run.start(pending.route, pending.seed, pending.starter, pending.runId);
+        if (this.run.storageFailed || !this.currentCampaignRun()) {
+            this.run.pause();
+            this.campaignError = 'start';
+            return;
+        }
+        this.campaignError = undefined;
+        this.queuedStart = undefined;
+        this.chooseRoute = false;
+        this.clearInput();
+        this.selection = null;
+        this.receipt = '';
+        this.trace('run_start');
+    }
+
+    private reconcileCampaignWin(): void {
+        const data = this.run.data;
+        if (!this.campaign || !data || data.phase !== 'won' || !this.currentCampaignRun()
+            || this.run.waitingForSave || this.run.storageFailed || this.reconciledWins.has(data.runId)) return;
+        const outcome = this.campaign.replayWon(this.stage.id, data);
+        if (outcome === 'storage-failed') this.campaignError = 'reward';
+        else if (outcome === 'not-eligible') this.campaignError = 'receipt';
+        else {
+            this.reconciledWins.add(data.runId);
+            this.campaignError = undefined;
+            this.trace('first_clear_reconciled', { outcome });
+        }
     }
 
     private suspend(): void {
@@ -245,7 +362,7 @@ export class M1Bootstrap extends Component {
             this.visibleUi = '';
             return;
         }
-        if (this.chooseRoute || this.run.paused || !this.run.battle || this.owner !== null
+        if (this.chooseRoute || this.campaignError || this.run.paused || !this.run.battle || this.owner !== null
             || point.y < this.footer || point.y > FIELD.bottom - 5) return;
         this.owner = event.getID();
         this.origin.set(point.x, point.y);
@@ -275,7 +392,10 @@ export class M1Bootstrap extends Component {
         this.press = null;
         this.visibleUi = '';
         const point = this.point(event);
-        if (!this.run.background && this.contains(area, point.x, point.y)) area.action();
+        if (!this.run.background && this.contains(area, point.x, point.y)) {
+            area.action();
+            if (this.campaign) this.draw();
+        }
     }
 
     private touchCancel(event: EventTouch): void {
@@ -355,6 +475,7 @@ export class M1Bootstrap extends Component {
             data?.runId, data?.revision, battle?.player.hp, seconds, battle?.collected, battle?.magnetCharge,
             battle?.triggers.arc, battle?.triggers.magnet, battle?.triggers.heat, this.run.paused,
             this.run.waitingForSave, this.run.storageFailed, this.selection, this.slot, this.replacement, this.chooseRoute,
+            this.campaign ? [this.stage.id, this.campaignError, this.startWeapon, this.currentCampaignRun(), this.campaign.profile.clearedStages.length] : null,
             this.top, this.footer, battle?.boss?.unit.hp, battle?.boss?.phase, battle?.boss?.attack,
             battle?.shielded, this.soundEnabled, this.learnedMove, this.receipt,
         ]);
@@ -364,12 +485,16 @@ export class M1Bootstrap extends Component {
         this.labelIndex = 0;
         this.ui.clear();
         this.skin?.beginUi();
-        if (this.chooseRoute || !data) this.drawRoutes();
+        if (this.campaignError) this.drawCampaignError();
+        else if (this.campaign && (this.chooseRoute || !this.currentCampaignRun())) this.drawCampaignBrief();
+        else if (this.chooseRoute || !data) this.drawRoutes();
         else if (this.run.waitingForSave) this.drawStorageError();
         else if (data.phase === 'shop') this.drawShop();
-        else if (data.phase === 'won' || data.phase === 'lost') this.drawResult(data.phase === 'won');
-        else this.drawBattleHud(seconds);
-        if (this.run.storageFailed && !this.run.waitingForSave) {
+        else if (data.phase === 'won' || data.phase === 'lost') {
+            if (this.campaign) this.drawCampaignResult(data.phase === 'won');
+            else this.drawResult(data.phase === 'won');
+        } else this.drawBattleHud(seconds);
+        if (this.run.storageFailed && !this.run.waitingForSave && !this.campaignError) {
             this.text('本次进度未保存', 180, Math.max(this.footer, 24), { color: AMBER, size: 13 });
         }
         for (let index = this.labelIndex; index < this.labels.length; index++) this.labels[index].node.active = false;
@@ -394,6 +519,7 @@ export class M1Bootstrap extends Component {
         const art = this.art;
         art.clear();
         const battle = this.run.battle;
+        this.drawPuddles(battle);
         this.skin?.drawWorld(battle);
         drawSkillEffects(this.skillEffects, battle?.effects ?? []);
         if (!battle) return;
@@ -494,6 +620,35 @@ export class M1Bootstrap extends Component {
         }
     }
 
+    private drawPuddles(battle: Run['battle']): void {
+        const art = this.puddles;
+        if (!art) return;
+        art.clear();
+        for (const zone of battle?.livePuddles ?? []) {
+            const { x, y, radius, phase } = zone;
+            const active = phase === 'active';
+            art.fillColor = active ? PUDDLE_ACTIVE : PUDDLE_WARNING;
+            art.circle(x, y, radius);
+            art.fill();
+            art.lineWidth = active ? 2.5 : 1.5;
+            art.strokeColor = active ? RED : AMBER;
+            art.circle(x, y, radius);
+            art.stroke();
+            if (active) {
+                art.moveTo(x - 9, y + 5);
+                art.lineTo(x, y + 5);
+                art.lineTo(x - 4, y - 4);
+                art.lineTo(x + 9, y - 4);
+            } else {
+                art.moveTo(x, y + 7);
+                art.lineTo(x, y - 2);
+                art.moveTo(x, y - 5);
+                art.lineTo(x, y - 8);
+            }
+            art.stroke();
+        }
+    }
+
     private cover(): void {
         this.skin?.beginUi();
         this.ui.fillColor = MASK;
@@ -525,6 +680,94 @@ export class M1Bootstrap extends Component {
         if (this.run.data) this.button(this.run.data.phase === 'lost' || this.run.data.phase === 'won' ? '返回结算' : '返回本局', 180, 105, 185, 44, () => { this.chooseRoute = false; });
     }
 
+    private drawCampaignBrief(): void {
+        this.cover();
+        const second = this.stage.id === SECOND_STAGE.id;
+        const [brief, objective] = CAMPAIGN_BRIEFS[second ? 1 : 0];
+        const y = this.top;
+        this.skin?.shopfront(180, y - 81);
+        this.text('夜班修理局  ·  全城断电', 180, y - 45, { color: AMBER, size: 14, width: 310 });
+        this.text(`工单 ${second ? '02' : '01'}  ${this.stage.title}`, 180, y - 82, { size: 28, width: 310 });
+        this.text(brief, 180, y - 147, { size: 17, width: 310 });
+        this.text(objective, 180, y - 178, { color: DIM, size: 15, width: 310 });
+        if (this.arcGunAvailable()) {
+            this.text('开班武器', 180, y - 228, { color: AMBER, size: 15 });
+            this.button('电弧扳手', 101, y - 266, 140, 48, () => { this.startWeapon = 'wrench'; },
+                true, this.startWeapon === 'wrench');
+            this.button('电弧枪', 259, y - 266, 140, 48, () => { this.startWeapon = 'arc_gun'; },
+                true, this.startWeapon === 'arc_gun');
+            this.text(this.startWeapon === 'arc_gun' ? '攻击距离更远，适合打成群敌人' : '靠近命中，冷却更短',
+                180, y - 304, { color: MINT, size: 13, width: 310 });
+        }
+        const routeY = second ? y - 351 : y - 256;
+        this.text('选择一件起手改装并出勤', 180, routeY, { size: 16, color: AMBER });
+        this.button('导电触点  ·  连锁路线', 180, routeY - 43, 280, 48, () => this.beginCampaignRun('arc'), true, true, true);
+        this.button('大拾取圈  ·  磁吸路线', 180, routeY - 103, 280, 48, () => this.beginCampaignRun('magnet'));
+    }
+
+    private drawCampaignResult(won: boolean): void {
+        const data = this.run.data!;
+        const second = this.stage.id === SECOND_STAGE.id;
+        const [story, reward] = CAMPAIGN_RESULTS[second ? 1 : 0];
+        this.cover();
+        this.text(`工单 ${second ? '02' : '01'}  ${this.stage.title}`, 180, this.top - 55, { size: 19, color: DIM });
+        this.text(won ? '工单已完成' : '本次出勤结束', 180, this.top - 100, { size: 29, color: won ? MINT : PAPER });
+        if (won) {
+            this.text(story, 180, this.top - 155, { size: 16, width: 315, height: 42 });
+            this.text(reward, 180, this.top - 211, { size: 18, width: 315, color: MINT });
+        } else {
+            const hit = data.reports?.[data.reports.length - 1]?.defeatedBy;
+            const reason = data.finishReason === 'timeout' ? '时间耗尽，巡检机仍在运行'
+                : `第 ${data.wave + 1} 波体力耗尽${hit ? ' · ' + HIT_LABEL[hit] : ''}`;
+            this.text(reason, 180, this.top - 155, { size: 16, width: 315, color: AMBER });
+        }
+        const showNext = won && !second && this.campaign!.isUnlocked(SECOND_STAGE.id);
+        if (showNext) {
+            this.button('继续工单 02 · 地下泵房', 180, 211, 278, 52,
+                () => this.loadCampaignStage(SECOND_STAGE), true, true, true);
+        }
+        this.button(won ? '重玩当前工单' : '重试当前工单', 180, showNext ? 144 : 211, 224, 48, () => {
+            const starter = data.tools[0]?.id === 'arc_gun' && this.arcGunAvailable() ? 'arc_gun' : 'wrench';
+            this.beginCampaignRun(data.route, starter);
+        }, true, true, !showNext);
+        this.button('调整开班配置', 180, showNext ? 82 : 144, 224, 45, () => {
+            this.chooseRoute = true;
+            this.startWeapon = this.arcGunAvailable() && data.tools[0]?.id === 'arc_gun' ? 'arc_gun' : 'wrench';
+        });
+    }
+
+    private drawCampaignError(): void {
+        this.cover();
+        const error = this.campaignError;
+        if (error === 'read') {
+            this.text('工单进度读取失败', 180, 410, { size: 26, color: AMBER });
+            this.text('未覆盖原存档。请重新读取进度。', 180, 351, { width: 315, size: 15, color: DIM });
+            this.button('重新读取', 180, 276, 218, 48, () => this.loadCampaign(), true, true, true);
+            return;
+        }
+        if (error === 'receipt') {
+            this.text('通关记录无法确认', 180, 410, { size: 26, color: AMBER });
+            this.text('保留现有进度，未发放本次首通奖励。', 180, 351, { width: 315, size: 15, color: DIM });
+            this.button('返回工单', 180, 276, 218, 48, () => this.loadCampaignStage(this.stage), true, true, true);
+            return;
+        }
+        const awarding = error === 'reward';
+        this.text(awarding ? '工单奖励未结算' : '出勤进度未保存', 180, 410, { size: 26, color: AMBER });
+        this.text(awarding ? '本局通关已保存，重试不会重复发放。' : '保存后才能进入战斗，请重试。',
+            180, 351, { width: 315, size: 15, color: DIM });
+        this.button('重试保存', 180, 276, 218, 48, () => {
+            if (awarding) this.reconcileCampaignWin();
+            else this.commitCampaignStart();
+        }, true, true, true);
+        if (error === 'register' || error === 'start') {
+            this.button('返回工单', 180, 207, 218, 45, () => {
+                this.chooseRoute = true;
+                this.queuedStart = undefined;
+                this.campaignError = undefined;
+            });
+        }
+    }
+
     private drawBattleHud(seconds: number): void {
         const battle = this.run.battle!;
         const data = this.run.data!;
@@ -546,6 +789,7 @@ export class M1Bootstrap extends Component {
             hasPair(data.tools, 'magnet') ? `脉冲 ${battle.magnetCharge}/5` : '',
             hasPair(data.tools, 'heat') ? `过热 ${battle.triggers.heat}` : '',
         ].filter(Boolean);
+        if (this.campaign) this.text(this.stage.title, 68, this.top - 24, { size: 12, width: 100, color: DIM });
         this.text([`零件 ${data.parts + battle.collected}`, ...perks].join('   ·   '), 180, 130, { color: MINT, size: 13 });
         if (!this.learnedMove && !battle.boss) {
             this.text('在这里拖动走位，工具会自动攻击', 180, Math.max(this.footer + 22, 78), { color: DIM });
@@ -573,7 +817,7 @@ export class M1Bootstrap extends Component {
             this.run.resume();
             this.trace('resume');
         }, true, true, true);
-        this.button('重新选择起手改装', 180, 246, 218, 45, () => { this.chooseRoute = true; });
+        if (!this.campaign) this.button('重新选择起手改装', 180, 246, 218, 45, () => { this.chooseRoute = true; });
         if (this.fullRun) this.button(this.soundEnabled ? '音效 · 开' : '音效 · 关', 180, 182, 130, 42,
             () => { this.soundEnabled = !this.soundEnabled; if (this.soundEnabled) this.play('warning'); });
     }
@@ -745,15 +989,18 @@ export class M1Bootstrap extends Component {
         this.text('检查点写入失败', 180, 400, { size: 24, color: AMBER });
         this.text('点重试保存这波结算，再继续出勤。', 180, 348, { color: DIM });
         this.button('重试保存', 180, 274, 213, 46, () => {
-            if (this.run.retry()) this.traceOutcome();
+            if (this.run.retry()) {
+                this.traceOutcome();
+                this.reconcileCampaignWin();
+            }
         }, true, true);
-        this.button('重新选择起手改装', 180, 208, 213, 46, () => { this.chooseRoute = true; });
+        if (!this.campaign) this.button('重新选择起手改装', 180, 208, 213, 46, () => { this.chooseRoute = true; });
     }
 
     private readonly inspect = () => {
         const { data, battle, paused } = this.run;
         return {
-            phase: this.chooseRoute ? 'route' : data?.phase,
+            phase: this.campaignError ? 'storage-error' : this.chooseRoute ? (this.campaign ? 'brief' : 'route') : data?.phase,
             wave: (data?.wave ?? 0) + 1,
             revision: data?.revision,
             route: data?.route,
@@ -772,6 +1019,14 @@ export class M1Bootstrap extends Component {
             platform: this.run.platform.kind,
             paused,
             storageFailed: this.run.storageFailed,
+            ...(this.campaign ? {
+                stageId: this.stage.id, runId: data?.runId,
+                activeAttempt: this.campaign.profile.activeAttempt, profileState: this.campaign.profileState,
+                selectedStarter: this.startWeapon,
+                clearedStages: this.campaign.profile.clearedStages,
+                unlockedWeapons: this.campaign.profile.unlockedWeapons,
+                campaignError: this.campaignError, livePuddles: battle?.livePuddles ?? [],
+            } : {}),
         };
     };
 

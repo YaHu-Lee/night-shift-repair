@@ -12,6 +12,7 @@ export const WAVES = [
 ] as const;
 export const TOOLS = {
     wrench: { name: '电弧扳手', reach: 104, cooldown: 14, damage: 2, price: 5, detail: '短程链击，优先攻击最近的敌人' },
+    arc_gun: { name: '电弧枪', reach: 123, cooldown: 20, damage: 2, price: 6, detail: '连跳范围更大，擅长打成团的敌人；单体射速较慢' },
     riveter: { name: '铆钉枪', reach: 185, cooldown: 19, damage: 2, price: 5, detail: '沿直线穿刺，最多命中三个敌人' },
     torch: { name: '喷火管', reach: 82, cooldown: 10, damage: 1, price: 5, detail: '近距离扇形喷射' },
     induction: { name: '感应线圈', reach: 71, cooldown: 24, damage: 3, price: 5, detail: '以自身为圆心，周期攻击近处所有敌人' },
@@ -50,11 +51,19 @@ export interface EquippedTool { id: ToolId; mods: ModId[] }
 export const STARTER = { arc: 'contact', magnet: 'ring' } as const;
 export const FIRST_PAIR = { arc: 'splitter', magnet: 'coil' } as const;
 
+export interface PuddleSpec {
+    readonly x: number;
+    readonly y: number;
+    readonly radius: number;
+    readonly offset: number;
+}
+
 export interface WaveSpec {
     readonly seconds: number;
     readonly spawnEvery: number;
     readonly enemies: readonly RegularEnemyId[];
     readonly boss?: boolean;
+    readonly livePuddles?: readonly PuddleSpec[];
 }
 
 export interface RunRules {
@@ -63,6 +72,7 @@ export interface RunRules {
     readonly maxHp: number;
     readonly hitGrace: number;
     readonly waves: readonly WaveSpec[];
+    readonly startingTools?: readonly ToolId[];
     readonly tools: readonly ToolId[];
     readonly mods: readonly ModId[];
 }
@@ -87,6 +97,28 @@ export const M2_RULES: RunRules = {
     ],
     tools: ['wrench', 'riveter', 'torch', 'induction'],
     mods: ['contact', 'splitter', 'relay', 'ring', 'coil', 'sweeper', 'exchanger', 'valve', 'ceramic', 'bearings', 'plate', 'sorter'],
+};
+
+export const CAMPAIGN_01_RULES: RunRules = { ...M2_RULES, contentVersion: 21 };
+export const PUDDLE_CYCLE = 150;
+export const PUDDLE_WARNING = 24;
+export const PUDDLE_ACTIVE = 45;
+
+const PUMP_EAST = { x: 260, y: 397, radius: 48, offset: 75 } as const;
+const PUMP_WEST = { x: 103, y: 304, radius: 48, offset: 0 } as const;
+
+export const CAMPAIGN_02_RULES: RunRules = {
+    ...M2_RULES, contentVersion: 22,
+    tools: [...M2_RULES.tools, 'arc_gun'],
+    startingTools: ['wrench', 'arc_gun'],
+    waves: [
+        { seconds: 42, spawnEvery: 42, enemies: ['crawler'], livePuddles: [PUMP_WEST] },
+        { seconds: 48, spawnEvery: 36, enemies: ['crawler', 'charger', 'crawler'] },
+        { seconds: 50, spawnEvery: 39, enemies: ['crawler', 'charger', 'crawler'], livePuddles: [PUMP_WEST, PUMP_EAST] },
+        { seconds: 55, spawnEvery: 36, enemies: ['crawler', 'turret', 'charger', 'crawler'], livePuddles: [PUMP_WEST, PUMP_EAST] },
+        { seconds: 60, spawnEvery: 33, enemies: ['crawler', 'armored', 'charger', 'crawler', 'turret'], livePuddles: [PUMP_WEST, PUMP_EAST] },
+        { seconds: 75, spawnEvery: 0, enemies: [], boss: true, livePuddles: [PUMP_WEST, PUMP_EAST] },
+    ],
 };
 
 export function isTool(id: string): id is ToolId {
