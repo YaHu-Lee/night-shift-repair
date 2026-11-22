@@ -25,7 +25,7 @@ const LIFT_BOLT = new Color(229, 176, 101);
 type Escort = NonNullable<MissionView['escort']>;
 type TerminalMark = 'medical' | 'broadcast' | 'dots' | 'stripes';
 
-export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, stageId: string): void {
+export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, stageId: string, modelProps = false): void {
     const { terrainRects: terrain, mission, chapterBoss: boss, tick, enemies, searchlight } = battle;
     if (boss?.kind === 'core' && boss.hp <= 0) drawDistrictFeeds(g, mission?.points ?? []);
     if (searchlight) {
@@ -37,10 +37,11 @@ export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, sta
     for (const rect of terrain) {
         const { left, right, bottom, top, state, kind } = rect;
         if (kind === 'belt') {
-            drawConveyor(g, rect, tick);
+            if (!modelProps) drawConveyor(g, rect, tick);
             continue;
         }
         if (state === 'open') continue;
+        if (modelProps && state === 'closed') continue;
         g.fillColor = kind === 'wall' ? STONE : state === 'closed' ? new Color(63, 53, 48, 236) : new Color(61, 74, 77, 153);
         g.rect(left, bottom, right - left, top - bottom); g.fill();
         g.strokeColor = state === 'warning' ? GOLD : DIM; g.lineWidth = 2;
@@ -67,8 +68,8 @@ export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, sta
     if (mission?.thermal) drawThermalSignals(g, mission.thermal, mission.points, tick);
     const escort = mission?.escort;
     if (escort) {
-        if (mission?.lift) drawLift(g, escort, mission.lift, battle.player);
-        else drawBatteryCar(g, escort);
+        if (mission?.lift) drawLift(g, escort, mission.lift, battle.player, modelProps);
+        else drawBatteryCar(g, escort, modelProps);
     }
     const terminals = boss?.terminals ?? (boss?.kind === 'core' && boss.hp > 0 ? [] : mission?.points);
     for (const point of terminals ?? []) {
@@ -77,12 +78,12 @@ export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, sta
         const west = point.x < START.x;
         const mark = stageId === '05' ? west ? 'dots' : 'stripes'
             : stageId === '19' && battle.spec.directive?.type === 'handoff' ? west ? 'medical' : 'broadcast' : undefined;
-        drawTerminal(g, point, color, mark);
+        drawTerminal(g, modelProps ? { ...point, x: point.x + 12, y: point.y - 9 } : point, color, mark);
     }
     if (boss?.station && !boss.terminals) {
         const point = boss.station;
         station(g, point.x, point.y, point.radius, point.progress, SEA);
-        const { x, y } = point;
+        const x = point.x + (modelProps ? 12 : 0), y = point.y - (modelProps ? 9 : 0);
         g.fillColor = INK;
         g.moveTo(x, y + 10); g.lineTo(x + 10, y); g.lineTo(x, y - 10); g.lineTo(x - 10, y); g.close(); g.fill();
         g.strokeColor = SEA; g.lineWidth = 1.8;
@@ -91,7 +92,26 @@ export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, sta
     }
 }
 
-function drawBatteryCar(g: Graphics, escort: Escort): void {
+export function drawModeledTerrainSignals(g: Graphics, battle: Readonly<Battle>): void {
+    for (const rect of battle.terrainRects) {
+        if (rect.kind === 'belt') drawConveyor(g, rect, battle.tick, true);
+    }
+    if (battle.spec.directive?.variant !== 'lift') return;
+    const mission = battle.mission;
+    if (!mission?.escort || !mission.lift?.bridge) return;
+    const span = liftBridgeSpan(mission.escort, mission.lift.bridge);
+    if (!span) return;
+    const { at, start, end, width } = span;
+    g.strokeColor = LIFT_BOLT; g.lineWidth = 1.5;
+    for (const edge of [start, end]) {
+        for (const side of [-1, 1]) {
+            g.moveTo(...at(edge, width * side)); g.lineTo(...at(edge, (width - 3) * side));
+        }
+    }
+    g.stroke();
+}
+
+function drawBatteryCar(g: Graphics, escort: Escort, model: boolean): void {
     g.strokeColor = DIM; g.lineWidth = 2;
     for (let i = 0; i < escort.route.length; i++) {
         const point = escort.route[i];
@@ -100,6 +120,7 @@ function drawBatteryCar(g: Graphics, escort: Escort): void {
     }
     g.stroke();
     station(g, escort.x, escort.y, escort.radius, escort.hp / escort.maxHp, SEA);
+    if (model) return;
     g.fillColor = INK;
     g.roundRect(escort.x - 17, escort.y - 10, 34, 20, 4); g.fill();
     g.fillColor = GOLD;
@@ -108,7 +129,7 @@ function drawBatteryCar(g: Graphics, escort: Escort): void {
     g.rect(escort.x - 1, escort.y - 4, 2, 8); g.rect(escort.x - 4, escort.y - 1, 8, 2); g.fill();
 }
 
-function drawLift(g: Graphics, escort: Escort, lift: NonNullable<MissionView['lift']>, player: Readonly<Position>): void {
+function drawLift(g: Graphics, escort: Escort, lift: NonNullable<MissionView['lift']>, player: Readonly<Position>, model: boolean): void {
     const { x, y } = escort;
     const docked = lift.bridge !== undefined;
     const boarded = Math.hypot(player.x - x, player.y - y) <= escort.radius;
@@ -129,33 +150,41 @@ function drawLift(g: Graphics, escort: Escort, lift: NonNullable<MissionView['li
         g.fillColor = i < lift.floor ? SEA : INK;
         g.rect(to.x - 4, to.y - 2, 8, 4); g.fill();
     }
-    if (lift.bridge) drawLiftBridge(g, escort, lift.bridge);
+    if (lift.bridge && !model) drawLiftBridge(g, escort, lift.bridge);
     station(g, x, y, escort.radius, escort.hp / escort.maxHp, boarding);
-    g.fillColor = INK;
-    g.roundRect(x - 25, y - 18, 50, 34, 3); g.fill();
-    g.fillColor = LIFT_GRATING;
-    g.roundRect(x - 22, y - 13, 44, 26, 2); g.fill();
-    g.strokeColor = LIFT_RAIL; g.lineWidth = 1;
-    for (let offset = -18; offset <= 18; offset += 6) {
-        g.moveTo(x + offset, y - 11); g.lineTo(x + offset, y + 11);
+    if (!model) {
+        g.fillColor = INK;
+        g.roundRect(x - 25, y - 18, 50, 34, 3); g.fill();
+        g.fillColor = LIFT_GRATING;
+        g.roundRect(x - 22, y - 13, 44, 26, 2); g.fill();
+        g.strokeColor = LIFT_RAIL; g.lineWidth = 1;
+        for (let offset = -18; offset <= 18; offset += 6) {
+            g.moveTo(x + offset, y - 11); g.lineTo(x + offset, y + 11);
+        }
+        g.moveTo(x - 21, y); g.lineTo(x + 21, y);
+        g.stroke();
+        g.fillColor = LIFT_BOLT;
+        g.rect(x - 23, y - 11, 4, 23); g.rect(x + 19, y - 11, 4, 23); g.fill();
     }
-    g.moveTo(x - 21, y); g.lineTo(x + 21, y);
-    g.stroke();
-    g.fillColor = LIFT_BOLT;
-    g.rect(x - 23, y - 11, 4, 23); g.rect(x + 19, y - 11, 4, 23); g.fill();
     for (let step = 0; step < lift.floors; step++) {
         g.fillColor = step < lift.floor ? boarding : LIFT_GRATING;
         g.rect(x + (step - (lift.floors - 1) / 2) * 6 - 2, y - 17, 4, 3); g.fill();
     }
 }
 
-function drawLiftBridge(g: Graphics, from: Readonly<Position>, to: Readonly<Position>): void {
+export function liftBridgeSpan(from: Readonly<Position>, to: Readonly<Position>) {
     const dx = to.x - from.x, dy = to.y - from.y;
     const span = Math.hypot(dx, dy);
-    if (span < 20) return;
+    if (span <= 22) return undefined;
     const ux = dx / span, uy = dy / span;
     const at = (along: number, side: number) => [from.x + ux * along - uy * side, from.y + uy * along + ux * side] as const;
-    const start = 17, end = span - 5, width = 9;
+    return { at, dx, dy, span, start: 17, end: span - 5, width: 9 };
+}
+
+function drawLiftBridge(g: Graphics, from: Readonly<Position>, to: Readonly<Position>): void {
+    const bridge = liftBridgeSpan(from, to);
+    if (!bridge) return;
+    const { at, start, end, width } = bridge;
     g.fillColor = INK;
     g.moveTo(...at(start, -width)); g.lineTo(...at(end, -width));
     g.lineTo(...at(end, width)); g.lineTo(...at(start, width)); g.close(); g.fill();
@@ -171,20 +200,24 @@ function drawLiftBridge(g: Graphics, from: Readonly<Position>, to: Readonly<Posi
     g.stroke();
 }
 
-function drawConveyor(g: Graphics, rect: TerrainRect, tick: number): void {
+function drawConveyor(g: Graphics, rect: TerrainRect, tick: number, model = false): void {
     const { left, right, bottom, top, direction = 1, travel = 0 } = rect;
     const warning = rect.state === 'warning' && tick % 10 < 5;
     const cy = (top + bottom) / 2;
     const firstTread = (spacing: number) => left + 8 + ((travel % spacing) + spacing) % spacing;
-    g.fillColor = CONVEYOR_TREAD;
-    g.roundRect(left, bottom, right - left, top - bottom, 3); g.fill();
-    g.strokeColor = CONVEYOR_SLATS; g.lineWidth = 1.5;
-    for (let x = firstTread(12); x < right - 7; x += 12) {
-        g.moveTo(x, bottom + 5); g.lineTo(x, top - 5);
+    if (!model) {
+        g.fillColor = CONVEYOR_TREAD;
+        g.roundRect(left, bottom, right - left, top - bottom, 3); g.fill();
+        g.strokeColor = CONVEYOR_SLATS; g.lineWidth = 1.5;
+        for (let x = firstTread(12); x < right - 7; x += 12) {
+            g.moveTo(x, bottom + 5); g.lineTo(x, top - 5);
+        }
+        g.stroke();
     }
-    g.stroke();
-    g.strokeColor = warning ? GOLD : CONVEYOR_TRACK; g.lineWidth = 2;
-    g.roundRect(left + 1, bottom + 1, right - left - 2, top - bottom - 2, 2); g.stroke();
+    if (!model || warning) {
+        g.strokeColor = warning ? GOLD : CONVEYOR_TRACK; g.lineWidth = 2;
+        g.roundRect(left + 1, bottom + 1, right - left - 2, top - bottom - 2, 2); g.stroke();
+    }
     g.strokeColor = warning ? GOLD : CONVEYOR_ARROW; g.lineWidth = 2.2;
     for (let x = firstTread(27); x < right - 7; x += 27) {
         g.moveTo(x - 5 * direction, cy - 5); g.lineTo(x + 4 * direction, cy);
@@ -404,6 +437,7 @@ function drawMissionScan(g: Graphics, scan: NonNullable<MissionView['scan']>): v
 function drawEnemyTelegraphs(g: Graphics, enemies: Battle['enemies'], mission: MissionView | null, tick: number): void {
     for (const enemy of enemies) {
         const { x, y, kind, state } = enemy;
+        const tether = enemy.tether ?? mission?.escort;
         if (kind === 'pursuer' && state === 'dash') {
             const dx = enemy.vx, dy = enemy.vy;
             g.strokeColor = new Color(119, 221, 200, 195); g.lineWidth = 2;
@@ -412,8 +446,8 @@ function drawEnemyTelegraphs(g: Graphics, enemies: Battle['enemies'], mission: M
                 g.lineTo(x - dx * 25 - dy * side, y - dy * 25 + dx * side);
             }
             g.stroke();
-        } else if (kind === 'reclaimer' && state !== 'walk' && mission?.escort) {
-            const target = mission.escort;
+        } else if (kind === 'reclaimer' && state !== 'walk' && tether) {
+            const target = tether;
             const pulling = state === 'dash';
             if (pulling) {
                 const cap = g.lineCap;

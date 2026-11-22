@@ -1,16 +1,21 @@
 import { makePlatform } from '../platform/platform';
 import type { Platform } from '../platform/platform';
-import { hasPair, TICK_RATE } from '../m1/content';
-import type { EquippedTool, RunRules, ToolId } from '../m1/content';
+import { BASE_PICKUP_RADIUS, hasPair, isTool, MAGNET_PICKUP_RADIUS, TICK_RATE, TOOLS } from '../m1/content';
+import type { EquippedTool, Route, RunRules, ToolId } from '../m1/content';
+import { equipmentBuilds } from '../m1/Equipment';
+import type { AttachmentId, EquipmentStart, EquipmentState } from '../m1/Equipment';
 import type { BlueprintId, ChallengeMode } from '../m1/Encounter';
 import { CAMPAIGN_CATALOG } from './CampaignCatalog';
 import { validBackup } from './CampaignBackup';
 import type { CampaignBackup } from './CampaignBackup';
-import { freezeProfile, isBlueprint, isMode, normalizeProfile, safeId, safeNumber, validProfile } from './CampaignLedger';
+import { BLUEPRINTS, CHALLENGE_BONUS, WORKSHOP_TIERS, freezeProfile, isBlueprint, isMode, normalizeProfile, safeId, safeNumber, validProfile } from './CampaignLedger';
 import type { Badge, Build, CampaignAttempt, CampaignProfile, Settlement } from './CampaignLedger';
+import { WORKSHOP_STARTER_MILESTONES, isTrainingTrack, NO_TRAINING, ROLE_TRAINING, roleTrainingView, signatureAttachment, weaponTrainingView } from './CampaignTraining';
+import type { RoleTrainingView, TrainingProgress, TrainingTrack, WeaponTrainingView } from './CampaignTraining';
 
 export { BLUEPRINTS, COMMISSIONS } from './CampaignLedger';
 export type { CampaignAttempt, CampaignProfile, Settlement } from './CampaignLedger';
+export type { TrainingTrack } from './CampaignTraining';
 
 export const CAMPAIGN_NAMESPACE = 'night-shift.campaign';
 // Keep the envelope version readable alongside the previous slot during schema upgrades.
@@ -45,6 +50,7 @@ export interface WonCheckpoint {
 interface ResultCheckpoint extends WonCheckpoint {
     readonly firstWaveMoved?: boolean;
     readonly tools?: readonly EquippedTool[];
+    readonly equipment?: EquipmentState;
     readonly reports?: readonly {
         readonly wave: number;
         readonly ticks: number;
@@ -63,6 +69,12 @@ export type ClearStatus = 'committed' | 'already-cleared' | 'not-eligible' | 'st
 const BUILDS = ['arc', 'magnet', 'heat'] as const;
 const FIRST_WAVE_AID_TICKS = 15 * TICK_RATE;
 const addUnique = <T>(items: readonly T[], item: T): readonly T[] => items.includes(item) ? items : [...items, item];
+
+function unlockedWeapon(profile: CampaignProfile, tool: string): boolean {
+    return tool === 'wrench' || profile.unlockedWeapons.includes(tool)
+        || WORKSHOP_STARTER_MILESTONES.some(milestone => milestone.tool === tool
+            && profile.clearedStages.includes(milestone.stage));
+}
 
 export class Campaign {
     private readonly byId = new Map<string, StageContract>();
@@ -111,6 +123,11 @@ export class Campaign {
 
     get profile(): CampaignProfile { return this.data; }
 
+    get workshopTier(): number {
+        return WORKSHOP_TIERS.reduce((latest, tier, index) => tier.stage && this.data.clearedStages.includes(tier.stage)
+            ? index : latest, 0);
+    }
+
     static forCloudScope(scope: string): Campaign {
         if (!safeId(scope)) throw new Error('Invalid cloud account scope');
         return new Campaign(makePlatform(undefined, CAMPAIGN_NAMESPACE + '.account.' + scope));
@@ -154,17 +171,31 @@ export class Campaign {
 
     availableStarters(stageId: string): ToolId[] {
         if (!this.isUnlocked(stageId)) return [];
-        const candidates: readonly ToolId[] = this.byId.get(stageId)?.rules?.startingTools ?? ['wrench'];
-        return candidates.filter(tool =>
-            tool === 'wrench' || (this.data.unlockedWeapons.includes(tool)
-                && (stageId !== '01' || this.data.clearedStages.includes('01'))));
+        const rules = this.byId.get(stageId)?.rules;
+        const candidates: readonly ToolId[] = rules?.startingTools ?? ['wrench'];
+        return candidates.filter(tool => unlockedWeapon(this.data, tool)
+            && (!WORKSHOP_STARTER_MILESTONES.some(milestone => milestone.tool === tool) || rules?.tools.includes(tool))
+            && (tool === 'wrench' || stageId !== '01' || this.data.clearedStages.includes('01')));
+    }
+
+    availableShopWeapons(stageId: string): ToolId[] {
+        if (!this.isUnlocked(stageId)) return [];
+        return this.byId.get(stageId)?.rules?.tools.filter(tool => unlockedWeapon(this.data, tool)) ?? [];
+    }
+
+    availableTrainingWeapons(): ToolId[] {
+        return Object.keys(TOOLS).filter(isTool).filter(tool => this.canTrainWeapon(tool));
     }
 
     isModeUnlocked(stageId: string, mode: ChallengeMode): boolean {
         if (!this.isUnlocked(stageId)) return false;
         if (mode === 'normal') return true;
-        return stageId === '01' && this.data.clearedStages.includes(stageId)
-            && (mode === 'overtime_1' || (mode === 'overtime_2' && this.data.overtimeRank >= 1));
+        return this.data.clearedStages.includes(stageId)
+            && (mode === 'overtime_1' || (mode === 'overtime_2' && stageId === '01' && this.data.overtimeRank >= 1));
+    }
+
+    hasClearedChallenge(stageId: string): boolean {
+        return !!this.data.challengeClears?.includes(stageId) || (stageId === '01' && this.data.overtimeRank > 0);
     }
 
     newAttemptId(stageId: string, seed: number): string {
@@ -222,12 +253,91 @@ export class Campaign {
 
     get blueprintPrice(): number { return this.data.blueprints.length ? 8 : 4; }
 
+    get canBuyBlueprint(): boolean {
+        return this.profileState !== 'unreadable' && this.data.blueprints.length < Object.keys(BLUEPRINTS).length
+            && this.data.credits >= this.blueprintPrice;
+    }
+
+    get canUpgradeEquipment(): boolean {
+        return this.canBuyBlueprint || this.availableTrainingWeapons().some(tool => this.canAffordTraining(this.weaponTraining(tool).next));
+    }
+
+    get canUpgradeRole(): boolean {
+        return Object.keys(ROLE_TRAINING).filter(isTrainingTrack).some(track => this.canAffordTraining(this.roleTraining(track).next));
+    }
+
+    private get training(): TrainingProgress { return this.data.training ?? NO_TRAINING; }
+
+    weaponTraining(tool: ToolId): WeaponTrainingView {
+        return weaponTrainingView(this.training, tool, this.canTrainWeapon(tool));
+    }
+
+    roleTraining(track: TrainingTrack): RoleTrainingView {
+        return roleTrainingView(this.training, track);
+    }
+
+    private canAffordTraining(offer: WeaponTrainingView['next']): offer is NonNullable<WeaponTrainingView['next']> {
+        return offer !== null && this.profileState !== 'unreadable' && this.data.credits >= offer.price;
+    }
+
+    trainWeapon(tool: ToolId, expectedRevision: number): boolean {
+        if (!this.canTrainWeapon(tool) || expectedRevision !== this.data.revision) return false;
+        const { rank, next } = this.weaponTraining(tool);
+        if (!this.canAffordTraining(next)) return false;
+        const newRank = (rank + 1) as 1 | 2 | 3;
+        return this.save({ ...this.data, credits: this.data.credits - next.price,
+            training: { ...this.training, weapons: { ...this.training.weapons, [tool]: { rank: newRank } } },
+        });
+    }
+
+    trainRole(track: TrainingTrack, expectedRevision: number): boolean {
+        if (!isTrainingTrack(track) || expectedRevision !== this.data.revision) return false;
+        const { rank, next } = this.roleTraining(track);
+        if (!this.canAffordTraining(next)) return false;
+        const newRank = rank === 0 ? 1 : 2;
+        return this.save({ ...this.data, credits: this.data.credits - next.price,
+            training: { ...this.training, roles: { ...this.training.roles, [track]: newRank } },
+        });
+    }
+
+    selectStarterAttachment(tool: ToolId, attachment: AttachmentId | null, expectedRevision: number): boolean {
+        if (!this.canTrainWeapon(tool) || expectedRevision !== this.data.revision) return false;
+        const { rank, starterAttachment, starterAttachments } = this.weaponTraining(tool);
+        if (attachment === starterAttachment) return true;
+        if (rank !== 3 || (attachment !== null && !starterAttachments.includes(attachment))) return false;
+        const trained = attachment === null ? { rank } : { rank, starterAttachment: attachment };
+        return this.save({ ...this.data,
+            training: { ...this.training, weapons: { ...this.training.weapons, [tool]: trained } },
+        });
+    }
+
+    trainingLoadout(tool: ToolId, route: Route = 'arc'): EquipmentStart {
+        const { reachBonus, intervalReduction, starterAttachment } = this.weaponTraining(tool);
+        const unlockedAttachments = Object.keys(this.training.weapons).filter(isTool)
+            .filter(id => this.canTrainWeapon(id) && this.training.weapons[id]?.rank === 3).map(signatureAttachment);
+        const pickupRadius = route === 'magnet' ? MAGNET_PICKUP_RADIUS : BASE_PICKUP_RADIUS;
+        return Object.freeze({
+            weapon: Object.freeze({ reachBonus, intervalReduction, damageBonus: 0 }),
+            role: Object.freeze({
+                hpBonus: this.roleTraining('vitality').bonus,
+                speedBonus: this.roleTraining('mobility').bonus / 100,
+                pickupBonus: this.roleTraining('collection').bonus * pickupRadius / 100,
+            }),
+            unlockedAttachments: Object.freeze(unlockedAttachments),
+            ...(this.data.clearedStages.includes('10') ? { unlockedGear: Object.freeze(['gear/harness']) } : {}),
+            ...(starterAttachment === null ? {} : { starterAttachment }),
+        });
+    }
+
+    private canTrainWeapon(tool: ToolId): boolean {
+        return this.profileState !== 'unreadable' && isTool(tool) && unlockedWeapon(this.data, tool);
+    }
+
     buyBlueprint(id: BlueprintId): boolean {
         if (!isBlueprint(id) || this.profileState === 'unreadable') return false;
         if (this.data.blueprints.includes(id)) return true;
-        const price = this.blueprintPrice;
-        return this.data.credits >= price && this.save({
-            ...this.data, credits: this.data.credits - price, blueprints: [...this.data.blueprints, id],
+        return this.canBuyBlueprint && this.save({
+            ...this.data, credits: this.data.credits - this.blueprintPrice, blueprints: [...this.data.blueprints, id],
         });
     }
 
@@ -320,12 +430,15 @@ export class Campaign {
         const aid = mode === 'normal' && !profile.firstWaveAidClaimed && !won && clearedWaves === 0
             && checkpoint.finishReason === 'defeated' && checkpoint.firstWaveMoved === true
             && firstReport?.wave === 0 && firstReport.ticks >= FIRST_WAVE_AID_TICKS;
-        const credits = 2 * clearedWaves + Number(aid);
+        const challengeBonus = won && mode === 'overtime_1' && !this.hasClearedChallenge(stage.id) ? CHALLENGE_BONUS : undefined;
+        const credits = 2 * clearedWaves + Number(aid) + (challengeBonus ?? 0);
         const inspector = stage.id === '01' && won;
         const reports = checkpoint.reports ?? [];
         const fired = (build: Build) => reports.some(report => (report.triggers?.[build] ?? 0) > 0);
         const tools = checkpoint.tools ?? [];
-        const builds = inspector ? BUILDS.filter(build => fired(build) && hasPair(tools, build)) : [];
+        const equippedBuilds = inspector && checkpoint.equipment ? equipmentBuilds(tools, checkpoint.equipment) : null;
+        const builds = inspector ? BUILDS.filter(build => fired(build)
+            && (equippedBuilds ? equippedBuilds.includes(build) : hasPair(tools, build))) : [];
         const badges = new Set<Badge>(profile.badges);
         if (clearedWaves > 0) badges.add('first_wave');
         if (fired('arc')) badges.add('arc_chain');
@@ -338,9 +451,10 @@ export class Campaign {
         const overtimeRank = inspector && mode === 'overtime_2' ? 2
             : inspector && mode === 'overtime_1' && profile.overtimeRank === 0 ? 1 : profile.overtimeRank;
         const receipt: Settlement = { stageId: stage.id, runId: checkpoint.runId, firstClear, weapon,
-            clearedWaves, credits, aid, builds, chosenBuild };
+            clearedWaves, credits, aid, builds, chosenBuild, ...(challengeBonus && { challengeBonus }) };
         return { ...profile, credits: profile.credits + credits,
             firstWaveAidClaimed: profile.firstWaveAidClaimed || aid, inspectorBuilds, badges: Array.from(badges), overtimeRank,
+            ...(challengeBonus && { challengeClears: [...(profile.challengeClears ?? []), stage.id] }),
             receipts: [...profile.receipts, receipt].slice(-RECEIPT_LIMIT),
         };
     }
@@ -354,6 +468,22 @@ export class Campaign {
                 if (stage.prerequisite !== null && !cleared.has(stage.prerequisite)) return false;
             } else if (stories?.has('clear-' + stage.id)) {
                 return false;
+            }
+        }
+        if (value.schemaVersion === 2) {
+            const trainedWeapons = Object.keys(value.training?.weapons ?? {});
+            if (trainedWeapons.some(tool => !unlockedWeapon(value, tool))) return false;
+            const challengeClears = value.challengeClears ?? [];
+            if (challengeClears.some(id => !this.byId.has(id) || !cleared.has(id))) return false;
+            const challenges = new Set(challengeClears);
+            if (challenges.has('01') && value.overtimeRank === 0) return false;
+            const rewarded = new Set<string>();
+            for (const receipt of value.receipts) {
+                if (!receipt.challengeBonus) continue;
+                const stage = this.byId.get(receipt.stageId);
+                if (!stage || receipt.clearedWaves !== stage.finalWave + 1
+                    || !challenges.has(stage.id) || rewarded.has(stage.id)) return false;
+                rewarded.add(stage.id);
             }
         }
         return true;

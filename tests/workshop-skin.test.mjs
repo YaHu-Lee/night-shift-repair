@@ -125,3 +125,40 @@ test('the five campaign sound cues have matching files, hashes and Creator impor
         assert.equal(meta.uuid, creatorUuid, id);
     }
 });
+
+test('campaign scores and combat cues match the generated Creator assets', async () => {
+    const manifest = JSON.parse(await readFile(new URL('../art/workshop/campaign-audio.json', import.meta.url), 'utf8'));
+    assert.deepEqual(manifest.scores.map(clip => clip.id), ['night-shift', 'live-circuit']);
+    assert.deepEqual(manifest.effects.map(clip => clip.id), ['tool-arc', 'tool-shot', 'tool-heat', 'tool-magnet',
+        'tool-induction', 'enemy-projectile', 'enemy-melee', 'enemy-area', 'tool-impact', 'purchase', 'unlock']);
+    const all = [...manifest.clips, ...manifest.scores, ...manifest.effects];
+    assert.equal(new Set(all.map(clip => clip.creatorUuid)).size, all.length);
+    assert.equal(new Set(all.map(clip => clip.sha256)).size, all.length);
+    const controller = await readFile(new URL('../assets/scripts/cocos/CampaignAudio.ts', import.meta.url), 'utf8');
+    assert.equal(controller, await readFile(new URL('../creator-m0/assets/scripts/cocos/CampaignAudio.ts', import.meta.url), 'utf8'));
+    let totalBytes = 0;
+    for (const { id, file, runtimePath, creatorUuid, sha256, generator, sampleRateHz } of [...manifest.scores, ...manifest.effects]) {
+        assert.equal(runtimePath, 'campaign/' + id);
+        assert.ok(controller.includes("'" + runtimePath + "'"), id);
+        const score = id === 'night-shift' || id === 'live-circuit';
+        assert.equal(file, 'creator-m0/assets/resources/' + runtimePath + (score ? '.mp3' : '.wav'));
+        assert.equal(generator, 'scripts/generate-campaign-' + (score ? 'music' : 'effects') + '.mjs');
+        await readFile(new URL('../' + generator, import.meta.url));
+        const url = new URL('../' + file, import.meta.url);
+        const audio = await readFile(url);
+        const meta = JSON.parse(await readFile(new URL(url.href + '.meta'), 'utf8'));
+        assert.equal(createHash('sha256').update(audio).digest('hex'), sha256, id);
+        assert.equal(meta.importer, 'audio-clip', id);
+        assert.equal(meta.uuid, creatorUuid, id);
+        if (score) assert.equal(audio.toString('ascii', 0, 3), 'ID3', id);
+        else {
+            assert.equal(audio.toString('ascii', 0, 4), 'RIFF', id);
+            assert.equal(audio.readUInt16LE(22), 1, id);
+            const sampleRate = ['tool-arc', 'tool-shot', 'tool-impact'].includes(id) ? 16_000 : 12_000;
+            assert.equal(sampleRateHz, sampleRate, id);
+            assert.equal(audio.readUInt32LE(24), sampleRate, id);
+        }
+        totalBytes += audio.length;
+    }
+    assert.ok(totalBytes <= 290_000);
+});

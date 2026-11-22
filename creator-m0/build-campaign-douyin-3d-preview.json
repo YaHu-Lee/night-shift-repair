@@ -1,0 +1,57 @@
+{
+  "platform": "bytedance-mini-game",
+  "name": "night-shift-repair-campaign",
+  "outputName": "bytedance-mini-game-campaign-3d-preview",
+  "buildPath": "project://build",
+  "debug": true,
+  "startScene": "7f373326-3951-44b0-9397-ba9d08626070",
+  "scenes": [
+    {
+      "url": "db://assets/scenes/Campaign.scene",
+      "uuid": "7f373326-3951-44b0-9397-ba9d08626070"
+    }
+  ],
+  "packages": {
+    "bytedance-mini-game": {
+      "orientation": "portrait"
+    }
+  },
+  "bundleConfigs": [
+    {
+      "root": "db://assets/resources",
+      "name": "resources",
+      "compressionType": "merge_dep",
+      "priority": 8,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch01",
+      "name": "campaign-ch01",
+      "compressionType": "subpackage",
+      "priority": 4,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch02",
+      "name": "campaign-ch02",
+      "compressionType": "subpackage",
+      "priority": 4,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch03",
+      "name": "campaign-ch03",
+      "compressionType": "subpackage",
+      "priority": 4,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch04",
+      "name": "campaign-ch04",
+      "compressionType": "subpackage",
+      "priority": 4,
+      "isRemote": false
+    }
+  ],
+  "engineModulesConfigKey": "nightShift3DMiniGame"
+}

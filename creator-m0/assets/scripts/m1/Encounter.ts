@@ -1,4 +1,5 @@
 import { FIELD, TICK_RATE } from './content';
+import type { CombatBounds } from './content';
 
 export interface Position { x: number; y: number }
 export const BLUEPRINT_IDS = ['magnetic_pickup_arm', 'narrow_beam_clamp', 'quick_release_heatsink'] as const;
@@ -15,6 +16,7 @@ export interface CampaignEncounter {
     readonly boss?: ChapterBossKind;
     readonly bossTitle?: string;
     readonly bossHp?: number;
+    readonly combatOnly?: boolean;
     readonly armorLine?: boolean;
     readonly revive?: boolean;
     readonly overtime?: boolean;
@@ -38,6 +40,7 @@ export interface WaveDirective {
 
 export interface MissionState { readonly escortHp?: number; readonly relayHp?: number }
 export type MissionCue = 'power' | 'connect' | 'confirm';
+export type MissionFailure = 'escort' | 'relay' | 'thermal';
 export interface MissionPoint extends Position {
     readonly radius: number;
     readonly state: 'waiting' | 'active' | 'complete';
@@ -50,7 +53,8 @@ export interface MissionView {
     readonly points: readonly MissionPoint[];
     readonly scan?: Readonly<Position> & { readonly angle: number; readonly previewAngle?: number };
     readonly thermal?: { readonly previous?: Readonly<Position>; readonly next?: Readonly<Position>; readonly radius: number };
-    readonly escort?: Readonly<Position> & { readonly hp: number; readonly maxHp: number; readonly radius: number; readonly route: readonly Readonly<Position>[] };
+    readonly escort?: Readonly<Position> & { readonly hp: number; readonly maxHp: number; readonly radius: number;
+        readonly route: readonly Readonly<Position>[]; readonly destination?: Readonly<Position> };
     readonly lift?: { readonly floor: number; readonly floors: number; readonly bridge?: Readonly<Position> };
     readonly integrity?: { readonly hp: number; readonly maxHp: number };
 }
@@ -68,9 +72,10 @@ export type ChapterHazard = (
     | (Position & { readonly shape: 'tether'; readonly end: Readonly<Position>; readonly width: number })
 ) & { readonly state: 'warning' | 'active' };
 
-export function gatekeeperLane(safe: keyof typeof GATEKEEPER_PORTS): Omit<Extract<ChapterHazard, { shape: 'rect' }>, 'state'> {
-    return { shape: 'rect', left: safe === 'a' ? 181 : FIELD.left, right: safe === 'a' ? FIELD.right : 179,
-        bottom: FIELD.bottom, top: FIELD.top };
+export function gatekeeperLane(safe: keyof typeof GATEKEEPER_PORTS, field: CombatBounds = FIELD): Omit<Extract<ChapterHazard, { shape: 'rect' }>, 'state'> {
+    const middle = (field.left + field.right) / 2;
+    return { shape: 'rect', left: safe === 'a' ? middle + 1 : field.left, right: safe === 'a' ? field.right : middle - 1,
+        bottom: field.bottom, top: field.top };
 }
 
 export interface ChapterBossView {
@@ -80,6 +85,10 @@ export interface ChapterBossView {
     readonly maxHp: number;
     readonly stage: number;
     readonly vulnerable: boolean;
+    readonly recovering: boolean;
+    readonly phaseStartedAt: number;
+    readonly phaseEndsAt: number;
+    readonly facing?: number;
     readonly instruction: string;
     readonly hazard?: ChapterHazard;
     readonly station?: Readonly<Position> & { readonly radius: number; readonly progress: number };
@@ -93,6 +102,13 @@ export interface MissionEnemy extends Position {
 }
 
 export const distance = (a: Readonly<Position>, b: Readonly<Position>) => Math.hypot(a.x - b.x, a.y - b.y);
+
+export function fieldRayEnd(from: Readonly<Position>, ux: number, uy: number, range: number, field: CombatBounds): Position {
+    const xLimit = ux ? ((ux > 0 ? field.right : field.left) - from.x) / ux : Infinity;
+    const yLimit = uy ? ((uy > 0 ? field.top : field.bottom) - from.y) / uy : Infinity;
+    const length = Math.max(0, Math.min(range, xLimit, yLimit));
+    return { x: from.x + ux * length, y: from.y + uy * length };
+}
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 export function distanceToSegment(point: Readonly<Position>, a: Readonly<Position>, b: Readonly<Position>): number {
     const dx = b.x - a.x, dy = b.y - a.y;
@@ -140,7 +156,7 @@ export class Mission {
     private lastObjectiveDamage = -Infinity;
     private lastRelayShot = -Infinity;
 
-    constructor(readonly directive: WaveDirective, carry?: MissionState) {
+    constructor(readonly directive: WaveDirective, carry?: MissionState, private readonly field: CombatBounds = FIELD) {
         const { type, points, variant } = directive;
         this.waitingForBoss = directive.afterBoss ?? false;
         const handoff = type === 'handoff';
@@ -167,7 +183,12 @@ export class Mission {
     }
     get completedStations(): number { return this.index; }
     get complete(): boolean { return this.index === this.stations.length && this.waypoint >= this.route.length && this.gate === 0; }
-    get failed(): boolean { return this.escortHp <= 0 || this.relayHp <= 0 || this.temperature <= 0; }
+    get failure(): MissionFailure | undefined {
+        if (this.escortHp <= 0) return 'escort';
+        if (this.relayHp <= 0) return 'relay';
+        if (this.temperature <= 0) return 'thermal';
+    }
+    get failed(): boolean { return this.failure !== undefined; }
 
     snapshot(): MissionState {
         return {
@@ -181,12 +202,12 @@ export class Mission {
         if (!this.failed && this.complete) return tick < (minTicks ?? 0) ? '目标完成 · 坚持到交班' : '目标完成';
         if (this.gate) return '停梯 · 接通侧桥终端';
         if (this.escort && this.current === this.escort && !this.complete) {
-            return this.directive.variant === 'lift' ? '靠近平台 · 前往下一层' : '靠近载具推进';
+            return this.directive.variant === 'lift' ? '靠近平台 · 前往下一层' : '跟紧电池车';
         }
         if (this.directive.powerDrill && this.index === 1) return '前往 B 区 · 合上条纹闸';
         if (type === 'handoff' && this.index > 0 && !this.complete) {
             const remaining = Math.max(0, (this.directive.windowTicks ?? 360) - (tick - this.completedAt));
-            return `驶向下一端 · ${Math.ceil(remaining / TICK_RATE)} 秒`;
+            return `赶去另一端 · ${Math.ceil(remaining / TICK_RATE)} 秒`;
         }
         return this.waitingForBoss ? '关底停机后开始作业' : label ?? labels[type];
     }
@@ -216,7 +237,8 @@ export class Mission {
                 Math.max(1, this.stations.length + this.route.length - (this.route.length ? 1 : 0)), 0, 1),
             ...(scan ? { scan } : {}),
             ...(thermal ? { thermal } : {}),
-            ...(this.escort ? { escort: { ...this.escort, hp: this.escortHp, maxHp: ESCORT_HP, radius: this.escortRadius, route: this.route } } : {}),
+            ...(this.escort ? { escort: { ...this.escort, hp: this.escortHp, maxHp: ESCORT_HP, radius: this.escortRadius,
+                route: this.route, destination: this.route[this.waypoint] } } : {}),
             ...(lift ? { lift } : {}),
             ...(this.integrity ? { integrity: { hp: this.relayHp, maxHp: RELAY_HP } }
                 : type === 'thermal' ? { integrity: { hp: this.temperature, maxHp: 6 } } : {}),
@@ -231,7 +253,7 @@ export class Mission {
     }
 
     private scanView(tick: number): NonNullable<MissionView['scan']> {
-        const x = (FIELD.left + FIELD.right) / 2, y = (FIELD.bottom + FIELD.top) / 2;
+        const x = (this.field.left + this.field.right) / 2, y = (this.field.bottom + this.field.top) / 2;
         const elapsed = this.scanElapsed(tick);
         const index = Math.floor(elapsed / SCAN_WINDOW) % this.stations.length;
         const target = this.stations[index];
@@ -345,7 +367,7 @@ export class Mission {
 
     private liftPort(): Readonly<Position> {
         const anchor = this.route[this.waypoint - 1];
-        return { x: clamp(anchor.x + (this.waypoint % 2 ? -66 : 66), FIELD.left + 30, FIELD.right - 30), y: anchor.y };
+        return { x: clamp(anchor.x + (this.waypoint % 2 ? -66 : 66), this.field.left + 30, this.field.right - 30), y: anchor.y };
     }
 
     private advanceEscort(player: Readonly<Position>): MissionCue | undefined {
@@ -384,7 +406,7 @@ export const CONVEYOR_STEP = 26 / TICK_RATE;
 const CONVEYOR_REVERSAL = 8 * TICK_RATE;
 
 export function terrainAt(terrain: CampaignEncounter['terrain'], tick: number,
-    switched?: number, switching = false): readonly TerrainRect[] {
+    switched?: number, switching = false, field: CombatBounds = FIELD): readonly TerrainRect[] {
     if (terrain === 'engine') return ENGINE_TERRAIN;
     if (terrain === 'conveyor') {
         const direction = Math.floor(tick / CONVEYOR_REVERSAL) % 2 ? -1 : 1;
@@ -394,16 +416,16 @@ export function terrainAt(terrain: CampaignEncounter['terrain'], tick: number,
         const cycle = 2 * CONVEYOR_REVERSAL;
         const shifted = (tick + 1) % cycle;
         const travel = (Math.min(shifted, cycle - shifted) - 1) * CONVEYOR_STEP;
-        return [{ left: 29, right: 331, bottom: 278, top: 314, kind: 'belt', state, direction, travel },
-            { left: 29, right: 331, bottom: 388, top: 424, kind: 'belt', state, direction: -direction, travel: -travel }];
+        return [{ left: field.left + 14, right: field.right - 14, bottom: 278, top: 314, kind: 'belt', state, direction, travel },
+            { left: field.left + 14, right: field.right - 14, bottom: 388, top: 424, kind: 'belt', state, direction: -direction, travel: -travel }];
     }
     if (terrain === 'gates') {
         const changing = switching || switched === undefined && tick % 240 >= 204;
         const rightClosed = (switched ?? Math.floor(tick / 240)) % 2 === 0;
         return [ISLAND,
-            { left: FIELD.left, right: ISLAND.left, bottom: 347, top: 359, kind: 'gate',
+            { left: field.left, right: ISLAND.left, bottom: 347, top: 359, kind: 'gate',
                 state: rightClosed ? changing ? 'warning' : 'open' : 'closed' },
-            { left: ISLAND.right, right: FIELD.right, bottom: 347, top: 359, kind: 'gate',
+            { left: ISLAND.right, right: field.right, bottom: 347, top: 359, kind: 'gate',
                 state: rightClosed ? 'closed' : changing ? 'warning' : 'open' }];
     }
     return EMPTY;
@@ -447,10 +469,10 @@ function clearSegment(a: Readonly<Position>, b: Readonly<Position>, blocks: read
     return blocks.every(rect => rectEntry(a, dx, dy, 1, rect, margin) === Infinity);
 }
 
-export function nearestOpen(point: Readonly<Position>, terrain: readonly TerrainRect[], margin: number): Position {
+export function nearestOpen(point: Readonly<Position>, terrain: readonly TerrainRect[], margin: number, field: CombatBounds = FIELD): Position {
     const clampField = (p: Readonly<Position>) => ({
-        x: clamp(p.x, FIELD.left + margin, FIELD.right - margin),
-        y: clamp(p.y, FIELD.bottom + margin, FIELD.top - margin),
+        x: clamp(p.x, field.left + margin, field.right - margin),
+        y: clamp(p.y, field.bottom + margin, field.top - margin),
     });
     const blocks = terrain.filter(rect => rect.state === 'closed');
     const current = clampField(point);
@@ -474,19 +496,19 @@ export function nearestOpen(point: Readonly<Position>, terrain: readonly Terrain
         shortest = gap;
         closest = point;
     }
-    return closest ?? { x: 85, y: 235 };
+    return closest ?? clampField({ x: 85, y: 235 });
 }
 
 export function routeAround(from: Readonly<Position>, destination: Readonly<Position>,
-    terrain: readonly TerrainRect[], margin: number): Position[] {
+    terrain: readonly TerrainRect[], margin: number, field: CombatBounds = FIELD): Position[] {
     const blocks = terrain.filter(rect => rect.state === 'closed');
     if (clearSegment(from, destination, blocks, margin)) return [{ ...destination }];
     const corners = blocks.flatMap(rect => {
         const left = rect.left - margin, right = rect.right + margin;
         const bottom = rect.bottom - margin, top = rect.top + margin;
         return [{ x: left, y: bottom }, { x: left, y: top }, { x: right, y: bottom }, { x: right, y: top }];
-    }).filter(p => p.x >= FIELD.left + margin && p.x <= FIELD.right - margin
-        && p.y >= FIELD.bottom + margin && p.y <= FIELD.top - margin
+    }).filter(p => p.x >= field.left + margin && p.x <= field.right - margin
+        && p.y >= field.bottom + margin && p.y <= field.top - margin
         && blocks.every(rect => !insideRect(p, rect, margin)));
     const nodes = [from, destination, ...corners];
     const cost = nodes.map(() => Infinity);

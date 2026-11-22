@@ -1,7 +1,9 @@
-import { ENEMIES, FIELD, M1_RULES, PUDDLE_ACTIVE, PUDDLE_CYCLE, PUDDLE_WARNING, START, TICK_RATE, TOOLS, hasPair, randomStream } from './content';
-import type { EnemyId, EquippedTool, ModId, RegularEnemyId, RunRules, WaveSpec } from './content';
-import { CONVEYOR_STEP, GATEKEEPER_PORTS, GATEKEEPER_WARNING_TICKS, Mission, RECLAIMER_PULL_TICKS, clamp, clipTerrainReach, distance, distanceToSegment, gatekeeperLane, insideRect, nearestOpen, routeAround, terrainAt } from './Encounter';
-import type { BlueprintId, ChapterBossView, ChapterHazard, ChallengeMode, MissionCue, MissionState, MissionView, Position, TerrainRect } from './Encounter';
+import { BASE_PICKUP_RADIUS, ENEMIES, FIELD, M1_RULES, MAGNET_PICKUP_RADIUS, MAGNET_PULSE, PUDDLE_ACTIVE, PUDDLE_CYCLE, PUDDLE_WARNING, START, TICK_RATE, TOOLS, combatViewport, hasPair, randomStream, toolTuningStats, waveKillTarget } from './content';
+import type { CombatBounds, EnemyId, EquippedTool, ModId, RegularEnemyId, Route, RunRules, SpawnEdge, ToolId, WaveClearSpec, WaveSpec } from './content';
+import { resolveEquipment } from './Equipment';
+import type { EquipmentState, ResolvedEquipment, WeaponEquipmentStats } from './Equipment';
+import { CONVEYOR_STEP, GATEKEEPER_PORTS, GATEKEEPER_WARNING_TICKS, Mission, RECLAIMER_PULL_TICKS, clamp, clipTerrainReach, distance, distanceToSegment, fieldRayEnd, gatekeeperLane, insideRect, nearestOpen, routeAround, terrainAt } from './Encounter';
+import type { BlueprintId, ChapterBossView, ChapterHazard, ChallengeMode, MissionCue, MissionFailure, MissionState, MissionView, Position, TerrainRect } from './Encounter';
 import { ChapterBoss } from './ChapterBoss';
 
 export type { Position } from './Encounter';
@@ -20,18 +22,44 @@ interface Enemy extends Position {
     sprintTicks?: number;
     revealedAt?: number;
     aimPort?: Readonly<Position>;
+    tether?: Readonly<Position>;
+    tetherHit?: boolean;
+    contactAt?: number;
+    hitAt?: number;
+    shotAt?: number;
 }
 interface Bullet extends Position { vx: number; vy: number; port?: Readonly<Position> }
 interface Spawn extends Position { kind: RegularEnemyId; at: number }
 type SkillKind = 'arc' | 'shot' | 'heat' | 'magnet' | 'induction';
+const WEAPON_ATTACK_CUES: Record<ToolId, SkillKind> = {
+    wrench: 'arc', arc_gun: 'arc', bypass_wrench: 'arc', riveter: 'shot', hydraulic_nailer: 'shot', split_probe: 'shot',
+    torch: 'heat', pulse_nozzle: 'heat', induction: 'induction', traction_coil: 'magnet',
+};
 type Area = Position & (
     { shape: 'circle'; kind: 'magnet' | 'induction'; radius: number } |
     { shape: 'strip'; kind: 'shot'; ux: number; uy: number; length: number; halfWidth: number } |
     { shape: 'sector'; kind: 'heat'; ux: number; uy: number; radius: number; slope: number }
 );
-export type Attack = { life: number } & (Area |
-    (Position & { shape: 'link'; kind: 'arc'; from: Position }) |
-    (Position & { shape: 'impact'; kind: Exclude<SkillKind, 'arc'> }));
+export type Attack = { life: number; sourceCast?: WeaponCast } & (Area |
+    (Position & { shape: 'link'; kind: 'arc'; from: Position; fromWeapon?: true; melee?: true }) |
+    (Position & { shape: 'impact'; kind: Exclude<SkillKind, 'arc'>; pullFrom?: Position }));
+
+export interface WeaponCast extends Readonly<Position> {
+    readonly tool: ToolId;
+    readonly slot: number;
+    readonly ux: number;
+    readonly uy: number;
+    readonly targetRange: number;
+    readonly tick: number;
+}
+
+export type MeleeWindup = Pick<WeaponCast, 'slot' | 'ux' | 'uy'> & {
+    readonly tool: 'wrench' | 'bypass_wrench';
+    readonly ageTicks: number;
+};
+
+const WEAPON_CAST_HISTORY = 16;
+const MELEE_WINDUP_TICKS = 4;
 
 function covers(area: Area, position: Position): boolean {
     const dx = position.x - area.x, dy = position.y - area.y;
@@ -42,9 +70,19 @@ function covers(area: Area, position: Position): boolean {
     return area.shape === 'strip' ? forward < area.length && lateral < area.halfWidth
         : Math.hypot(dx, dy) < area.radius && lateral < forward * area.slope;
 }
-interface ToolRuntime { next: number; heat: number; combo: number; lastInMelee: number; cooling: boolean }
+interface ToolRuntime {
+    next: number;
+    heat: number;
+    combo: number;
+    lastInMelee: number;
+    cooling: boolean;
+    reach: number;
+    interval: number;
+    equipment?: WeaponEquipmentStats;
+}
 type BossAttack = 'sweep' | 'charge' | 'summon';
 export type HitSource = EnemyId | 'projectile' | 'boss-sweep' | 'boss-charge' | 'live-puddle' | 'chapter-hazard';
+export type TimeoutDetail = 'objective' | 'boss' | 'holdout' | 'takeover';
 export const HIT_SOURCES: readonly HitSource[] = [...Object.keys(ENEMIES) as EnemyId[],
     'projectile', 'boss-sweep', 'boss-charge', 'live-puddle', 'chapter-hazard'];
 export interface LivePuddle extends Position {
@@ -58,6 +96,7 @@ export interface BossState {
     next: number;
     pattern: number;
     attackNumber: number;
+    attackAt?: number;
     damagedPlayer: boolean;
 }
 
@@ -67,18 +106,22 @@ const SPEED = 156 / TICK_RATE;
 const PLAYER_MARGIN = 10;
 const MAX_ENEMIES = 36;
 const MAX_BULLETS = 40;
+export const ENEMY_HIT_POSE_TICKS = 6;
 export const BOSS_SWEEP_REACH = 230;
 export const BOSS_CHARGE_SPEED = 8;
 export const BOSS_CHARGE_TICKS = 23;
 
 export class Battle {
-    readonly player: Position & { hp: number; invulnerableUntil: number };
+    readonly field: CombatBounds;
+    readonly player: Position & { hp: number; invulnerableUntil: number; hurtAt?: number };
     destination: Position | null = null;
     readonly enemies: Enemy[] = [];
+    readonly defeatedEnemies: Enemy[] = [];
     readonly bullets: Bullet[] = [];
     readonly parts: Position[] = [];
     readonly warnings: Spawn[] = [];
     readonly effects: Attack[] = [];
+    readonly weaponCasts: WeaponCast[] = [];
     readonly triggers = { arc: 0, magnet: 0, heat: 0 };
     readonly duration: number;
     readonly boss: BossState | null;
@@ -88,11 +131,14 @@ export class Battle {
     private readonly mode: ChallengeMode;
     private readonly roster: readonly RegularEnemyId[];
     private readonly enemyCap: number;
+    private readonly killTarget?: number;
     private terrain: readonly TerrainRect[] = [];
     private navRoute: Position[] = [];
     private navGoal: Position | null = null;
     readonly spec: WaveSpec;
     readonly salvageRate: number;
+    readonly maxHp: number;
+    readonly equipment?: ResolvedEquipment;
     tick = 0;
     damageTaken = 0;
     shielded: boolean;
@@ -102,10 +148,19 @@ export class Battle {
     lastHit: HitSource | null = null;
     warningSerial = 0;
     warningKind: 'warning' | 'charge' = 'warning';
+    enemyAttackSerial = 0;
+    enemyAttackCue: 'melee' | 'projectile' | 'area' = 'melee';
+    weaponImpactSerial = 0;
     cutSerial = 0;
     missionCue: Readonly<{ kind: MissionCue }> | null = null;
     heatRecovered = false;
     moved = false;
+    weaponAttackSerial = 0;
+    weaponAttackCue: SkillKind = 'arc';
+    playerAttack?: { readonly tick: number; readonly x: number; readonly y: number };
+    playerAttackTool?: ToolId;
+    playerHit?: Readonly<Position>;
+    playerPulseAt?: number;
     private nextEnemy = 1;
     private gatekeeperPractice?: { until: number; warning: ChapterHazard };
     private turretResumeAt = 0;
@@ -115,66 +170,96 @@ export class Battle {
     private nextLiftSpawn = 0;
     private escalationSince = 0;
     private nextEscalationSpawn = 0;
+    private reserveCursor = 0;
     private readonly random: () => number;
     private readonly runtime: ToolRuntime[];
     private readonly magnet: boolean;
     private readonly arc: boolean;
     private readonly heat: boolean;
     private readonly pickupRadius: number;
+    private readonly moveScale: number;
     private readonly mods = new Set<ModId>();
 
     constructor(readonly wave: number, seed: number, readonly tools: readonly EquippedTool[], readonly rules: RunRules = M1_RULES,
-        options: { readonly blueprint?: BlueprintId; readonly mode?: ChallengeMode; readonly mission?: MissionState } = {}) {
-        this.player = { ...START, hp: rules.maxHp, invulnerableUntil: 0 };
+        options: { readonly blueprint?: BlueprintId; readonly mode?: ChallengeMode; readonly mission?: MissionState;
+            readonly equipment?: EquipmentState; readonly route?: Route } = {}) {
+        this.field = rules.field ?? FIELD;
+        this.equipment = options.equipment ? resolveEquipment(tools, options.equipment, options.route ?? 'arc',
+            rules.maxHp, options.blueprint) : undefined;
+        const actor = this.equipment?.actor;
+        this.maxHp = actor?.maxHp ?? rules.maxHp;
+        this.player = { ...START, hp: this.maxHp, invulnerableUntil: 0 };
         this.spec = rules.waves[wave];
         this.duration = this.spec.seconds * TICK_RATE;
+        this.killTarget = waveKillTarget(this.spec);
         this.random = randomStream(seed ^ Math.imul(wave + 1, 0x58a86197));
-        this.runtime = tools.map(() => ({ next: 0, heat: 0, combo: 0, lastInMelee: -Infinity, cooling: false }));
-        this.magnet = hasPair(tools, 'magnet');
+        this.runtime = tools.map((tool, index) => {
+            const equipment = this.equipment?.weapons[index];
+            const { reach, interval } = equipment ?? toolTuningStats(tool);
+            return { next: 0, heat: 0, combo: 0, lastInMelee: -Infinity, cooling: false, reach, interval, equipment };
+        });
+        this.magnet = actor?.pulse ?? hasPair(tools, 'magnet');
         this.arc = hasPair(tools, 'arc');
         this.heat = hasPair(tools, 'heat');
         for (const tool of tools) for (const mod of tool.mods) this.mods.add(mod);
         this.blueprint = options.blueprint;
         this.mode = options.mode ?? 'normal';
-        this.roster = this.mode !== 'normal' && wave === 2 ? [...this.spec.enemies, 'armored'] : this.spec.enemies;
+        this.roster = !rules.campaignPressure && this.mode !== 'normal' && wave === 2
+            ? [...this.spec.enemies, 'armored'] : this.spec.enemies;
         this.enemyCap = rules.encounter?.enemyCap ?? MAX_ENEMIES;
-        if (this.spec.directive) this.task = new Mission(this.spec.directive, options.mission);
+        if (this.spec.directive) this.task = new Mission(this.spec.directive, options.mission, this.field);
         this.terrain = this.updateTerrain();
-        if (this.terrain.length) Object.assign(this.player, nearestOpen(this.player, this.terrain, PLAYER_MARGIN));
-        this.pickupRadius = ((this.mods.has('ring') ? 39 : 21) + (this.mods.has('sweeper') ? 11 : 0))
-            * (this.blueprint === 'magnetic_pickup_arm' ? 1.25 : 1);
-        this.shielded = this.mods.has('plate');
-        this.salvageRate = (this.blueprint === 'magnetic_pickup_arm' ? 0.35 : 0.5) + (this.mods.has('sorter') ? 0.25 : 0);
+        if (this.terrain.length) Object.assign(this.player, nearestOpen(this.player, this.terrain, PLAYER_MARGIN, this.field));
+        else this.keepInField(this.player, PLAYER_MARGIN);
+        this.pickupRadius = actor?.pickupRadius ?? ((this.mods.has('ring') ? MAGNET_PICKUP_RADIUS : BASE_PICKUP_RADIUS)
+            + (this.mods.has('sweeper') ? 11 : 0)) * (this.blueprint === 'magnetic_pickup_arm' ? 1.25 : 1);
+        this.moveScale = actor?.moveScale ?? (this.mods.has('bearings') ? 1.12 : 1);
+        this.shielded = actor?.shield ?? this.mods.has('plate');
+        this.salvageRate = actor?.salvageRate ?? ((this.blueprint === 'magnetic_pickup_arm' ? 0.35 : 0.5) + (this.mods.has('sorter') ? 0.25 : 0));
         if (this.spec.boss) {
             const unit: Enemy = {
-                x: START.x, y: FIELD.top - 43, id: this.nextEnemy++, kind: 'inspector', hp: ENEMIES.inspector.hp,
+                x: START.x, y: this.spawnBounds.top - 43, id: this.nextEnemy++, kind: 'inspector', hp: ENEMIES.inspector.hp,
                 state: 'walk', next: 0, vx: 0, vy: -1, marked: false,
             };
-            if (this.terrain.length) Object.assign(unit, nearestOpen(unit, this.terrain, 21));
+            if (this.terrain.length) Object.assign(unit, nearestOpen(unit, this.terrain, 21, this.field));
+            else this.keepInField(unit, 21);
             this.enemies.push(unit);
             this.boss = { unit, phase: 'patrol', attack: 'sweep', next: 58, pattern: 0, attackNumber: 0, damagedPlayer: false };
-            if (rules.encounter?.boss) this.encounterBoss = new ChapterBoss(rules.encounter, unit, this.task);
+            if (rules.encounter?.boss) this.encounterBoss = new ChapterBoss(rules.encounter, unit, this.task, this.field);
         } else this.boss = null;
     }
 
     get bossDefeated(): boolean { return this.encounterBoss?.complete ?? (this.boss !== null && this.boss.unit.hp <= 0); }
     get objectiveFailed(): boolean { return this.task?.failed === true; }
+    get objectiveFailure(): MissionFailure | undefined { return this.task?.failure; }
+    get clearProgress(): { kills: number; total: number } | undefined {
+        return this.killTarget === undefined ? undefined : { kills: this.kills, total: this.killTarget };
+    }
+    get unfinishedAtTimeout(): TimeoutDetail {
+        const bossAlive = (this.boss?.unit.hp ?? 0) > 0;
+        if (this.task && !this.task.complete && (this.task.ready || !bossAlive)) return 'objective';
+        if (bossAlive) return 'boss';
+        return this.boss && !this.bossDefeated ? 'takeover' : 'holdout';
+    }
     get waveCleared(): boolean {
         if (this.player.hp <= 0 || this.objectiveFailed || this.task && !this.task.complete) return false;
         if (this.boss) return this.bossDefeated;
+        if (this.killTarget !== undefined) return this.kills === this.killTarget && !this.warnings.length && !this.enemies.length;
         const target = this.spec.escalation?.requiredTicks;
         if (target && (!this.escalationSince || this.tick - this.escalationSince < target)) return false;
         return this.tick >= (this.spec.directive?.minTicks ?? this.duration);
     }
-    get finished() { return this.player.hp <= 0 || this.objectiveFailed || this.tick >= this.duration || this.waveCleared; }
+    get finished() {
+        return this.player.hp <= 0 || this.objectiveFailed || (this.killTarget === undefined && this.tick >= this.duration) || this.waveCleared;
+    }
     get mission(): MissionView | null {
         const view = this.task?.view(this.tick);
         const target = this.spec.escalation?.requiredTicks;
         if (!target || this.task && !this.task.complete || this.finished) return view ?? null;
         const elapsed = this.escalationSince ? Math.min(target, this.tick - this.escalationSince) : 0;
         return {
-            status: 'working', label: this.escalationSince ? `坚守交接 · ${Math.ceil((target - elapsed) / TICK_RATE)} 秒`
-                : '检查交接点 · 预备机群将到',
+            status: 'working', label: this.escalationSince ? `再撑 ${Math.ceil((target - elapsed) / TICK_RATE)} 秒`
+                : '下一批敌机快到了',
             points: view?.points ?? [], progress: elapsed / target,
             ...(view?.escort ? { escort: view.escort } : {}), ...(view?.integrity ? { integrity: view.integrity } : {}),
             ...(view?.lift ? { lift: view.lift } : {}),
@@ -182,16 +267,38 @@ export class Battle {
     }
     get missionState(): MissionState | undefined { return this.task?.snapshot(); }
     get terrainRects(): readonly TerrainRect[] { return this.terrain; }
+    get spawnBounds(): CombatBounds {
+        return this.field === FIELD ? FIELD : combatViewport(this.field, this.player.x, this.player.y);
+    }
     get chapterBoss(): ChapterBossView | null { return this.encounterBoss?.view ?? null; }
+
+    /** Local pose cue for scheduled melee attacks with a valid target in reach. */
+    meleeWindups(): readonly MeleeWindup[] {
+        const windups: MeleeWindup[] = [];
+        this.tools.forEach(({ id: tool }, slot) => {
+            if (tool !== 'wrench' && tool !== 'bypass_wrench') return;
+            const { next, reach } = this.runtime[slot];
+            const remaining = next - this.tick;
+            if (remaining <= 0 || remaining > MELEE_WINDUP_TICKS) return;
+            const target = this.nearest(this.player, reach);
+            if (!target) return;
+            const range = distance(this.player, target) || 1;
+            windups.push({ tool, slot, ux: (target.x - this.player.x) / range, uy: (target.y - this.player.y) / range,
+                ageTicks: MELEE_WINDUP_TICKS - remaining });
+        });
+        return windups;
+    }
     get practiceWarning(): ChapterHazard | undefined {
         const practice = this.gatekeeperPractice;
         return practice && this.tick < practice.until ? practice.warning : undefined;
     }
     get searchlight(): (Readonly<Position> & { readonly angle: number; readonly width: number; readonly reach: number }) | null {
+        if (this.rules.encounter?.combatOnly) return null;
         if (!this.roster.includes('ambusher') && !this.spec.escalation?.enemies.includes('ambusher')) return null;
         const cycle = (this.tick % 240) / 120;
         const turn = cycle <= 1 ? cycle : 2 - cycle;
-        return { x: 180, y: FIELD.top, angle: -Math.PI / 2 + (2 * turn - 1) * 1.35, width: 0.44, reach: 430 };
+        return { x: (this.field.left + this.field.right) / 2, y: this.field.top, angle: -Math.PI / 2 + (2 * turn - 1) * 1.35,
+            width: 0.44, reach: this.field.top - this.field.bottom + 30 };
     }
 
     get livePuddles(): readonly LivePuddle[] {
@@ -210,15 +317,15 @@ export class Battle {
 
     moveTo(x: number, y: number): void {
         if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-        this.destination = nearestOpen({ x, y }, this.terrain, PLAYER_MARGIN);
+        this.destination = nearestOpen({ x, y }, this.terrain, PLAYER_MARGIN, this.field);
         this.navGoal = null;
     }
 
     private movePlayer(inputX: number, inputY: number): void {
-        const speed = this.mods.has('bearings') ? SPEED * 1.12 : SPEED;
+        const speed = SPEED * this.moveScale;
         const destination = this.destination;
         if (destination && this.terrain.length && destination !== this.navGoal) {
-            this.navRoute = routeAround(this.player, destination, this.terrain, PLAYER_MARGIN);
+            this.navRoute = routeAround(this.player, destination, this.terrain, PLAYER_MARGIN, this.field);
             this.navGoal = destination;
         }
         const target = this.terrain.length ? destination && this.navRoute[0] : destination;
@@ -246,10 +353,16 @@ export class Battle {
     step(inputX: number, inputY: number): void {
         if (this.finished) return;
         this.tick++;
+        while (this.defeatedEnemies.length && this.tick - this.defeatedEnemies[0].hitAt! >= ENEMY_HIT_POSE_TICKS) {
+            this.defeatedEnemies.shift();
+        }
+        while (this.weaponCasts.length && this.tick - this.weaponCasts[0].tick >= WEAPON_CAST_HISTORY) {
+            this.weaponCasts.shift();
+        }
         const nextTerrain = this.updateTerrain();
         if (nextTerrain.some((rect, index) => (rect.state === 'closed') !== (this.terrain[index]?.state === 'closed'))) {
-            Object.assign(this.player, nearestOpen(this.player, nextTerrain, PLAYER_MARGIN));
-            if (this.destination) this.destination = nearestOpen(this.destination, nextTerrain, PLAYER_MARGIN);
+            Object.assign(this.player, nearestOpen(this.player, nextTerrain, PLAYER_MARGIN, this.field));
+            if (this.destination) this.destination = nearestOpen(this.destination, nextTerrain, PLAYER_MARGIN, this.field);
             this.navGoal = null;
         }
         this.terrain = nextTerrain;
@@ -265,19 +378,32 @@ export class Battle {
             this.hurt('live-puddle');
         }
         if (this.player.hp <= 0) return;
-        this.tools.forEach((tool, index) => this.fire(tool, this.runtime[index]));
+        this.tools.forEach((tool, index) => {
+            const firstEffect = this.effects.length;
+            const nextCast = this.weaponCasts.length;
+            this.fire(tool, this.runtime[index], index);
+            const cast = this.weaponCasts[nextCast];
+            if (!cast) return;
+            for (let effect = firstEffect; effect < this.effects.length; effect++) {
+                this.effects[effect].sourceCast = cast;
+            }
+        });
         this.collect();
         if (!this.boss || this.boss.unit.hp <= 0) this.task?.startWork(this.tick);
         const missionCue = this.task?.step(this.tick, this.player, this.enemies);
         if (missionCue) this.emitMissionCue(missionCue);
-        this.encounterBoss?.step(this.tick, this.player, () => this.hurt('chapter-hazard'),
+        this.encounterBoss?.step(this.tick, this.player, () => {
+            const hit = this.hurt('chapter-hazard');
+            const hazard = hit && this.rules.encounter?.combatOnly ? this.chapterBoss?.hazard : undefined;
+            if (hazard?.shape === 'tether') this.pullPlayer(hazard, 22);
+        },
             () => this.signalWarning('warning'), () => {
                 this.queueSpawn('crawler');
                 this.queueSpawn(this.encounterBoss!.kind === 'silence' ? 'jammer' : 'charger');
             }, cue => {
                 if (cue === 'cut') this.cutSerial++;
                 else this.emitMissionCue(cue);
-            });
+            }, () => this.signalEnemyAttack('area'));
         for (let index = this.effects.length - 1; index >= 0; index--) {
             if (--this.effects[index].life === 0) this.effects.splice(index, 1);
         }
@@ -287,9 +413,9 @@ export class Battle {
         const terrain = this.rules.encounter?.terrain;
         const switched = terrain === 'gates' && this.spec.directive?.type === 'switch' &&
             this.spec.directive.variant === 'bypass' ? this.task : undefined;
-        if (!switched) return terrainAt(terrain, this.tick);
+        if (!switched) return terrainAt(terrain, this.tick, undefined, false, this.field);
         const waiting = this.tick - switched.lastActivation < 30;
-        return terrainAt(terrain, this.tick, switched.completedStations - (waiting ? 1 : 0), waiting);
+        return terrainAt(terrain, this.tick, switched.completedStations - (waiting ? 1 : 0), waiting, this.field);
     }
 
     private applyTerrain(position: Position, margin: number): void {
@@ -299,15 +425,55 @@ export class Battle {
                 position.x += rect.direction * CONVEYOR_STEP;
             }
         }
-        Object.assign(position, nearestOpen(position, this.terrain, margin));
+        Object.assign(position, nearestOpen(position, this.terrain, margin, this.field));
     }
 
     private keepInField(position: Position, margin: number): void {
-        position.x = clamp(position.x, FIELD.left + margin, FIELD.right - margin);
-        position.y = clamp(position.y, FIELD.bottom + margin, FIELD.top - margin);
+        position.x = clamp(position.x, this.field.left + margin, this.field.right - margin);
+        position.y = clamp(position.y, this.field.bottom + margin, this.field.top - margin);
     }
 
     private spawn(): void {
+        if (this.spec.clear) this.spawnClearWave(this.spec.clear);
+        else this.spawnTimedWave();
+        while (this.warnings.length && this.warnings[0].at <= this.tick) {
+            const warning = this.warnings.shift()!;
+            const { x, y, kind } = warning;
+            if (distance(warning, this.player) < 55) {
+                // A spawn in a finite roster keeps its quota when the player runs onto its warning.
+                if (this.spec.clear && !this.queueSpawn(kind)) this.insertWarning({ ...warning, at: this.tick + SPAWN_WARNING });
+                continue;
+            }
+            this.enemies.push({ x, y, kind, id: this.nextEnemy++, hp: ENEMIES[kind].hp,
+                state: kind === 'ambusher' ? 'warn' : 'walk',
+                next: this.tick + 48, vx: 0, vy: 0, marked: false,
+                facingX: kind === 'armored' ? 0 : undefined, facingY: kind === 'armored' ? -1 : undefined });
+        }
+    }
+
+    private spawnClearWave(clear: WaveClearSpec): void {
+        const wave = this.spec;
+        if (wave.liftGroups && this.task?.ready) this.spawnLiftGroup(wave.liftGroups);
+        if (this.spawnCursor < clear.opening && (this.tick - 1) % wave.spawnEvery === 0) {
+            if (this.queueSpawn(this.roster[this.spawnCursor % this.roster.length], this.spawnEdge(wave.spawnEdges))) this.spawnCursor++;
+        }
+        const reserves = wave.escalation;
+        if (!reserves || this.reserveCursor >= clear.reserves) return;
+        if (!this.escalationSince) {
+            if (this.spawnCursor < clear.opening || this.liftGroupIndex < (wave.liftGroups?.length ?? 0)
+                || this.warnings.length || this.enemies.length || this.task && !this.task.complete
+                || this.tick < (clear.reserveAfterTick ?? 0)) return;
+            this.escalationSince = this.tick;
+            this.signalWarning('warning');
+        }
+        if (this.tick >= this.nextEscalationSpawn) {
+            if (this.queueSpawn(reserves.enemies[this.reserveCursor % reserves.enemies.length],
+                this.spawnEdge(reserves.spawnEdges, this.reserveCursor))) this.reserveCursor++;
+            this.nextEscalationSpawn = this.tick + (reserves.spawnEvery ?? wave.spawnEvery);
+        }
+    }
+
+    private spawnTimedWave(): void {
         const wave = this.spec;
         const escalation = wave.escalation;
         if (escalation && !this.escalationSince && this.tick >= escalation.atTick && (!this.task || this.task.complete)) {
@@ -317,23 +483,16 @@ export class Battle {
             this.signalWarning('warning');
         }
         if (escalation && this.escalationSince && this.tick >= this.nextEscalationSpawn) {
-            if (escalation.enemies.length && this.queueSpawn(escalation.enemies[this.spawnCursor % escalation.enemies.length])) this.spawnCursor++;
+            if (escalation.enemies.length && this.queueSpawn(escalation.enemies[this.spawnCursor % escalation.enemies.length],
+                this.spawnEdge(escalation.spawnEdges))) this.spawnCursor++;
             this.nextEscalationSpawn = this.tick + (escalation.spawnEvery ?? wave.spawnEvery);
         } else if (!this.escalationSince && wave.liftGroups && this.task?.ready) {
             this.spawnLiftGroup(wave.liftGroups);
         } else if (!this.escalationSince && wave.spawnEvery > 0 && this.roster.length && (this.tick - 1) % wave.spawnEvery === 0) {
-            if (this.queueSpawn(this.roster[this.spawnCursor % this.roster.length])) this.spawnCursor++;
+            if (this.queueSpawn(this.roster[this.spawnCursor % this.roster.length], this.spawnEdge(wave.spawnEdges))) this.spawnCursor++;
         }
-        if (this.mode === 'overtime_2' && this.wave === 4 && this.tick % 150 === 0) {
+        if (!this.rules.campaignPressure && this.mode === 'overtime_2' && this.wave === 4 && this.tick % 150 === 0) {
             this.queueSpawn(this.tick % 300 ? 'charger' : 'turret');
-        }
-        while (this.warnings.length && this.warnings[0].at <= this.tick) {
-            const { x, y, kind } = this.warnings.shift()!;
-            if (distance({x, y}, this.player) < 55) continue;
-            this.enemies.push({ x, y, kind, id: this.nextEnemy++, hp: ENEMIES[kind].hp,
-                state: kind === 'ambusher' ? 'warn' : 'walk',
-                next: this.tick + 48, vx: 0, vy: 0, marked: false,
-                facingX: kind === 'armored' ? 0 : undefined, facingY: kind === 'armored' ? -1 : undefined });
         }
     }
 
@@ -354,26 +513,36 @@ export class Battle {
         }
     }
 
-    private queueSpawn(kind: RegularEnemyId): boolean {
+    private spawnEdge(edges: readonly SpawnEdge[] | undefined, cursor = this.spawnCursor): SpawnEdge | undefined {
+        return edges?.length ? edges[cursor % edges.length] : undefined;
+    }
+
+    private queueSpawn(kind: RegularEnemyId, preferredEdge?: SpawnEdge): boolean {
         const cap = this.encounterBoss?.kind === 'core' && this.encounterBoss.view.stage === 3 ? 8 : this.enemyCap;
         if (this.enemies.length + this.warnings.length >= cap) return false;
         if (kind === 'ambusher' && this.warnings.filter(warning => warning.kind === kind).length +
             this.enemies.filter(enemy => enemy.kind === kind && enemy.state === 'warn').length >= 2) return false;
         const roll = this.random();
-        const x = FIELD.left + 12 + roll * (FIELD.right - FIELD.left - 24);
-        const y = FIELD.bottom + 12 + roll * (FIELD.top - FIELD.bottom - 24);
+        const { left, right, bottom, top } = this.spawnBounds;
+        const x = left + 12 + roll * (right - left - 24);
+        const y = bottom + 12 + roll * (top - bottom - 24);
         const spots = [
-            { x, y: FIELD.bottom + 10 }, { x, y: FIELD.top - 10 },
-            { x: FIELD.left + 10, y }, { x: FIELD.right - 10, y },
+            { x, y: bottom + 10, edge: 'south' }, { x, y: top - 10, edge: 'north' },
+            { x: left + 10, y, edge: 'west' }, { x: right - 10, y, edge: 'east' },
         ].filter((position) => distance(position, this.player) >= 115
             && !this.terrain.some(rect => rect.state === 'closed' && insideRect(position, rect, 7)));
-        const position = spots[Math.floor(this.random() * spots.length)];
+        const randomSpot = spots[Math.floor(this.random() * spots.length)];
+        const position = preferredEdge ? spots.find(spot => spot.edge === preferredEdge) ?? randomSpot : randomSpot;
         if (!position) return false;
         const at = Math.max(this.tick + SPAWN_WARNING, kind === 'turret' ? this.turretResumeAt : 0);
-        const last = this.warnings[this.warnings.length - 1];
-        this.warnings.push({ ...position, at, kind });
-        if (last && last.at > at) this.warnings.sort((a, b) => a.at - b.at);
+        this.insertWarning({ x: position.x, y: position.y, at, kind });
         return true;
+    }
+
+    private insertWarning(warning: Spawn): void {
+        const last = this.warnings[this.warnings.length - 1];
+        this.warnings.push(warning);
+        if (last && last.at > warning.at) this.warnings.sort((a, b) => a.at - b.at);
     }
 
     private emitMissionCue(kind: MissionCue): void {
@@ -388,7 +557,7 @@ export class Battle {
         if (!this.gatekeeperPractice && this.spec.directive?.powerDrill && port && this.task?.completedStations === 1) {
             const safe = distance(port, GATEKEEPER_PORTS.a) <= distance(port, GATEKEEPER_PORTS.b) ? 'a' : 'b';
             this.gatekeeperPractice = { until: this.tick + GATEKEEPER_WARNING_TICKS,
-                warning: { ...gatekeeperLane(safe), state: 'warning' } };
+                warning: { ...gatekeeperLane(safe, this.field), state: 'warning' } };
             this.signalWarning('warning');
         }
     }
@@ -396,6 +565,17 @@ export class Battle {
     private signalWarning(kind: 'warning' | 'charge'): void {
         this.warningKind = kind;
         this.warningSerial++;
+    }
+
+    private signalEnemyAttack(kind: Battle['enemyAttackCue']): void {
+        this.enemyAttackCue = kind;
+        this.enemyAttackSerial++;
+    }
+
+    private enemyContact(enemy: Enemy): void {
+        if (!this.hurt(enemy.kind)) return;
+        enemy.contactAt = this.tick;
+        if (enemy.state !== 'dash') this.signalEnemyAttack('melee');
     }
 
     private moveEnemies(): void {
@@ -407,7 +587,7 @@ export class Battle {
             if (enemy.kind === 'pursuer' || enemy.kind === 'reclaimer' || enemy.kind === 'jammer' || enemy.kind === 'ambusher') {
                 this.moveSpecialEnemy(enemy);
                 const visible = enemy.kind !== 'ambusher' || enemy.state !== 'warn' && this.tick >= (enemy.revealedAt ?? this.tick) + 8;
-                if (visible && distance(enemy, this.player) < 15) this.hurt(enemy.kind);
+                if (visible && distance(enemy, this.player) < 15) this.enemyContact(enemy);
                 continue;
             }
             const dx = this.player.x - enemy.x;
@@ -417,6 +597,7 @@ export class Battle {
             if (enemy.kind === 'charger' && enemy.state === 'warn' && this.tick >= enemy.next) {
                 enemy.state = 'dash';
                 enemy.next = this.tick + 17;
+                this.signalEnemyAttack('melee');
             }
             if (enemy.state === 'dash') {
                 enemy.x += enemy.vx * 7.6;
@@ -471,19 +652,22 @@ export class Battle {
             if (enemy.kind === 'turret' && enemy.state === 'warn' && this.tick >= enemy.next) {
                 enemy.state = 'walk';
                 enemy.next = this.tick + 73;
-                if (this.bullets.length < MAX_BULLETS) this.bullets.push({
-                    x: enemy.x, y: enemy.y, vx: 3.25 * enemy.vx, vy: 3.25 * enemy.vy, port: enemy.aimPort,
-                });
+                if (this.bullets.length < MAX_BULLETS) {
+                    this.bullets.push({ x: enemy.x, y: enemy.y,
+                        vx: 3.25 * enemy.vx, vy: 3.25 * enemy.vy, port: enemy.aimPort });
+                    enemy.shotAt = this.tick;
+                    this.signalEnemyAttack('projectile');
+                }
             }
             this.keepInField(enemy, 7);
             this.applyTerrain(enemy, 7);
-            if (distance(enemy, this.player) < 15) this.hurt(enemy.kind);
+            if (distance(enemy, this.player) < 15) this.enemyContact(enemy);
         }
     }
 
     private walkToward(enemy: Enemy, target: Readonly<Position>, speed: number): void {
         const next = !this.terrain.length ? target
-            : routeAround(enemy, nearestOpen(target, this.terrain, 7), this.terrain, 7)[0];
+            : routeAround(enemy, nearestOpen(target, this.terrain, 7, this.field), this.terrain, 7, this.field)[0];
         const dx = next ? next.x - enemy.x : 0, dy = next ? next.y - enemy.y : 0;
         const range = Math.hypot(dx, dy);
         if (enemy.kind === 'pursuer') {
@@ -508,6 +692,10 @@ export class Battle {
         const range = distance(enemy, target);
         switch (enemy.kind) {
             case 'reclaimer': {
+                if (!escort && this.rules.encounter?.combatOnly) {
+                    if (this.attackReclaimer(enemy, range)) return;
+                    break;
+                }
                 const canTow = escort && this.task && !this.task.complete && !this.task.failed;
                 if (enemy.state === 'warn' || enemy.state === 'dash') {
                     const intercepted = distanceToSegment(this.player, enemy, target) <= 12;
@@ -520,6 +708,7 @@ export class Battle {
                         if (enemy.state === 'warn') {
                             enemy.state = 'dash';
                             enemy.next = this.tick + RECLAIMER_PULL_TICKS;
+                            this.signalEnemyAttack('area');
                         } else {
                             this.task?.finishEscortPull(this.tick);
                             enemy.state = 'walk';
@@ -539,6 +728,7 @@ export class Battle {
                 if (enemy.state === 'warn' && this.tick >= enemy.next) {
                     enemy.state = 'dash';
                     enemy.next = this.tick + 58;
+                    this.signalEnemyAttack('area');
                 } else if (enemy.state === 'dash' && this.tick >= enemy.next) {
                     enemy.state = 'walk';
                     enemy.next = this.tick + 67;
@@ -570,6 +760,43 @@ export class Battle {
         this.applyTerrain(enemy, 7);
     }
 
+    private attackReclaimer(enemy: Enemy, range: number): boolean {
+        if (enemy.state === 'walk') {
+            if (range >= 72 || this.tick < enemy.next) return false;
+            const aim = range > 0.01 ? Math.atan2(this.player.y - enemy.y, this.player.x - enemy.x) : -Math.PI / 2;
+            enemy.tether = fieldRayEnd(enemy, Math.cos(aim), Math.sin(aim), 86, this.field);
+            enemy.tetherHit = false;
+            enemy.state = 'warn';
+            enemy.next = this.tick + 27;
+            this.signalWarning('warning');
+        } else if (this.tick >= enemy.next) {
+            if (enemy.state === 'dash') {
+                enemy.state = 'walk';
+                enemy.next = this.tick + 77;
+                enemy.tether = undefined;
+                return false;
+            }
+            enemy.state = 'dash';
+            enemy.next = this.tick + RECLAIMER_PULL_TICKS;
+            this.signalEnemyAttack('area');
+        }
+        if (enemy.state === 'dash' && !enemy.tetherHit && enemy.tether && distanceToSegment(this.player, enemy, enemy.tether) < 12) {
+            enemy.tetherHit = true;
+            if (this.hurt('reclaimer')) this.pullPlayer(enemy, 14);
+        }
+        return true;
+    }
+
+    private pullPlayer(from: Readonly<Position>, maxDistance: number): void {
+        const range = distance(from, this.player);
+        if (range < 1e-6) return;
+        const fraction = Math.min(0.4, maxDistance / range);
+        this.player.x += (from.x - this.player.x) * fraction;
+        this.player.y += (from.y - this.player.y) * fraction;
+        this.keepInField(this.player, PLAYER_MARGIN);
+        this.applyTerrain(this.player, PLAYER_MARGIN);
+    }
+
     private moveBoss(): void {
         const boss = this.boss!;
         const unit = boss.unit;
@@ -599,6 +826,8 @@ export class Battle {
             return;
         }
         if (boss.phase === 'warning' && this.tick >= boss.next) {
+            boss.attackAt = this.tick;
+            this.signalEnemyAttack(boss.attack === 'charge' ? 'melee' : 'area');
             if (boss.attack === 'summon') {
                 for (const add of ['crawler', 'crawler', 'charger', 'crawler'] as const) this.queueSpawn(add);
                 boss.phase = 'recover';
@@ -644,22 +873,26 @@ export class Battle {
             const portHit = !hit && bullet.port && distance(bullet, bullet.port) < 14;
             if (portHit) this.task?.relayHit(this.tick, bullet.port!);
             if (hit || portHit || this.terrain.some(rect => rect.state === 'closed' && insideRect(bullet, rect))
-                || bullet.x < FIELD.left || bullet.x > FIELD.right || bullet.y < FIELD.bottom || bullet.y > FIELD.top) {
+                || bullet.x < this.field.left || bullet.x > this.field.right
+                || bullet.y < this.field.bottom || bullet.y > this.field.top) {
                 this.bullets.splice(index, 1);
             }
         }
     }
 
-    private hurt(source: HitSource): void {
-        if (this.tick < this.player.invulnerableUntil || this.player.hp <= 0) return;
+    private hurt(source: HitSource): boolean {
+        if (this.tick < this.player.invulnerableUntil || this.player.hp <= 0) return false;
         this.player.invulnerableUntil = this.tick + this.rules.hitGrace;
         if (this.shielded) {
             this.shielded = false;
-            return;
+            return false;
         }
         this.player.hp--;
+        this.player.hurtAt = this.tick;
+        this.playerHit = { x: this.player.x, y: this.player.y };
         this.damageTaken++;
         this.lastHit = source;
+        return true;
     }
 
     private nearest(origin: Position, reach: number, excluded?: ReadonlySet<Enemy>): Enemy | undefined {
@@ -676,12 +909,13 @@ export class Battle {
         return result;
     }
 
-    private fire(tool: EquippedTool, runtime: ToolRuntime): void {
+    private fire(tool: EquippedTool, runtime: ToolRuntime, slot: number): void {
         const ready = this.tick >= runtime.next;
         const trackingCombo = tool.id === 'bypass_wrench' && runtime.combo > 0;
         if (!ready && !trackingCombo) return;
         const spec = TOOLS[tool.id];
-        const target = this.nearest(this.player, spec.reach);
+        const { reach, interval, equipment } = runtime;
+        const target = this.nearest(this.player, reach);
         if (trackingCombo) {
             if (target) runtime.lastInMelee = this.tick;
             else if (this.tick - runtime.lastInMelee >= 2 * TICK_RATE) runtime.combo = 0;
@@ -691,13 +925,28 @@ export class Battle {
             runtime.heat = Math.max(0, runtime.heat - 1 / 30);
             return;
         }
+        const targetRange = distance(this.player, target);
+        const aim = targetRange || 1;
+        const ux = (target.x - this.player.x) / aim, uy = (target.y - this.player.y) / aim;
+        this.playerAttack = { tick: this.tick, x: ux, y: uy };
+        this.playerAttackTool = tool.id;
+        this.weaponCasts.push({ tool: tool.id, slot, x: this.player.x, y: this.player.y, ux, uy, targetRange, tick: this.tick });
+        this.weaponAttackCue = WEAPON_ATTACK_CUES[tool.id];
+        this.weaponAttackSerial++;
         if (runtime.cooling) {
             this.heatRecovered = true;
             runtime.cooling = false;
         }
-        const heatTool = this.heat && tool.mods.some((id) => id === 'exchanger' || id === 'valve' || id === 'ceramic');
-        const damage = spec.damage + (heatTool && runtime.heat >= 3 ? 1 : 0);
-        runtime.next = this.tick + spec.cooldown - (tool.mods.indexOf('exchanger') >= 0 ? 3 : 0);
+        const heatTool = equipment?.heat ?? (this.heat && tool.mods.some((id) => id === 'exchanger' || id === 'valve' || id === 'ceramic'));
+        const damage = (equipment?.damage ?? spec.damage) + (heatTool && runtime.heat >= 3 ? 1 : 0);
+        const close = equipment?.close ?? Number(tool.tuning?.finisher === 'close');
+        const far = equipment?.far ?? Number(tool.tuning?.finisher === 'edge');
+        const damageAt = (enemy: Enemy): number => {
+            if (!close && !far) return damage;
+            const relativeReach = distance(this.player, enemy) / reach;
+            return damage + (relativeReach <= 0.45 ? close : relativeReach >= 0.65 ? far : 0);
+        };
+        runtime.next = this.tick + interval;
         const heatsink = this.blueprint === 'quick_release_heatsink';
         if (heatTool && ++runtime.heat >= (tool.mods.indexOf('ceramic') >= 0 ? 8 : 6) - (heatsink ? 1 : 0)) {
             runtime.heat = 0;
@@ -705,73 +954,80 @@ export class Battle {
             runtime.cooling = true;
             this.triggers.heat++;
         }
-        const chain = this.arc && target.marked;
-        if (tool.mods.indexOf('contact') >= 0 || (this.arc && tool.mods.indexOf('relay') >= 0)) target.marked = true;
+        const chain = (equipment?.arcLink ?? this.arc) && target.marked;
+        if (equipment?.marks ?? (tool.mods.indexOf('contact') >= 0 || (this.arc && tool.mods.indexOf('relay') >= 0))) target.marked = true;
         if (tool.id === 'wrench' || tool.id === 'arc_gun') {
             const excluded = new Set([target]);
-            this.hit(target, damage, this.player, 'arc');
-            this.chainFrom(target, excluded, chain, tool.id === 'arc_gun');
+            this.hit(target, damageAt(target), this.player, 'arc', false, tool.id === 'wrench' ? 'melee' : 'launch');
+            this.chainFrom(target, excluded, chain, tool.id === 'arc_gun', equipment);
             return;
         }
         if (tool.id === 'bypass_wrench') {
             // Shielded hits do not advance a combo. The fourth accepted hit consumes it.
-            if (this.hit(target, damage + (runtime.combo === 3 ? 3 : 0), this.player, 'arc')) {
+            if (this.hit(target, damageAt(target) + (runtime.combo === 3 ? 3 + (equipment?.combo ?? 0) : 0), this.player, 'arc', false, 'melee')) {
                 runtime.combo = (runtime.combo + 1) % 4;
                 runtime.lastInMelee = this.tick;
             }
-            if (chain) this.chainFrom(target, new Set([target]), true);
+            if (chain) this.chainFrom(target, new Set([target]), true, false, equipment);
             return;
         }
         if (tool.id === 'induction') {
-            const area = this.pulse('induction', spec.reach);
+            const area = this.pulse('induction', reach);
             const targets = this.enemies.filter((enemy) => covers(area, enemy));
-            for (const enemy of targets) this.hit(enemy, damage, this.player, 'induction');
-            if (chain) this.chainFrom(target, new Set(targets), true);
+            for (const enemy of targets) this.hit(enemy, damageAt(enemy), this.player, 'induction');
+            if (chain) this.chainFrom(target, new Set(targets), true, false, equipment);
             return;
         }
         if (tool.id === 'traction_coil') {
-            const area = this.pulse('induction', spec.reach);
+            const area = this.pulse('induction', reach);
             const targets = this.enemies.filter(enemy => (enemy === target || this.canTarget(enemy)) && covers(area, enemy))
-                .sort((a, b) => distance(this.player, a) - distance(this.player, b) || a.id - b.id).slice(0, 2);
+                .sort((a, b) => distance(this.player, a) - distance(this.player, b) || a.id - b.id).slice(0, 2 + (equipment?.targets ?? 0));
             for (const enemy of targets) {
-                this.hit(enemy, damage, this.player, 'induction');
-                this.displace(enemy, -20);
+                this.hit(enemy, damageAt(enemy), this.player, 'induction', false, 'pull');
+                this.displace(enemy, -20 - (equipment?.displacement ?? 0));
             }
-            if (chain) this.chainFrom(target, new Set(targets), true);
+            if (chain) this.chainFrom(target, new Set(targets), true, false, equipment);
             return;
         }
         if (tool.id === 'split_probe') {
             const targets = new Set([target]);
-            const secondary = this.nearest(this.player, spec.reach, targets);
-            if (secondary) targets.add(secondary);
+            const count = 2 + (equipment?.targets ?? 0);
+            while (targets.size < count) {
+                const next = this.nearest(this.player, reach, targets);
+                if (!next) break;
+                targets.add(next);
+            }
             for (const enemy of Array.from(targets)) {
                 this.drawArea(enemy, distance(this.player, enemy), 'shot', 2);
-                this.hit(enemy, damage, this.player, 'shot');
+                this.hit(enemy, damageAt(enemy), this.player, 'shot');
             }
-            if (chain) this.chainFrom(target, targets, true);
+            if (chain) this.chainFrom(target, targets, true, false, equipment);
             return;
         }
         const shot = tool.id === 'riveter' || tool.id === 'hydraulic_nailer';
         const kind = shot ? 'shot' : 'heat';
-        const area = this.drawArea(target, spec.reach, kind, tool.id === 'hydraulic_nailer' ? 9 : 11);
+        const spread = equipment?.spread ?? 0;
+        const area = this.drawArea(target, reach, kind, (tool.id === 'hydraulic_nailer' ? 9 : 11) + (shot ? spread : 0),
+            .7 + (shot ? 0 : spread));
         const targets = this.enemies.filter(enemy => enemy === target || (area && this.canTarget(enemy) && covers(area, enemy)))
             .sort((left, right) => distance(this.player, left) - distance(this.player, right) || left.id - right.id);
-        const hits = targets.slice(0, tool.id === 'hydraulic_nailer' ? 2 : tool.id === 'riveter' ? 3 : targets.length);
+        const limit = tool.id === 'hydraulic_nailer' ? 2 : tool.id === 'riveter' ? 3 : targets.length;
+        const hits = targets.slice(0, limit + (equipment?.pierce ?? 0));
         for (const enemy of hits) {
-            this.hit(enemy, damage, this.player, kind, tool.id === 'hydraulic_nailer');
-            if (tool.id === 'pulse_nozzle') this.displace(enemy, 16);
+            this.hit(enemy, damageAt(enemy), this.player, kind, tool.id === 'hydraulic_nailer');
+            if (tool.id === 'pulse_nozzle') this.displace(enemy, 16 + (equipment?.displacement ?? 0));
         }
-        if (chain && hits.includes(target)) this.chainFrom(target, new Set(hits), true);
+        if (chain && hits.includes(target)) this.chainFrom(target, new Set(hits), true, false, equipment);
     }
 
-    private drawArea(target: Enemy, reach: number, kind: 'shot' | 'heat', width: number): Area | undefined {
+    private drawArea(target: Enemy, reach: number, kind: 'shot' | 'heat', width: number, slope = .7): Area | undefined {
         const range = distance(this.player, target);
         if (range === 0) return undefined;
         const origin = { x: this.player.x, y: this.player.y,
             ux: (target.x - this.player.x) / range, uy: (target.y - this.player.y) / range };
         const area: Area = kind === 'shot'
             ? { ...origin, shape: 'strip', kind, length: reach, halfWidth: width }
-            : { ...origin, shape: 'sector', kind, radius: reach, slope: 0.7 };
+            : { ...origin, shape: 'sector', kind, radius: reach, slope };
         this.effects.push({ ...area, life: 7 });
         return area;
     }
@@ -790,13 +1046,14 @@ export class Battle {
         enemy.nextShift = this.tick + 30;
     }
 
-    private chainFrom(first: Enemy, excluded: Set<Enemy>, enhanced: boolean, gun = false): void {
+    private chainFrom(first: Enemy, excluded: Set<Enemy>, enhanced: boolean, gun = false, equipment?: WeaponEquipmentStats): void {
         let origin = first;
         const narrow = this.blueprint === 'narrow_beam_clamp';
-        const reach = (this.mods.has('relay') ? 82 : 66) + (narrow ? 20 : 0);
-        const maximum = enhanced ? narrow ? 2 : 3 : gun ? 2 : 1;
+        const extraReach = equipment?.chainReach ?? 0;
+        const reach = (this.mods.has('relay') ? 82 : 66) + (narrow ? 20 : 0) + extraReach;
+        const maximum = (enhanced ? narrow ? 2 : 3 : gun ? 2 : 1) + (equipment?.hops ?? 0);
         for (let hop = 0; hop < maximum; hop++) {
-            const next = this.nearest(origin, enhanced ? reach + (gun ? 12 : 0) : gun ? 56 : 39, excluded);
+            const next = this.nearest(origin, enhanced ? reach + (gun ? 12 : 0) : (gun ? 56 : 39) + extraReach, excluded);
             if (!next) break;
             if (enhanced && hop === 0) this.triggers.arc++;
             excluded.add(next);
@@ -809,7 +1066,8 @@ export class Battle {
         return enemy.hp > 0 && !(enemy.kind === 'ambusher' && enemy.state === 'warn');
     }
 
-    private hit(enemy: Enemy, damage: number, from: Position, kind: Attack['kind'], nailer = false): boolean {
+    private hit(enemy: Enemy, damage: number, from: Position, kind: Attack['kind'], nailer = false,
+        motion?: 'melee' | 'launch' | 'pull'): boolean {
         if (!this.canTarget(enemy)) return false;
         if (this.rules.encounter?.armorLine && !nailer && kind === 'shot' && enemy.kind !== 'armored') {
             const range = distance(enemy, from);
@@ -826,13 +1084,24 @@ export class Battle {
         }
         if (enemy === this.boss?.unit && this.encounterBoss) damage = this.encounterBoss.damage(damage, from, nailer);
         if (damage <= 0) return false;
+        enemy.hitAt = this.tick;
+        this.weaponImpactSerial++;
         const point = { x: enemy.x, y: enemy.y, life: 7 };
-        this.effects.push(kind === 'arc' ? { ...point, kind, shape: 'link', from: { x: from.x, y: from.y } }
-            : { ...point, kind, shape: 'impact' });
+        if (kind === 'arc') {
+            const link: Attack = { ...point, kind, shape: 'link', from: { x: from.x, y: from.y } };
+            if (motion === 'melee' || motion === 'launch') link.fromWeapon = true;
+            if (motion === 'melee') link.melee = true;
+            this.effects.push(link);
+        } else {
+            const impact: Attack = { ...point, kind, shape: 'impact' };
+            if (motion === 'pull') impact.pullFrom = { x: from.x, y: from.y };
+            this.effects.push(impact);
+        }
         enemy.hp -= damage;
         if (enemy.hp > 0) return true;
         if (enemy.kind === 'reclaimer' && enemy.state !== 'walk') this.cutSerial++;
         this.enemies.splice(this.enemies.indexOf(enemy), 1);
+        if (!(enemy === this.boss?.unit && this.encounterBoss?.kind === 'core')) this.defeatedEnemies.push(enemy);
         this.parts.push({ x: enemy.x, y: enemy.y });
         this.kills++;
         return true;
@@ -849,12 +1118,13 @@ export class Battle {
             if (distance(this.parts[index], this.player) >= this.pickupRadius) continue;
             this.parts.splice(index, 1);
             this.collected++;
-            if (!this.magnet || ++this.magnetCharge < 5) continue;
+            if (!this.magnet || ++this.magnetCharge < MAGNET_PULSE.parts) continue;
             this.magnetCharge = 0;
             this.triggers.magnet++;
-            const area = this.pulse('magnet', 79);
+            this.playerPulseAt = this.tick;
+            const area = this.pulse('magnet', MAGNET_PULSE.radius);
             for (const enemy of [...this.enemies]) {
-                if (covers(area, enemy)) this.hit(enemy, 4, this.player, 'magnet');
+                if (covers(area, enemy)) this.hit(enemy, MAGNET_PULSE.damage, this.player, 'magnet');
             }
         }
     }

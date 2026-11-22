@@ -1,0 +1,245 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11",
+  "files": [],
+  "subMetas": {
+    "47204": {
+      "importer": "gltf-material",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@47204",
+      "displayName": "",
+      "id": "47204",
+      "name": "Effect swatch.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "12bba": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@12bba",
+      "displayName": "",
+      "id": "12bba",
+      "name": "SwingRibbon surface.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 376
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "92af7": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@92af7",
+      "displayName": "",
+      "id": "92af7",
+      "name": "HookRibbon surface.mesh",
+      "userData": {
+        "gltfIndex": 1,
+        "triangleCount": 376
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "cee52": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@cee52",
+      "displayName": "",
+      "id": "cee52",
+      "name": "ArcLink surface.mesh",
+      "userData": {
+        "gltfIndex": 2,
+        "triangleCount": 128
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "3e438": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@3e438",
+      "displayName": "",
+      "id": "3e438",
+      "name": "RivetTracer surface.mesh",
+      "userData": {
+        "gltfIndex": 3,
+        "triangleCount": 132
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f96d4": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@f96d4",
+      "displayName": "",
+      "id": "f96d4",
+      "name": "HeatJet surface.mesh",
+      "userData": {
+        "gltfIndex": 4,
+        "triangleCount": 108
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "00165": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@00165",
+      "displayName": "",
+      "id": "00165",
+      "name": "FluxRing surface.mesh",
+      "userData": {
+        "gltfIndex": 5,
+        "triangleCount": 504
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "2bc47": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@2bc47",
+      "displayName": "",
+      "id": "2bc47",
+      "name": "FluxTether surface.mesh",
+      "userData": {
+        "gltfIndex": 6,
+        "triangleCount": 472
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "b4e25": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@b4e25",
+      "displayName": "",
+      "id": "b4e25",
+      "name": "StrikeBurst surface.mesh",
+      "userData": {
+        "gltfIndex": 7,
+        "triangleCount": 160
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "d09bf": {
+      "importer": "gltf-mesh",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@d09bf",
+      "displayName": "",
+      "id": "d09bf",
+      "name": "EnemyRound surface.mesh",
+      "userData": {
+        "gltfIndex": 8,
+        "triangleCount": 76
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "5666c": {
+      "importer": "gltf-scene",
+      "uuid": "33d1fc29-45fa-465a-b2b4-6e824d22fe11@5666c",
+      "displayName": "",
+      "id": "5666c",
+      "name": "battle-effects.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@12bba",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@92af7",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@cee52",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@3e438",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@f96d4",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@00165",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@2bc47",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@b4e25",
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@d09bf"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@47204"
+      ],
+      "scenes": [
+        "33d1fc29-45fa-465a-b2b4-6e824d22fe11@5666c"
+      ]
+    }
+  }
+}

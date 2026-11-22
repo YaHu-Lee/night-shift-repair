@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { FIELD } from '../.m0-build/m1/content.js';
 
 const guestPrefix = 'night-shift.campaign.run.';
 const stage = { id: '01', arena: 'yard', rules: {} };
@@ -19,8 +20,10 @@ function lifecycle() {
             ccclass: () => value => value, requireComponent: () => value => value, property() {},
         } },
         '../campaign/CampaignCatalog': { CAMPAIGN_CATALOG: [stage], rulesForCampaign: entry => entry.rules },
+        '../m1/content': { FIELD },
         '../m1/Run': { Run: class { constructor(platform) { this.platform = platform; } } },
         '../platform/platform': { makePlatform: (_host, namespace) => ({ namespace }) },
+        './WorkshopBench': { BENCH: {}, benchPlate() {} },
     };
     vm.runInNewContext(output, { exports, require: path => modules[path] ?? {} });
     const view = new exports.M1Bootstrap();
@@ -123,11 +126,12 @@ test('direct settlement is available during a silent native show and retries the
     view.reviveAd = { show: () => ad.promise, cancel: () => { canceled++; } };
     view.campaignTrace = name => { events.push(name); };
     view.reconcileCampaignResult = () => { credited++; };
-    view.cover = () => {};
-    view.dispatchHeader = () => {};
+    view.benchBackdrop = () => {};
+    view.benchHeader = () => 602;
+    view.block = () => {};
     view.text = () => {};
     const buttons = new Map();
-    view.button = (label, _x, _y, _w, _h, action, enabled) => buttons.set(label, { action, enabled });
+    view.benchButton = (label, _x, _y, _w, action, { enabled = true } = {}) => buttons.set(label, { action, enabled });
 
     const watching = view.watchRevive();
     view.drawRevive();
@@ -150,6 +154,43 @@ test('direct settlement is available during a silent native show and retries the
     await watching;
     assert.equal(view.reviveDecision, undefined);
     assert.deepEqual(events, ['ad_request']);
+});
+
+test('an unavailable or incomplete video keeps the revive checkpoint until the player chooses', async () => {
+    const view = lifecycle();
+    const data = { phase: 'revive', runId: 'video-retry', revision: 5 };
+    let attempts = 0;
+    let revives = 0;
+    view.run = {
+        data, canRevive: true,
+        declineRevive() { assert.fail('the player has not chosen settlement'); },
+        revive(runId, revision) {
+            assert.equal(runId, data.runId);
+            assert.equal(revision, data.revision);
+            revives++;
+            this.data = { ...data, phase: 'battle', revision: 6 };
+            return true;
+        },
+    };
+    view.reviveAd = { async show(onShown) {
+        attempts++;
+        if (attempts > 1) onShown();
+        return attempts === 3;
+    } };
+
+    for (const feedback of ['unavailable', 'incomplete']) {
+        await view.watchRevive();
+        view.finishRevive();
+        assert.equal(view.reviveFeedback, feedback);
+        assert.equal(view.reviveDecision, undefined);
+        assert.equal(view.watchingRevive, false);
+        assert.equal(view.run.data, data);
+    }
+    await view.watchRevive();
+    view.finishRevive();
+    view.finishRevive();
+    assert.equal(revives, 1);
+    assert.equal(view.run.data.phase, 'battle');
 });
 
 test('verification overlay lets a guest continue and ignores the late verification', async () => {
@@ -197,7 +238,7 @@ test('online retry syncs a bound archive without replacing the active sortie', a
     assert.equal(view.run, run);
     assert.equal(view.cloudBusy, false);
     assert.equal(syncs, 1);
-    assert.match(view.cloudMessage, /等待同步/);
+    assert.match(view.cloudMessage, /同步还没完成/);
 
     view.cloud.binding = null;
     view.retryCloudVerification = true;

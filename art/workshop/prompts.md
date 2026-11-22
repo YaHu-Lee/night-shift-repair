@@ -8,6 +8,10 @@
 
 逐项记录工具、源图文件、裁切、透明度、尺寸与 SHA-256。[四章素材清单](campaign-assets.json) · [战役音效清单](campaign-audio.json)
 
+主页及整备用 19.2 秒的柔和合成器循环，战斗换成 15.36 秒的同主题节奏编排。两段原声由项目脚本合成，尾音跨越循环点，使用 `ffmpeg`（带 `libmp3lame`）压缩为单声道 MP3。[音乐生成脚本](../../scripts/generate-campaign-music.mjs)
+
+工具出手、敌方攻击、命中、购买与解锁的短音效由项目脚本直接合成，使用振荡器及可重复的噪声生成器，导出为单声道 PCM WAV。电弧出手、射击和命中用 16 kHz，其余新增短音效用 12 kHz。[音效生成脚本](../../scripts/generate-campaign-effects.mjs)
+
 ## 沿江抢修地图（2026-11-20）
 
 内置 ImageGen 文字生成。配电站在近岸，泵房在对岸，地图节点、关名和引导光圈由 Creator 按游戏存档叠加。早期两站版原图保存在 `art/workshop/source/riverside-map.jpg`，尺寸 720 × 1280，RGB，JPEG 质量 84。SHA-256 为 `2b9a24227e763614dd3a199ac9efdfd2843a60bd94c584ce564dd70f5ea571f7`。运行时使用第一章分包的长图。

@@ -47,5 +47,140 @@
       "creatorUuid": "559319c9-f34d-45dc-b69f-19db7e48c7cf",
       "sha256": "aeee5d847b227a8f25caca507006730933f39cdc27a2354b117669b8023b4258"
     }
-  ]
+  ],
+  "scores": [
+    {
+      "id": "night-shift",
+      "file": "creator-m0/assets/resources/campaign/night-shift.mp3",
+      "runtimePath": "campaign/night-shift",
+      "creatorUuid": "bdbabfa0-5152-468b-87ae-540d4557e8fe",
+      "sha256": "1c05f1cd930e67ac9b46c4dec8ae7a7bc1de9f4cd82f256e4e0aa3811afcf124",
+      "generator": "scripts/generate-campaign-music.mjs",
+      "durationSeconds": 19.2,
+      "event": "主页、路线图、出勤简报与整备"
+    },
+    {
+      "id": "live-circuit",
+      "file": "creator-m0/assets/resources/campaign/live-circuit.mp3",
+      "runtimePath": "campaign/live-circuit",
+      "creatorUuid": "a259cf47-6028-4114-94af-87b9a02e323e",
+      "sha256": "d015f38b0b06500b1dc60312cd6407544d55c7e3a9b33b5b325c7ba13c767abb",
+      "generator": "scripts/generate-campaign-music.mjs",
+      "durationSeconds": 15.36,
+      "event": "局内战斗"
+    }
+  ],
+  "effects": [
+    {
+      "id": "tool-arc",
+      "file": "creator-m0/assets/resources/campaign/tool-arc.wav",
+      "runtimePath": "campaign/tool-arc",
+      "creatorUuid": "3a8ad95c-10c2-451e-a3e7-1e0185c0efc7",
+      "sha256": "51e884a2857219a2a657d9ddd507f53bb83919db789e9fafe608a38c0426b11d",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "电弧类工具出手",
+      "sampleRateHz": 16000
+    },
+    {
+      "id": "tool-shot",
+      "file": "creator-m0/assets/resources/campaign/tool-shot.wav",
+      "runtimePath": "campaign/tool-shot",
+      "creatorUuid": "9557ab62-ba86-4dda-b1c9-263939dd1b58",
+      "sha256": "bba87a7f6651287b42ee5df64d0e7af859ee4c04b84a8a730ef666857e3395da",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "射击类工具出手",
+      "sampleRateHz": 16000
+    },
+    {
+      "id": "tool-heat",
+      "file": "creator-m0/assets/resources/campaign/tool-heat.wav",
+      "runtimePath": "campaign/tool-heat",
+      "creatorUuid": "d5bb4616-32ca-4830-b186-1eca29944bda",
+      "sha256": "66241f7dcff2adc4aa0d6474e0424a6230d90cf56bd21a20304c02f3e43f6cac",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "热力类工具出手",
+      "sampleRateHz": 12000
+    },
+    {
+      "id": "tool-magnet",
+      "file": "creator-m0/assets/resources/campaign/tool-magnet.wav",
+      "runtimePath": "campaign/tool-magnet",
+      "creatorUuid": "0a735c7a-9c15-4ceb-b94a-66ac35a045a2",
+      "sha256": "8301e085134b6113b6bc38459be5d0bc681cf9b942f62bec8b0ccc1efeb02ef2",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "牵引类工具出手",
+      "sampleRateHz": 12000
+    },
+    {
+      "id": "tool-induction",
+      "file": "creator-m0/assets/resources/campaign/tool-induction.wav",
+      "runtimePath": "campaign/tool-induction",
+      "creatorUuid": "cf943ff1-05f2-4ccf-89b6-c6440b2d3a9d",
+      "sha256": "c22b2801012342a42c72cd476d2861948a72161fa2379e4068b5bca687841063",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "感应类工具出手",
+      "sampleRateHz": 12000
+    },
+    {
+      "id": "enemy-projectile",
+      "file": "creator-m0/assets/resources/campaign/enemy-projectile.wav",
+      "runtimePath": "campaign/enemy-projectile",
+      "creatorUuid": "583dbbba-f8d5-40a7-884f-06a6aa638233",
+      "sha256": "98e2978a61e82427589c8dbd045143d95bedaad05d9f061a02663645104efcca",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "敌方弹体发射",
+      "sampleRateHz": 12000
+    },
+    {
+      "id": "enemy-melee",
+      "file": "creator-m0/assets/resources/campaign/enemy-melee.wav",
+      "runtimePath": "campaign/enemy-melee",
+      "creatorUuid": "bdb7c51a-faf8-4209-9592-151522e6962f",
+      "sha256": "180813771645fbdf4d032c4b0e7c7753a13364d3add75e2a199414d047f8e2e8",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "敌方近战与冲锋",
+      "sampleRateHz": 12000
+    },
+    {
+      "id": "enemy-area",
+      "file": "creator-m0/assets/resources/campaign/enemy-area.wav",
+      "runtimePath": "campaign/enemy-area",
+      "creatorUuid": "0f3c8cf6-e42b-42b3-8e3e-fbf9075a294e",
+      "sha256": "65f7d0afda315b139ecef153c9c032b6349204584af04d6f06dfeccca8cebc9c",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "敌方范围效果生效",
+      "sampleRateHz": 12000
+    },
+    {
+      "id": "tool-impact",
+      "file": "creator-m0/assets/resources/campaign/tool-impact.wav",
+      "runtimePath": "campaign/tool-impact",
+      "creatorUuid": "8b0e091f-bef7-4382-8569-c2f7b3b6d6c8",
+      "sha256": "115b6d42f7a05b1eec952e5e3641d2bdc12a35c4a598ae50732d233e31e5c257",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "工具成功造成伤害",
+      "sampleRateHz": 16000
+    },
+    {
+      "id": "purchase",
+      "file": "creator-m0/assets/resources/campaign/purchase.wav",
+      "runtimePath": "campaign/purchase",
+      "creatorUuid": "f831b83e-821c-4975-a86f-2ab60f78eb43",
+      "sha256": "29a69f4c7cbb9828149a9cc9ccaaa6f6dbc50c0c0be329d40c41dc20b04df357",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "整备购买成功",
+      "sampleRateHz": 12000
+    },
+    {
+      "id": "unlock",
+      "file": "creator-m0/assets/resources/campaign/unlock.wav",
+      "runtimePath": "campaign/unlock",
+      "creatorUuid": "1df04ca3-edb2-4de8-87b0-7a9448b4ceed",
+      "sha256": "5568dd22cf6d73173a829ac6dcb54cd9cefd87346761f47e8b4d7f6efe70e3c2",
+      "generator": "scripts/generate-campaign-effects.mjs",
+      "event": "首通解锁初始工具",
+      "sampleRateHz": 12000
+    }
+  ],
+  "generatedProvenance": "Original project-local notes, oscillators and deterministic synthesized noise without external samples. Scores are 32 kbps mono MP3 encoded with FFmpeg and libmp3lame. Effects are 16 kHz mono PCM WAV."
 }

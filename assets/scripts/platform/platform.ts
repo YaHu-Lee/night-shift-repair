@@ -1,8 +1,9 @@
 /** Local, best-effort platform boundary. No network, credentials, or engine dependencies. */
 export interface SafeInsets { top: number; right: number; bottom: number; left: number; menuBottom?: number }
 type CheckpointValidator = (value: unknown) => boolean;
+export type MiniGamePlatform = 'douyin' | 'wechat';
 export interface Platform {
-  readonly kind: 'douyin' | 'browser' | 'memory';
+  readonly kind: MiniGamePlatform | 'browser' | 'memory';
   onShow(cb: () => void): () => void;
   onHide(cb: () => void): () => void;
   getSafeInsets(): SafeInsets;
@@ -12,24 +13,40 @@ export interface Platform {
   checkpointPresence?(): 'empty' | 'present' | 'unreadable';
 }
 type NativeEvent = 'onShow' | 'onHide' | 'offShow' | 'offHide';
-type TT = Partial<Record<NativeEvent, (cb: () => void) => void>> & {
+type NativeWindowInfo = {
+  screenWidth?: number;
+  screenHeight?: number;
+  safeArea?: Partial<Pick<SafeInsets, 'top' | 'right' | 'bottom' | 'left'>>;
+  screenTop?: number;
+  windowHeight?: number;
+};
+type MiniGameSdk = Partial<Record<NativeEvent, (cb: () => void) => void>> & {
   getStorageSync?(key: string): unknown;
   setStorageSync?(key: string, text: string): void;
+  getSystemInfoSync?(): NativeWindowInfo;
+};
+type TT = MiniGameSdk & {
   getMenuButtonLayout?(): { bottom?: number };
-  getSystemInfoSync?(): {
-    screenWidth?: number;
-    screenHeight?: number;
-    safeArea?: Partial<SafeInsets>;
-  };
+};
+type WX = MiniGameSdk & {
+  getWindowInfo?(): NativeWindowInfo;
+  getMenuButtonBoundingClientRect?(): { bottom?: number };
 };
 type StorageLike = { getItem(key: string): string | null; setItem(key: string, text: string): void };
 type Store = { get(key: string): unknown; put(key: string, text: string): void };
-type Host = { tt?: TT; localStorage?: StorageLike; document?: Document };
+type NativeGlobals = { tt?: unknown; wx?: unknown };
+type Host = { tt?: TT; wx?: WX; localStorage?: StorageLike; document?: Document };
 type Entry = { format: 1; sequence: number; version: number; payload: string; check: string };
 type Slot = { key: string; entry: Entry };
 const DEFAULT_CHECKPOINT = 'night-shift.checkpoint';
 type SlotKeys = readonly [string, string];
 const MAX_TEXT_LENGTH = 64 * 1024;
+
+export function miniGamePlatform(host: NativeGlobals = globalThis as NativeGlobals): MiniGamePlatform | undefined {
+  if (host.tt && typeof host.tt === 'object') return 'douyin';
+  if (host.wx && typeof host.wx === 'object') return 'wechat';
+  return undefined;
+}
 
 function noInsets(): SafeInsets { return { top: 0, right: 0, bottom: 0, left: 0 }; }
 function revision(value: unknown): value is number {
@@ -101,29 +118,49 @@ function commit(store: Store, keys: SlotKeys, version: number, payload: string, 
   }
 }
 
-function ttInsets(tt: TT): SafeInsets {
-  const info = tt.getSystemInfoSync?.();
+function positive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function nativeInsets(info: NativeWindowInfo | undefined, menuBottom: () => number | undefined,
+  useWindowBounds = false): SafeInsets {
   const width = info?.screenWidth;
   const height = info?.screenHeight;
-  const area = info?.safeArea;
   const insets = noInsets();
-  if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0) return insets;
-  if (area && Number.isFinite(width)) {
+  if (!positive(height)) return insets;
+  let windowTop = 0;
+  let windowBottom = height;
+  if (useWindowBounds && info && typeof info.screenTop === 'number' && info.screenTop >= 0
+    && positive(info.windowHeight) && info.screenTop + info.windowHeight <= height) {
+    windowTop = info.screenTop;
+    windowBottom = windowTop + info.windowHeight;
+  }
+  const area = info?.safeArea;
+  if (area && positive(width)) {
     const { top, right, bottom, left } = area;
-    if (Number.isFinite(top) && Number.isFinite(right) && Number.isFinite(bottom) && Number.isFinite(left)
-      && left! >= 0 && top! >= 0 && right! > left! && bottom! > top!
-      && right! <= width! && bottom! <= height) {
-      Object.assign(insets, { top, right: width! - right!, bottom: height - bottom!, left });
+    if (typeof top === 'number' && typeof left === 'number' && typeof bottom === 'number' && typeof right === 'number'
+      && left >= 0 && top >= 0 && right > left && bottom > top && right <= width && bottom <= height) {
+      Object.assign(insets, {
+        top: Math.max(0, Math.min(windowBottom, top) - windowTop), right: width - right,
+        bottom: Math.max(0, windowBottom - Math.max(windowTop, bottom)), left,
+      });
     }
   }
   try {
-    const bottom = tt.getMenuButtonLayout?.()?.bottom;
-    if (typeof bottom === 'number' && Number.isFinite(bottom) && bottom > 0 && bottom <= height) {
-      insets.menuBottom = bottom;
-    }
+    const bottom = menuBottom();
+    if (positive(bottom) && bottom > windowTop && bottom <= windowBottom) insets.menuBottom = bottom - windowTop;
   } catch { /* Older clients can still provide a safe area. */ }
   return insets;
 }
+
+function wxWindowInfo(wx: WX): NativeWindowInfo | undefined {
+  try {
+    const info = wx.getWindowInfo?.();
+    if (positive(info?.screenWidth) && positive(info?.screenHeight)) return info;
+  } catch { /* Fall back to the older geometry API if the current host cannot provide window info. */ }
+  return wx.getSystemInfoSync?.();
+}
+
 function browserInsets(doc?: Document): SafeInsets {
   if (!doc?.body || !doc.defaultView) return noInsets();
   const probe = doc.createElement('div');
@@ -143,16 +180,19 @@ function browserInsets(doc?: Document): SafeInsets {
 
 export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAULT_CHECKPOINT): Platform {
   const keys = [`${checkpoint}.a`, `${checkpoint}.b`] as const;
-  const tt = host.tt;
-  const doc = host.document;
+  const nativeKind = miniGamePlatform(host);
+  const tt = nativeKind === 'douyin' ? host.tt : undefined;
+  const wx = nativeKind === 'wechat' ? host.wx : undefined;
+  const sdk = tt ?? wx;
+  const doc = sdk ? undefined : host.document;
   let storage: StorageLike | undefined;
-  if (!tt) {
+  if (!sdk) {
     try { storage = host.localStorage; } catch { /* private/restricted context */ }
   }
-  const nativeStorage = !!tt && typeof tt.getStorageSync === 'function' && typeof tt.setStorageSync === 'function';
+  const nativeStorage = sdk && typeof sdk.getStorageSync === 'function' && typeof sdk.setStorageSync === 'function';
   const volatile = new Map<string, string>();
   const store: Store = nativeStorage
-    ? { get: (key) => tt!.getStorageSync!(key), put: (key, text) => { tt!.setStorageSync!(key, text); } }
+    ? { get: (key) => sdk.getStorageSync!(key), put: (key, text) => { sdk.setStorageSync!(key, text); } }
     : storage
       ? { get: (key) => storage!.getItem(key), put: (key, text) => storage!.setItem(key, text) }
       : { get: (key) => volatile.get(key), put: (key, text) => { volatile.set(key, text); } };
@@ -160,14 +200,14 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
   function listen(show: boolean, cb: () => void): () => void {
     let active = true;
     const run = () => { if (active) cb(); };
-    if (tt) {
-      const on = show ? tt.onShow : tt.onHide;
-      const off = show ? tt.offShow : tt.offHide;
-      try { on?.call(tt, run); } catch { active = false; }
+    if (sdk) {
+      const on = show ? sdk.onShow : sdk.onHide;
+      const off = show ? sdk.offShow : sdk.offHide;
+      try { on?.call(sdk, run); } catch { active = false; }
       return () => {
         if (!active) return;
         active = false;
-        try { off?.call(tt, run); } catch { /* guard older host APIs */ }
+        try { off?.call(sdk, run); } catch { /* guard older host APIs */ }
       };
     }
     if (!doc) return () => { active = false; };
@@ -192,18 +232,22 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
   }
 
   return {
-    kind: tt ? 'douyin' : (doc || storage ? 'browser' : 'memory'),
+    kind: nativeKind ?? (doc || storage ? 'browser' : 'memory'),
     onShow: (cb) => listen(true, cb),
     onHide: (cb) => listen(false, cb),
     getSafeInsets() {
-      try { return tt ? ttInsets(tt) : browserInsets(doc); } catch { return noInsets(); }
+      try {
+        if (wx) return nativeInsets(wxWindowInfo(wx), () => wx.getMenuButtonBoundingClientRect?.()?.bottom, true);
+        if (tt) return nativeInsets(tt.getSystemInfoSync?.(), () => tt.getMenuButtonLayout?.()?.bottom);
+        return browserInsets(doc);
+      } catch { return noInsets(); }
     },
     readCheckpoint<T>(version: number, validate?: CheckpointValidator): T | null {
       if (!revision(version)) return null;
       return (readCompatibleSlot(slots(store, keys), version, validate)?.value ?? null) as T | null;
     },
     writeCheckpoint<T>(version: number, value: T, validate?: CheckpointValidator): boolean {
-      if (!revision(version)) return false;
+      if (!revision(version) || (sdk && !nativeStorage)) return false;
       try {
         const payload = JSON.stringify(value);
         return typeof payload === 'string' && (!validate || validate(JSON.parse(payload)))
@@ -213,7 +257,7 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
       }
     },
     checkpointPresence() {
-      if ((tt && !nativeStorage) || (doc && !tt && !storage)) return 'unreadable';
+      if ((sdk && !nativeStorage) || (doc && !storage)) return 'unreadable';
       try {
         const values = keys.map((key) => store.get(key));
         return values.some((value) => value !== null && value !== undefined && value !== '') ? 'present' : 'empty';
@@ -221,6 +265,6 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
         return 'unreadable';
       }
     },
-    clearCheckpoint() { return commit(store, keys, 0, ''); },
+    clearCheckpoint() { return (!sdk || !!nativeStorage) && commit(store, keys, 0, ''); },
   };
 }

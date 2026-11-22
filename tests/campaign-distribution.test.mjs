@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -12,8 +12,17 @@ const sceneUrl = 'db://assets/scenes/Campaign.scene';
 const imageUuid = '0c57fc78-efd5-44dd-b6dd-6b8ebf4dfef4';
 const compactImageUuid = '0cV/x479VE3bbda46/Tf70';
 const imagePath = 'native/0c/' + imageUuid + '.jpg';
+const audioManifest = JSON.parse(readFileSync(new URL('../art/workshop/campaign-audio.json', import.meta.url), 'utf8'));
+const audioClips = [...audioManifest.clips, ...audioManifest.scores, ...audioManifest.effects];
+const nativeAudioPath = clip => 'assets/resources/native/' + clip.creatorUuid.slice(0, 2) + '/'
+    + clip.creatorUuid + extname(clip.file);
+const resources = {
+    name: 'resources', nativeBase: 'native', types: ['cc.AudioClip'],
+    uuids: audioClips.map(clip => clip.creatorUuid),
+    paths: Object.fromEntries(audioClips.map((clip, index) => [index, [clip.runtimePath, 0, 1]])),
+};
 
-function fixture(t) {
+function fixture(t, platform = 'douyin') {
     const home = realpathSync(tmpdir());
     const root = mkdtempSync(join(home, 'night-shift-distribution-'));
     t.after(() => {
@@ -28,6 +37,7 @@ function fixture(t) {
     const put = (name, data) => putText(name, JSON.stringify(data));
     const scriptFiles = ['game.js', 'application.js', 'web-adapter.js', 'engine-adapter.js', 'cocos-js/cc.js',
         'src/import-map.js', 'src/polyfills.bundle.js', 'src/system.bundle.js', 'assets/main/index.js', 'assets/resources/index.js'];
+    if (platform === 'wechat') scriptFiles.push('first-screen.js');
     for (const file of scriptFiles) putText(file, '/* fixture runtime */\n');
     const packages = [1, 2, 3, 4].map(n => ({ name: `campaign-ch0${n}`, root: `subpackages/campaign-ch0${n}/` }));
     for (const pack of packages) {
@@ -39,21 +49,23 @@ function fixture(t) {
         putText(pack.root + imagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     }
     put('game.json', { deviceOrientation: 'portrait', subpackages: packages });
-    put('project.config.json', { appid: 'testAppId' });
-    put('src/settings.json', { CocosEngine: '3.8.8', engine: { platform: 'bytedance-mini-game', debug: false },
+    put('project.config.json', { appid: platform === 'wechat' ? 'wx6ac3f5090a6b99c5' : 'testAppId' });
+    put('src/settings.json', { CocosEngine: '3.8.8', engine: { platform: platform === 'wechat' ? 'wechatgame' : 'bytedance-mini-game', debug: false },
         launch: { launchScene: sceneUrl }, screen: { designResolution: { width: 360, height: 640 } } });
     put('assets/main/config.json', { importBase: 'import', scenes: { [sceneUrl]: 0 }, uuids: [sceneId] });
-    put('assets/resources/config.json', { name: 'resources' });
+    put('assets/resources/config.json', resources);
+    for (const clip of audioClips) putText(nativeAudioPath(clip), readFileSync(new URL('../' + clip.file, import.meta.url)));
     const scene = (values = []) => put(`assets/main/import/${sceneId.slice(0, 2)}/${sceneId}.json`, [
-        1, 0, 0, [['TestComponent', ['campaignMode', 'fullRun', 'reviveAdUnitId', 'cloudEnvId', 'cloudServiceId']]],
+        1, 0, 0, [['TestComponent', ['campaignMode', 'fullRun', 'reviveAdUnitId', 'cloudEnvId', 'cloudServiceId', 'wechatReviveAdUnitId']]],
         [[0, ...Array.from({ length: 2 + values.length }, (_, n) => n), 3 + values.length]],
         [[[0, true, true, ...values]]],
     ]);
     scene();
-    const run = ({ strict = false, appId = '' } = {}) => spawnSync(process.execPath,
-        [script, root, ...(strict ? ['--require-platform'] : [])], {
+    const run = ({ strict = false, appId = '', expectedPlatform } = {}) => spawnSync(process.execPath,
+        [script, root, ...(strict ? ['--require-platform'] : []), ...(expectedPlatform ? ['--platform', expectedPlatform] : [])], {
             encoding: 'utf8',
-            env: { ...process.env, NIGHT_SHIFT_EXPECTED_DOUYIN_APP_ID: appId },
+            env: { ...process.env, NIGHT_SHIFT_EXPECTED_DOUYIN_APP_ID: platform === 'douyin' ? appId : '',
+                NIGHT_SHIFT_EXPECTED_WECHAT_APP_ID: platform === 'wechat' ? appId : '' },
         });
     return { run, put, putText, scene, remove: name => unlinkSync(join(root, name)) };
 }
@@ -67,7 +79,7 @@ test('release report fingerprints the actual bytes and distinguishes emulator pr
         { appId: 'test-preview', rewardedAd: 'missing', cloud: 'missing', liveValidation: 'not-run' });
     assert.match(result.packageSha256, /^[0-9a-f]{64}$/);
     assert.equal(JSON.parse(run().stdout).packageSha256, result.packageSha256);
-    put('assets/resources/config.json', { name: 'resources', changed: true });
+    put('assets/resources/config.json', { ...resources, changed: true });
     assert.notEqual(JSON.parse(run().stdout).packageSha256, result.packageSha256);
 });
 
@@ -78,6 +90,8 @@ test('strict platform check requires the expected AppID and compiled feature fie
     put('project.config.json', { appid: appId });
     assert.match(run({ strict: true }).stderr, /NIGHT_SHIFT_EXPECTED_DOUYIN_APP_ID/);
     assert.match(run({ strict: true, appId }).stderr, /no rewarded ad unit/);
+    scene(['', '', '', 'adunit-0123456789abcdef']);
+    assert.match(run({ strict: true, appId }).stderr, /no rewarded ad unit for douyin/);
     scene(['fixture-ad-unit', 'fixture-cloud-env']);
     assert.match(run({ strict: true, appId }).stderr, /both cloud environment and service IDs/);
     scene(['fixture-ad-unit', 'fixture-cloud-env', 'fixture-cloud-service']);
@@ -92,6 +106,43 @@ test('strict platform check requires the expected AppID and compiled feature fie
     assert.notEqual(wrong.status, 0);
     assert.match(wrong.stderr, /does not match/);
     assert.equal(wrong.stderr.includes(appId), false);
+});
+
+test('WeChat validates its own AppID, ad unit and bootstrap independently of Douyin', t => {
+    const { run, put, remove, scene } = fixture(t, 'wechat');
+    const preview = run();
+    assert.equal(preview.status, 0, preview.stderr);
+    const report = JSON.parse(preview.stdout);
+    assert.equal(report.platform, 'wechat');
+    assert.deepEqual(report.platformConfiguration,
+        { appId: 'test-preview', rewardedAd: 'missing', cloud: 'not-applicable', liveValidation: 'not-run' });
+    assert.match(run({ expectedPlatform: 'douyin' }).stderr, /Expected the douyin Mini Game build/);
+    assert.match(run({ strict: true, appId: 'wx6ac3f5090a6b99c5' }).stderr, /NIGHT_SHIFT_EXPECTED_WECHAT_APP_ID/);
+    const appId = 'wx0123456789abcdef';
+    put('project.config.json', { appid: appId });
+    assert.match(run({ strict: true }).stderr, /NIGHT_SHIFT_EXPECTED_WECHAT_APP_ID/);
+    scene(['douyin-ad-clock', '', '']);
+    assert.match(run({ strict: true, appId }).stderr, /no rewarded ad unit for wechat/);
+    scene(['douyin-ad-clock', '', '', 'adunit-0123456789abcdef']);
+    const matched = run({ strict: true, appId, expectedPlatform: 'wechat' });
+    assert.equal(matched.status, 0, matched.stderr);
+    assert.deepEqual(JSON.parse(matched.stdout).platformConfiguration,
+        { appId: 'matches-expected', rewardedAd: 'configured', cloud: 'not-applicable', liveValidation: 'not-run' });
+    assert.doesNotMatch(matched.stdout, /0123456789abcdef|douyin-ad-clock/);
+    remove('first-screen.js');
+    assert.match(run().stderr, /Missing runtime script: first-screen\.js/);
+});
+
+test('the same subpackage bytes respect each platform total cap', t => {
+    const wechat = fixture(t, 'wechat');
+    const douyin = fixture(t);
+    const largeChapter = Buffer.alloc(21_000_000);
+    const chapterFile = 'subpackages/campaign-ch01/native/asset.bin';
+    wechat.putText(chapterFile, largeChapter);
+    douyin.putText(chapterFile, largeChapter);
+    const accepted = wechat.run();
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.match(douyin.run().stderr, /Total package is \d+ bytes/);
 });
 
 test('distribution check rejects a debug build even with correct orientation and partitions', t => {
@@ -141,4 +192,14 @@ test('distribution check rejects a missing native image declared by a chapter bu
     const result = run();
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Missing chapter image: subpackages\/campaign-ch04\/native\//);
+});
+
+test('distribution check rejects a missing or stale built combat score', t => {
+    const { run, remove, putText } = fixture(t);
+    const combatScore = audioManifest.scores.find(clip => clip.id === 'live-circuit');
+    const path = nativeAudioPath(combatScore);
+    remove(path);
+    assert.match(run().stderr, /Missing campaign audio: assets\/resources\/native\//);
+    putText(path, 'stale score');
+    assert.match(run().stderr, /Mismatched campaign audio: assets\/resources\/native\//);
 });

@@ -12,7 +12,7 @@ const colors = { arc: ink(122, 218, 255), shot: ink(255, 203, 121), heat: ink(25
     magnet: ink(98, 238, 197), induction: ink(205, 151, 255) };
 
 // The graphics node's local space is battle space. Its parent clips to the playfield.
-export function drawSkillEffects(g: Graphics, effects: readonly Attack[]): void {
+export function drawSkillEffects(g: Graphics, effects: readonly Attack[], modelEffects = false): void {
     g.clear();
     for (const effect of effects) {
         const { x, y, life } = effect;
@@ -26,6 +26,7 @@ export function drawSkillEffects(g: Graphics, effects: readonly Attack[]): void 
                 g.circle(x, y, radius);
                 g.fill();
                 g.stroke();
+                if (modelEffects) break;
                 const t = life / 12;
                 const inner = radius * (effect.kind === 'magnet' ? t : 1 - t);
                 g.lineWidth = 2;
@@ -44,6 +45,7 @@ export function drawSkillEffects(g: Graphics, effects: readonly Attack[]): void 
                 g.close();
                 g.fill();
                 g.stroke();
+                if (modelEffects) break;
                 const front = effect.radius * (1 - life / 9);
                 g.lineWidth = 2;
                 for (let i = -1; i <= 1; i++) {
@@ -67,6 +69,7 @@ export function drawSkillEffects(g: Graphics, effects: readonly Attack[]): void 
                 g.close();
                 g.fill();
                 g.stroke();
+                if (modelEffects) break;
                 const head = length * (1 - life / 8);
                 const tail = Math.max(0, head - 22);
                 g.lineWidth = 2;
@@ -76,6 +79,11 @@ export function drawSkillEffects(g: Graphics, effects: readonly Attack[]): void 
                 break;
             }
             case 'link': {
+                if (modelEffects) {
+                    g.circle(x, y, 1.6);
+                    g.fill();
+                    break;
+                }
                 const dx = x - effect.from.x, dy = y - effect.from.y;
                 const offset = (life % 2 ? 1 : -1) / Math.max(11, Math.hypot(dx, dy));
                 g.lineWidth = 1.7;
@@ -88,7 +96,7 @@ export function drawSkillEffects(g: Graphics, effects: readonly Attack[]): void 
             }
             case 'impact':
                 g.fillColor = color.edge;
-                g.circle(x, y, 1.4 + life * 0.32);
+                g.circle(x, y, modelEffects ? 1.6 : 1.4 + life * 0.32);
                 g.fill();
                 break;
         }

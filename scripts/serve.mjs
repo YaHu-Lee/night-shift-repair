@@ -1,7 +1,7 @@
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {resolve,extname,sep} from 'node:path';
-const root=resolve('.m0-build'),port=Number(process.env.PORT)||4173;
+const root=resolve(process.argv[2]??'.m0-build'),port=Number(process.env.PORT)||4173;
 createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost');
   const file=resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));

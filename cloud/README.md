@@ -1,6 +1,6 @@
-# 战役云档和广告验证
+# 战役云档和双平台广告验证
 
-本地战役档支持独立的账号命名空间。云档只备份通关记录、首通工具和已换蓝图。当前工单、凭证、整备和复活次数留在设备本地。账号切换后会丢弃上一账号的待处理回包。
+微信和抖音分别使用各自的本地存档接口。抖音支持独立的账号云档，备份通关记录、首通工具和已换蓝图。当前工单、凭证、整备和复活次数留在设备本地。账号切换后会丢弃上一账号的待处理回包。微信使用本机存档。
 
 ## 云档
 
@@ -14,14 +14,21 @@
 
 ## 激励视频
 
-`Campaign.scene` 的战役组件使用 `reviveAdUnitId`。在获准投放的项目中填写对应的激励视频单元。空配置会直接走本地结算。实际复活仍由游戏检查波次、失败类型和本局复活次数，只接受原生广告完整播放确认。[抖音小游戏激励视频](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/guide/open-ability/ad/incentive-ads)
+在 `creator-m0/assets/scenes/Campaign.scene` 的战役组件填写当前项目的激励视频广告位。微信使用 `wechatReviveAdUnitId`，调用 `wx.createRewardedVideoAd`。抖音使用 `reviveAdUnitId`，调用 `tt.createRewardedVideoAd`。当前平台未填写广告位或 SDK 不支持时，结算流程照常可用。 [微信小游戏 SDK 类型](https://github.com/wechat-miniprogram/minigame-api-typings/blob/master/types/wx/lib.wx.api.d.ts#L14117) · [抖音小游戏激励视频](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/guide/open-ability/ad/incentive-ads)
 
-发布前分别测试完成观看、提前关闭、无填充和关闭时掉线。确认广告展示不会先提交凭证，复活回到波初且不会新增第二次复活机会，直接结算会提交一次收据。模拟事件测试仅覆盖客户端行为。
+微信在初次展示失败时尝试加载后再展示一次，复活要求关闭回调明确返回 `isEnded: true`。抖音按原生 `count` 判定激励，缺少该字段时读取 `isEnded`。提前关闭或广告暂时不可用时，玩家可以重试或直接结算。完整奖励在本局检查点提交成功后生效。一局最多复活一次，加班挑战无广告复活。 [微信小游戏 SDK 示例](https://github.com/wechat-miniprogram/minigame-api-typings/blob/master/test/game.test.ts#L1204) · [抖音关闭回调](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/api/javascript-api/ads/rewarded-video-ad/rewarded-video-ad-on-close)
 
-Creator 调试构建会输出 `[CAMPAIGN_QA]` 本地记录。`ad_eligible`、`ad_request`、`ad_shown`、`ad_completed` 和 `ad_revived` 可用同一 `adAttempt` 核对。广告展示与完成分别从原生回调确认，只有存档提交成功才记 `ad_revived`。完整播放优先读 `count`，旧客户端缺该字段时回退到 `isEnded`。调试记录不发送网络请求，也不包含账号或广告位。发布构建关闭该输出。[展示接口](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/api/javascript-api/ads/rewarded-video-ad/rewarded-video-ad-show) · [关闭回调](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/api/javascript-api/ads/rewarded-video-ad/rewarded-video-ad-on-close)
+发布前在两个正式 AppID 的真机测试中分别覆盖看完、提前关闭、无填充、观看时切后台和返回。确认成功复活回到波初，结算只提交一张收据。Creator 调试构建会输出本地 `[CAMPAIGN_QA]` 记录，可用同一 `adAttempt` 核对 `ad_eligible`、`ad_request`、`ad_shown`、`ad_completed` 和 `ad_revived`。发布构建关闭该输出。
 
 ## 发布包身份核对
 
-从仓库根目录执行 `node scripts/check-campaign-distribution.mjs`。脚本读取实际构建目录，核对 Creator 版本、启动场景、主包与各章入口脚本、调试开关、竖屏和分包大小，报告 AppID、广告位和云档在产物内的配置状态。也可传入其他构建目录。报告的 SHA-256 对应目录内的相对路径和文件内容，可将预览证据和后续真机证据对应到同一份包。项目文件写入 AppID 后重新计算，因为包内容已经变化。[Cocos 抖音构建说明](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-bytedance-mini-game.html) · [抖音小游戏分包限制](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/guide/basic-function/subpackages/introduction)
+Creator 3.8.8 从同一个战役场景分别构建竖屏小游戏。每端都有四个章节分包。 [Cocos 小游戏分包](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/subpackage.html)
 
-使用真实项目联调前，将 `NIGHT_SHIFT_EXPECTED_DOUYIN_APP_ID` 设置为目标项目 AppID，再执行 `node scripts/check-campaign-distribution.mjs --require-platform`。严格检查要求产物 AppID 匹配、编译后的启动场景包含广告位和两项云档配置，报告只显示配置状态。测试 AppID 可以验证资源和本地玩法。真实广告回调、同账号双端同步和设备性能仍需在对应 AppID 的正式测试位采证。
+| 平台 | Creator 构建配置 | 本地产物 | 预期 AppID 环境变量 |
+| --- | --- | --- | --- |
+| 微信 | `creator-m0/build-campaign-wechat-release.json` | `creator-m0/build/wechatgame-campaign-release` | `NIGHT_SHIFT_EXPECTED_WECHAT_APP_ID` |
+| 抖音 | `creator-m0/build-campaign-release.json` | `creator-m0/build/bytedance-mini-game-campaign-release` | `NIGHT_SHIFT_EXPECTED_DOUYIN_APP_ID` |
+
+从仓库根目录分别执行 `node scripts/check-campaign-distribution.mjs --platform wechat` 和 `node scripts/check-campaign-distribution.mjs --platform douyin`。脚本读取实际产物，核对启动场景、调试开关、竖屏、主包、分包、脚本和资源，并提供目录 SHA-256。也可传入其他构建目录，方便核对手工导出的包。 [Cocos 微信构建说明](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-wechatgame.html) · [抖音小游戏分包限制](https://developer.open-douyin.com/docs/resource/zh-CN/mini-game/develop/guide/basic-function/subpackages/introduction)
+
+正式联调时，在对应 Creator 构建任务填写正式 AppID，在场景填写对应广告位，重新构建。设置表中的环境变量并给校验命令加 `--require-platform`，核对包中 AppID 和当前平台广告位。抖音严格检查同时核对两项云档字段。报告只显示配置状态，实际投放回调由对应客户端真机验证。

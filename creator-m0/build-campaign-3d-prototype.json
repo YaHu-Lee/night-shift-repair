@@ -1,0 +1,65 @@
+{
+  "platform": "web-mobile",
+  "name": "night-shift-repair-campaign",
+  "outputName": "campaign-3d-prototype",
+  "buildPath": "project://build",
+  "debug": true,
+  "startScene": "7f373326-3951-44b0-9397-ba9d08626070",
+  "scenes": [
+    {
+      "url": "db://assets/scenes/Campaign.scene",
+      "uuid": "7f373326-3951-44b0-9397-ba9d08626070"
+    },
+    {
+      "url": "db://assets/scenes/M1.scene",
+      "uuid": "9f8c8dda-ee74-4455-bbab-d73072aaa08e"
+    },
+    {
+      "url": "db://assets/scenes/M2.scene",
+      "uuid": "d2396d8d-8743-4472-94f5-c13381f49ae7"
+    }
+  ],
+  "packages": {
+    "web-mobile": {
+      "orientation": "portrait"
+    }
+  },
+  "bundleConfigs": [
+    {
+      "root": "db://assets/resources",
+      "name": "resources",
+      "compressionType": "merge_dep",
+      "priority": 8,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch01",
+      "name": "campaign-ch01",
+      "compressionType": "merge_dep",
+      "priority": 4,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch02",
+      "name": "campaign-ch02",
+      "compressionType": "merge_dep",
+      "priority": 4,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch03",
+      "name": "campaign-ch03",
+      "compressionType": "merge_dep",
+      "priority": 4,
+      "isRemote": false
+    },
+    {
+      "root": "db://assets/campaign-content/campaign-ch04",
+      "name": "campaign-ch04",
+      "compressionType": "merge_dep",
+      "priority": 4,
+      "isRemote": false
+    }
+  ],
+  "engineModulesConfigKey": "nightShift3DPrototype"
+}

@@ -2,6 +2,8 @@
 
 用同一发布候选版本记录人工验收。记录留在本机，只填写测试者代号、设备型号和观察结果。工具读写指定的 JSON 文件。[开发计划验收口径](CAMPAIGN-DEVELOPMENT-PLAN.md#七验收与改数顺序)
 
+浏览器候选使用 Creator 3.8.8 和 `creator-m0/build-campaign-web-playtest.json` 构建。该配置关闭调试并直接启动战役。构建后在仓库根目录运行 `node scripts/serve.mjs creator-m0/build/campaign-web-playtest`，用浏览器打开命令显示的本机地址。真机计时另填对应平台的包版本。
+
 ```sh
 node scripts/campaign-human-acceptance.mjs init campaign-observations.json 8
 node scripts/campaign-human-acceptance.mjs timing campaign-observations.json
@@ -67,4 +69,17 @@ node scripts/campaign-human-acceptance.mjs stage-row stage-01-markers.json
 | `started02Voluntarily` 主动开 02 | 已首通 01 的人，记录 `cleared01` | ≥1/2 |
 | `triedArcGunIn02` 在 02 实际使用电弧枪 | 已开始 02 的人，记录 `started02` | 报告试用率 |
 
-每项都会输出成功人数与适用人数。适用人数为零时，`rate` 为 `null`，对应有门槛的项目无法通过。实际设备的帧率、广告、云档和章末剧情理解按项目验收记录单独记录。[战役验收记录](CAMPAIGN-SLICE-PLAYTEST.md)
+每项都会输出成功人数与适用人数。适用人数为零时，`rate` 为 `null`，对应有门槛的项目无法通过。实际设备的帧率、广告和云档按项目验收记录单独记录。[战役验收记录](CAMPAIGN-SLICE-PLAYTEST.md)
+
+## 章末剧情复述
+
+在 05、10、15、20 的首次胜利结单后，请到达该章末的玩家用自己的话回答。先记下回答，再对照核对要点。计时路线的复述安排在结单后、下关出发前，问答及记录时间不计入有效玩法时长。
+
+| 结单 | 问题 | 观察员核对要点 |
+| --- | --- | --- |
+| 05 | 城里为什么断了电？ | 中央调度主动切电，把各区电力转向零号线路。 |
+| 10 | 电池交给了谁？第一份授权从哪来？ | 医院和泵站签收电池。医院现场交接终端签发第一份授权。 |
+| 15 | 第二份授权从哪来？和上一份有什么区别？ | 广播发出真实求救后，东岸、西岸和北街回传联络授权。第一份来自医院交接。 |
+| 20 | 核心停机后，谁掌管各区的供电？ | 各街区接管本地供电，中央的强制切电停止。 |
+
+用测试者代号和结单关号记录回答原意、说到或遗漏的要点，以及未回答的情况。汇总每个问题时列出到达对应章末的人数、给出回答的人数和说到各要点的人数。该记录用于定位剧情理解问题，单独保留在本机的实测记录中。[战役剧情原文](../creator-m0/assets/scripts/campaign/CampaignCatalog.ts)

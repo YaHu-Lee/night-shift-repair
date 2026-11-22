@@ -1,0 +1,86 @@
+{
+  "source": "Project-original articulated orthographic meshes, rendered by art/workshop/bake-enemies.cjs.",
+  "licenseNotice": "Original project art. No external image assets used.",
+  "headings": [
+    "e",
+    "ne",
+    "n",
+    "nw",
+    "w",
+    "sw",
+    "s",
+    "se"
+  ],
+  "poses": [
+    "idle",
+    "step-a",
+    "step-b",
+    "windup",
+    "strike",
+    "recover",
+    "hit"
+  ],
+  "spritesheets": [
+    {
+      "id": "enemy-yard",
+      "actors": [
+        "crawler",
+        "charger",
+        "turret",
+        "armored",
+        "inspector"
+      ],
+      "cell": 48,
+      "width": 384,
+      "height": 1680,
+      "alpha": true,
+      "sha256": "79c2d730e53556921ba7f36c34a96a13a828db19ff773264df0fd5822db418d7",
+      "technical_checks_passed": true
+    },
+    {
+      "id": "enemy-specialists",
+      "actors": [
+        "pursuer",
+        "reclaimer",
+        "jammer",
+        "ambusher"
+      ],
+      "cell": 48,
+      "width": 384,
+      "height": 1344,
+      "alpha": true,
+      "sha256": "107f2950851ae26786604e7c50cb383f73bc0e44ccafa5ae34372ba779a22ff4",
+      "technical_checks_passed": true
+    },
+    {
+      "id": "enemy-command",
+      "actors": [
+        "supervisor",
+        "elite",
+        "gatekeeper",
+        "tow",
+        "silence",
+        "core"
+      ],
+      "cell": 48,
+      "width": 384,
+      "height": 2016,
+      "alpha": true,
+      "sha256": "c3362d83f245332d64c705c8c0ed6f851de31bbeaf802c04705e78a4824ce2aa",
+      "technical_checks_passed": true
+    },
+    {
+      "id": "mechanic-directional",
+      "actors": [
+        "mechanic"
+      ],
+      "source": "scripts/generate-mechanic-poses.py",
+      "cell": 56,
+      "width": 448,
+      "height": 392,
+      "alpha": true,
+      "sha256": "c4c3a19182ccf317d922e1dc976e4f702790e911ae3143381fe10fad12471c80",
+      "technical_checks_passed": true
+    }
+  ]
+}

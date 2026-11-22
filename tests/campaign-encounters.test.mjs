@@ -5,7 +5,7 @@ import { ChapterBoss } from '../.m0-build/m1/ChapterBoss.js';
 import { GATEKEEPER_PORTS, Mission, clipWarningReach, insideRect, terrainAt } from '../.m0-build/m1/Encounter.js';
 import { CAMPAIGN_CATALOG } from '../.m0-build/campaign/CampaignCatalog.js';
 import { Run } from '../.m0-build/m1/Run.js';
-import { CAMPAIGN_01_RULES, ENEMIES, M2_RULES, START } from '../.m0-build/m1/content.js';
+import { CAMPAIGN_01_RULES, CAMPAIGN_FIELD, ENEMIES, FIELD, M2_RULES, START } from '../.m0-build/m1/content.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
 
 const noSpawn = { seconds: 30, spawnEvery: 0, enemies: [] };
@@ -17,6 +17,39 @@ const platform = (name, slots = new Map()) => makePlatform({
     },
 }, name);
 const tick = (n, advance) => { for (let i = 0; i < n; i++) advance(i); };
+
+// These self-contained fixtures keep the optional legacy encounter behavior independent of campaign content.
+const legacyRules = (wave, encounter) => ({ ...M2_RULES, encounter, waves: [{ ...noSpawn, ...wave }] });
+const relayRoute = [{ x: 94, y: 245 }, START, { x: 269, y: 456 }];
+
+test('open campaign reaches all four world corners while keeping the spawn view bounded', () => {
+    const { rules } = CAMPAIGN_CATALOG.find(stage => stage.id === '16');
+    const battle = new Battle(2, 20261120, [], rules);
+    battle.player.invulnerableUntil = 10_000;
+    const clampMargin = 10;
+    const { left, right, bottom, top } = CAMPAIGN_FIELD;
+    const width = FIELD.right - FIELD.left, height = FIELD.top - FIELD.bottom;
+    for (const [x, y] of [[left, bottom], [left, top], [right, top], [right, bottom]]) {
+        battle.moveTo(x, y);
+        tick(220, () => battle.step(0, 0));
+        const reached = { x: x === left ? left + clampMargin : right - clampMargin,
+            y: y === bottom ? bottom + clampMargin : top - clampMargin };
+        assert.deepEqual({ x: battle.player.x, y: battle.player.y }, reached);
+        assert.equal(battle.destination, null);
+        assert.deepEqual(battle.terrainRects, []);
+        assert.equal(battle.mission, null);
+        const spawn = battle.spawnBounds;
+        assert.deepEqual(spawn, {
+            left: x === left ? left : right - width,
+            right: x === left ? left + width : right,
+            bottom: y === bottom ? bottom : top - height,
+            top: y === bottom ? bottom + height : top,
+        });
+    }
+    assert.equal(battle.finished, false);
+    assert.ok(battle.enemies.length <= rules.encounter.enemyCap);
+    assert.deepEqual(new Battle(0, 19, [], M2_RULES).field, FIELD);
+});
 
 test('tap-to-move routes around the physical engine and clamps a goal inside a shut gate', () => {
     const rules = { ...M2_RULES, encounter: { enemyCap: 12, terrain: 'engine' }, waves: [noSpawn] };
@@ -37,9 +70,10 @@ test('tap-to-move routes around the physical engine and clamps a goal inside a s
     assert.ok(!gates.terrainRects.some(rect => rect.state === 'closed' && insideRect(gates.destination, rect, 10)));
 });
 
-test('04 retargeting at the island and east-gate seam lands on the nearest reachable corner', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '04');
-    const battle = new Battle(1, 20261120, [{ id: 'wrench', mods: [] }], stage.rules);
+test('legacy retargeting at an island and gate seam reaches the nearest open corner', () => {
+    const rules = legacyRules({ directive: { type: 'switch', points: [{ x: 278, y: 353 }] } },
+        { enemyCap: 13, terrain: 'gates' });
+    const battle = new Battle(0, 20261120, [], rules);
     battle.moveTo(255, 327);
     tick(40, () => battle.step(0, 0));
     battle.moveTo(284, 400);
@@ -55,8 +89,8 @@ test('04 retargeting at the island and east-gate seam lands on the nearest reach
     assert.equal(battle.player.y, 337);
 });
 
-test('08 conveyor markings advance with actual drift through both reversal steps', () => {
-    const rules = CAMPAIGN_CATALOG.find(stage => stage.id === '08').rules;
+test('legacy conveyor markings advance with actual drift through both reversal steps', () => {
+    const rules = legacyRules({}, { enemyCap: 15, terrain: 'conveyor' });
     const battle = new Battle(0, 20261120, tools, rules);
     battle.moveTo(77, 296);
     tick(45, () => battle.step(0, 0));
@@ -79,36 +113,33 @@ test('08 conveyor markings advance with actual drift through both reversal steps
     assert.equal(terrainAt('conveyor', 0)[0].travel, 0);
 });
 
-test('04 pursuers brake for an actual route reversal and only accelerate after a straight leg', () => {
+test('a pursuer brakes for a real reversal in open combat and rebuilds its dash on a straight leg', () => {
     const stage = CAMPAIGN_CATALOG.find(item => item.id === '04');
-    const battle = new Battle(1, 20261120, [{ id: 'wrench', mods: [] }], stage.rules);
-    const advance = (count) => tick(count, () => battle.step(0, 0));
-    battle.moveTo(180, 470);
-    advance(239);
-    const pursuer = battle.enemies.find(enemy => enemy.id === 5 && enemy.kind === 'pursuer');
-    assert.ok(pursuer);
-    assert.equal(pursuer.state, 'dash');
-    assert.equal(pursuer.vx, -1);
-    assert.deepEqual(battle.terrainRects.slice(1).map(gate => gate.state), ['warning', 'closed']);
-
-    const oldX = pursuer.x;
+    const rules = { ...stage.rules, waves: [{ ...noSpawn, seconds: 90 }] };
+    const battle = new Battle(0, 20261120, [], rules);
+    const pursuer = { ...unit('pursuer', START.x - 120, 1), state: 'walk' };
+    battle.enemies.push(pursuer);
+    const advance = n => tick(n, () => battle.step(0, 0));
+    battle.player.invulnerableUntil = 1_000;
+    advance(36);
+    assert.equal(pursuer.state, 'walk');
     advance(1);
-    assert.deepEqual(battle.terrainRects.slice(1).map(gate => gate.state), ['closed', 'open']);
+    assert.equal(pursuer.state, 'dash');
     assert.equal(pursuer.vx, 1);
+
+    const x = pursuer.x;
+    Object.assign(battle.player, { x: x - 130, y: START.y });
+    advance(1);
+    assert.equal(pursuer.vx, -1);
     assert.equal(pursuer.state, 'walk');
     assert.equal(pursuer.sprintTicks, 0);
-    assert.ok(Math.abs((pursuer.x - oldX) * 30 - ENEMIES.pursuer.speed) < 1e-6);
-
-    advance(5);
-    assert.equal(pursuer.vx, 0);
-    assert.equal(pursuer.vy, 1);
-    assert.equal(pursuer.sprintTicks, 0);
+    assert.ok(Math.abs((x - pursuer.x) * 30 - ENEMIES.pursuer.speed) < 1e-6);
     advance(35);
     assert.equal(pursuer.state, 'walk');
     advance(1);
     assert.equal(pursuer.sprintTicks, 36);
     assert.equal(pursuer.state, 'dash');
-    assert.ok(battle.terrainRects.every(rect => rect.state !== 'closed' || !insideRect(pursuer, rect, 7)));
+    assert.deepEqual(battle.terrainRects, []);
 });
 
 test('turret warnings stop at the first closed wall and pass open gates and boundary tangents', () => {
@@ -154,6 +185,74 @@ test('mission timeouts, signal disruption, return grace and vehicle carry use fi
     tick(30, () => run.advance(1 / 30));
     assert.equal(run.data.phase, 'lost');
     assert.equal(run.data.finishReason, 'timeout');
+    assert.equal(run.data.reports.at(-1).failureDetail, 'objective');
+});
+
+test('timeout reports retain the remaining job after reopening the checkpoint', () => {
+    const terminal = { x: 90, y: 240 };
+    const afterBoss = { type: 'switch', points: [terminal], afterBoss: true };
+    const cases = [
+        { detail: 'boss', boss: 'elite', directive: afterBoss },
+        { detail: 'objective', boss: 'elite', directive: afterBoss, offline: true },
+        { detail: 'takeover', boss: 'core', directive: { ...afterBoss, points: [START], holdTicks: 1 }, offline: true },
+        { detail: 'holdout', directive: { type: 'switch', points: [START], holdTicks: 1 },
+            escalation: { atTick: 20, spawnEvery: 10, enemies: ['charger'], requiredTicks: 15 } },
+    ];
+    for (const { detail, boss, directive, offline, escalation } of cases) {
+        const store = platform('timeout-' + detail);
+        const rules = { ...M2_RULES, encounter: { enemyCap: 12, boss },
+            waves: [{ ...noSpawn, seconds: 1, boss: !!boss, directive, escalation }] };
+        const run = new Run(store, rules);
+        run.start('arc');
+        if (offline) run.battle.boss.unit.hp = 0;
+        tick(30, () => run.advance(1 / 30));
+        assert.equal(run.data.finishReason, 'timeout', detail);
+        assert.equal(new Run(store, rules).data.reports.at(-1).failureDetail, detail);
+    }
+
+    const store = platform('old-timeout');
+    const rules = { ...M2_RULES, waves: [{ ...noSpawn, seconds: 1, directive: { type: 'switch', points: [terminal] } }] };
+    const run = new Run(store, rules);
+    run.start('arc');
+    tick(30, () => run.advance(1 / 30));
+    const { failureDetail, ...legacyReport } = run.data.reports.at(-1);
+    assert.equal(failureDetail, 'objective');
+    const legacy = { ...run.data, reports: [legacyReport] };
+    assert.ok(store.writeCheckpoint(1, legacy));
+    assert.deepEqual(new Run(store, rules).data, legacy);
+    assert.ok(store.writeCheckpoint(1, { ...legacy, reports: [{ ...legacyReport, failureDetail: 'escort' }] }));
+    assert.deepEqual(new Run(store, rules).data, legacy, 'incorrect failure detail falls back to the valid checkpoint');
+});
+
+test('failed work identifies heat loss and which hybrid asset ran out of integrity', () => {
+    const terminal = { x: 90, y: 240 };
+    const cold = { ...M2_RULES,
+        waves: [{ ...noSpawn, directive: { type: 'thermal', points: [terminal] } }] };
+    const coldStore = platform('thermal-failure');
+    const cooling = new Run(coldStore, cold);
+    cooling.start('arc');
+    tick(720, () => cooling.advance(1 / 30));
+    assert.equal(cooling.data.finishReason, 'objective-failed');
+    assert.equal(new Run(coldStore, cold).data.reports.at(-1).failureDetail, 'thermal');
+
+    const hybrid = { ...M2_RULES, waves: [{ ...noSpawn,
+        directive: { type: 'hybrid', points: [terminal, START, { x: 180, y: 390 }],
+            wavesCarry: true, rangedPressure: true } }] };
+    for (const detail of ['escort', 'relay']) {
+        const store = platform('hybrid-failure-' + detail);
+        const checkpoint = new Run(store, hybrid);
+        checkpoint.start('arc');
+        const mission = detail === 'escort' ? { escortHp: 1 } : { relayHp: 1 };
+        assert.ok(store.writeCheckpoint(1, { ...checkpoint.data, mission }));
+        const run = new Run(store, hybrid);
+        const task = run.battle.task;
+        if (detail === 'escort') task.tug(0);
+        else task.relayHit(0, terminal);
+        run.resume();
+        run.advance(1 / 30);
+        assert.equal(run.data.finishReason, 'objective-failed', detail);
+        assert.equal(new Run(store, hybrid).data.reports.at(-1).failureDetail, detail);
+    }
 });
 
 test('ordinary relay hold resets upon exit and pauses under interference; archive retains its return window', () => {
@@ -208,9 +307,10 @@ test('a scan handshake completes on the final tick before the enabled terminal r
     assert.equal(finale.view(411).points[1].state, 'active');
 });
 
-test('07 recovery and cooling use continuous exposure and preserve the previous zone for 36 ticks', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '07');
-    const battle = new Battle(1, 20261120, [], stage.rules);
+test('legacy cooling uses continuous exposure and preserves the previous zone for 36 ticks', () => {
+    const rules = legacyRules({ seconds: 40, directive: { type: 'thermal', holdTicks: 60, minTicks: 1110,
+        points: [{ x: 271, y: 244 }, { x: 269, y: 456 }] } });
+    const battle = new Battle(0, 20261120, [], rules);
     const [first, second] = battle.spec.directive.points;
     battle.player.invulnerableUntil = battle.duration;
     const advance = (count) => tick(count, () => battle.step(0, 0));
@@ -288,50 +388,86 @@ test('chapter boss weak points, tow interruption, and final manual takeover are 
     assert.ok(core.complete);
 });
 
-test('03 exposes the supervisor for 72 ticks after a dodgeable order, with distinct front and rear damage', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '03');
-    for (const [tool, approach, dodge, guardedDamage, openDamage] of [
-        ['hydraulic_nailer', { x: 180, y: 400 }, { x: 220, y: 470 }, 1, 6],
-        ['wrench', { x: 180, y: 430 }, { x: 145, y: 538 }, 0.5, 2],
-    ]) {
-        const battle = new Battle(stage.finalWave, 20261120, [{ id: tool, mods: [] }], stage.rules);
-        const { unit } = battle.boss;
-        const hits = [];
-        const advanceTo = (target) => {
-            while (battle.tick < target) {
-                const hp = unit.hp;
-                battle.step(0, 0);
-                assert.equal(battle.finished, false);
-                if (unit.hp < hp) hits.push({ tick: battle.tick, y: battle.player.y, damage: hp - unit.hp });
-            }
+test('open-combat bosses chase, telegraph a lock, can be damaged from the front, and clear on defeat', () => {
+    const duels = [
+        ['03', 'supervisor', 'rect'], ['04', 'elite', 'rect'], ['05', 'gatekeeper', 'rect'],
+        ['10', 'tow', 'tether'], ['15', 'silence', 'sector'], ['20', 'core', 'sector'],
+    ];
+    for (const [stageId, kind, shape] of duels) {
+        const { rules, finalWave } = CAMPAIGN_CATALOG.find(stage => stage.id === stageId);
+        const battle = new Battle(finalWave, 20261120, [], rules);
+        const { unit: boss } = battle.boss;
+        const spawn = { x: boss.x, y: boss.y };
+        const advance = n => tick(n, () => battle.step(0, 0));
+        const checkNoGates = () => {
+            assert.equal(battle.mission, null, stageId);
+            assert.equal(battle.chapterBoss.station, undefined, stageId);
+            assert.equal(battle.chapterBoss.terminals, undefined, stageId);
+            assert.deepEqual(battle.terrainRects, [], stageId);
         };
-        battle.moveTo(approach.x, approach.y);
-        advanceTo(65);
-        assert.equal(battle.chapterBoss.hazard.state, 'warning');
-        assert.equal(battle.chapterBoss.hazard.shape, 'rect');
-        assert.ok(hits.some(hit => hit.damage === guardedDamage && hit.y < unit.y));
-        battle.moveTo(dodge.x, dodge.y);
-        advanceTo(96);
-        assert.equal(battle.chapterBoss.hazard.state, 'active');
-        assert.equal(battle.damageTaken, 0);
-        advanceTo(140);
-        assert.equal(battle.chapterBoss.vulnerable, false);
-        if (tool === 'wrench') assert.ok(hits.some(hit => hit.y > unit.y + 12 && hit.damage === 2));
-        advanceTo(141);
-        assert.equal(battle.chapterBoss.vulnerable, true);
-        assert.equal(battle.chapterBoss.hazard, undefined);
-        advanceTo(212);
-        assert.equal(battle.chapterBoss.vulnerable, true);
-        assert.ok(hits.some(hit => hit.tick > 141 && hit.damage === openDamage
-            && (tool === 'wrench' ? hit.y > unit.y + 12 : hit.y < unit.y)));
-        advanceTo(213);
-        assert.equal(battle.chapterBoss.vulnerable, false);
+        assert.equal(battle.chapterBoss.kind, kind, stageId);
+        checkNoGates();
+        advance(65);
+        const warning = battle.chapterBoss.hazard;
+        assert.equal(warning?.state, 'warning', stageId);
+        assert.equal(warning?.shape, shape, stageId);
+        assert.ok(Math.hypot(boss.x - spawn.x, boss.y - spawn.y) > 25, stageId);
+        const guardedHealth = boss.hp;
+        assert.ok(battle.hit(boss, 2, battle.player, 'arc'), stageId);
+        assert.ok(boss.hp < guardedHealth, stageId);
+        assert.equal(battle.player.hp, battle.maxHp, stageId);
+
+        const warningEnd = battle.chapterBoss.phaseEndsAt;
+        const target = { x: battle.player.x, y: battle.player.y };
+        Object.assign(battle.player, { x: CAMPAIGN_FIELD.left + 16, y: CAMPAIGN_FIELD.bottom + 16 });
+        advance(4);
+        assert.deepEqual(battle.chapterBoss.hazard, warning, 'locked warning ' + stageId);
+        advance(warningEnd - battle.tick);
+        assert.deepEqual(battle.chapterBoss.hazard, { ...warning, state: 'active' }, stageId);
+        assert.equal(battle.enemyAttackCue, 'area', stageId);
+        assert.equal(battle.player.hp, battle.maxHp, 'dodge ' + stageId);
+        Object.assign(battle.player, target);
+        advance(1);
+        assert.equal(battle.player.hp, battle.maxHp - 1, 'inside attack ' + stageId);
+        assert.equal(battle.lastHit, 'chapter-hazard', stageId);
+        if (shape === 'tether') assert.ok(Math.hypot(battle.player.x - target.x, battle.player.y - target.y) > 15, stageId);
+
+        advance(battle.chapterBoss.phaseEndsAt - battle.tick);
+        assert.equal(battle.chapterBoss.recovering, true, stageId);
+        assert.equal(battle.chapterBoss.vulnerable, true, stageId);
+        assert.equal(battle.chapterBoss.hazard, undefined, stageId);
+        checkNoGates();
+        assert.ok(battle.hit(boss, 10_000, battle.player, 'arc'), stageId);
+        assert.equal(battle.bossDefeated, true, stageId);
+        assert.equal(battle.waveCleared, true, stageId);
+        checkNoGates();
     }
 });
 
-test('05 rehearsal uses the live gatekeeper warning once and delays only new turrets for 60 ticks per switch', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '05');
-    const battle = new Battle(4, 20261120, [], stage.rules);
+test('the open core changes attacks as health drops without requiring terminals', () => {
+    const { rules, finalWave } = CAMPAIGN_CATALOG.at(-1);
+    for (const [health, stage, shape] of [[0.71, 1, 'sector'], [0.7, 2, 'tether'], [0.35, 3, 'rect']]) {
+        const battle = new Battle(finalWave, 4, [], rules);
+        battle.boss.unit.hp = battle.chapterBoss.maxHp * health;
+        tick(65, () => battle.step(0, 0));
+        assert.equal(battle.chapterBoss.stage, stage);
+        assert.equal(battle.chapterBoss.hazard?.shape, shape);
+        assert.equal(battle.chapterBoss.station, undefined);
+        assert.equal(battle.chapterBoss.terminals, undefined);
+        if (shape === 'rect') {
+            assert.equal(battle.chapterBoss.hazard.left, CAMPAIGN_FIELD.left);
+            assert.equal(battle.chapterBoss.hazard.right, CAMPAIGN_FIELD.right);
+        }
+    }
+});
+
+test('legacy gatekeeper rehearsal delays only pending turrets and previews the live warning', () => {
+    const encounter = { enemyCap: 14, boss: 'gatekeeper' };
+    const ports = [GATEKEEPER_PORTS.a, GATEKEEPER_PORTS.b];
+    const rehearsal = { seconds: 90, spawnEvery: 32, enemies: ['armored', 'crawler', 'turret', 'pursuer', 'armored', 'crawler'],
+        directive: { type: 'switch', points: ports, powerDrill: true, minTicks: 1860 } };
+    const rules = { ...M2_RULES, encounter, waves: [...Array(4).fill(noSpawn), rehearsal] };
+    const battle = new Battle(4, 20261120, [], rules);
     const advance = n => tick(n, () => battle.step(0, 0));
     Object.assign(battle.player, GATEKEEPER_PORTS.a);
     advance(59);
@@ -386,15 +522,16 @@ test('05 rehearsal uses the live gatekeeper warning once and delays only new tur
     assert.ok(battle.queueSpawn('turret'));
     assert.equal(battle.warnings.at(-1).at, 210);
 
-    const final = new Battle(stage.finalWave, 20261120, [], stage.rules);
+    const final = new Battle(0, 20261120, [], legacyRules({ boss: true,
+        directive: { type: 'switch', points: ports } }, encounter));
     tick(65, () => final.step(0, 0));
     assert.deepEqual(final.chapterBoss.hazard, practice);
     assert.equal(final.practiceWarning, undefined);
 });
 
-test('09 lift only moves within 36px for boarding and return, with an actual floor and dock bridge', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '09');
-    const lift = new Battle(1, 20261120, [{ id: 'wrench', mods: [] }], stage.rules);
+test('legacy lifts require the player within 36px for boarding and return', () => {
+    const rules = legacyRules({ seconds: 48, directive: { type: 'escort', variant: 'lift', points: relayRoute } });
+    const lift = new Battle(0, 20261120, [], rules);
     const advance = (count) => tick(count, () => lift.step(0, 0));
     const position = () => ({ x: lift.mission.escort.x, y: lift.mission.escort.y });
     const board = position();
@@ -437,9 +574,12 @@ test('09 lift only moves within 36px for boarding and return, with an actual flo
     assert.ok(ordinary.view(1).escort.y > board.y);
 });
 
-test('09 only queues a new floor group after docking and old warnings and enemies clear', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '09');
-    const battle = new Battle(2, 20261120, [], stage.rules);
+test('legacy lift groups wait for docking and for earlier warnings and enemies to clear', () => {
+    const rules = legacyRules({ seconds: 55, spawnEvery: 35,
+        directive: { type: 'escort', variant: 'lift', points: [...relayRoute, { x: 95, y: 460 }] },
+        liftGroups: [{ floor: 2, enemies: ['crawler', 'crawler', 'charger'] },
+            { floor: 3, enemies: ['reclaimer', 'crawler', 'crawler', 'charger'] }] }, { enemyCap: 16 });
+    const battle = new Battle(0, 20261120, [], rules);
     battle.player.invulnerableUntil = battle.duration;
     const advance = (n) => tick(n, () => battle.step(0, 0));
     const containsClaw = () => [...battle.warnings, ...battle.enemies].some(unit => unit.kind === 'reclaimer');
@@ -498,12 +638,10 @@ test('the half-health tow chapter boss physically alternates reclaim mouths duri
     assert.equal(escort.snapshot().escortHp, 4);
 });
 
-test('06 reclaimers pull for two seconds after warning, and crossing the active cable saves escort HP', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '06');
-    const wave = 2;
-    const waves = stage.rules.waves.map((entry, i) => i === wave ? { ...entry, spawnEvery: 0, enemies: [] } : entry);
+test('legacy reclaimers pull for two seconds and crossing the cable saves escort HP', () => {
+    const rules = legacyRules({ seconds: 45, directive: { type: 'escort', points: relayRoute, wavesCarry: true, minTicks: 1260 } });
     const setup = () => {
-        const battle = new Battle(wave, 42, [], { ...stage.rules, waves });
+        const battle = new Battle(0, 42, [], rules);
         const start = battle.mission.escort;
         Object.assign(battle.player, { x: start.x + 30, y: start.y + 18 });
         tick(44, () => battle.step(0, 0));
@@ -548,10 +686,12 @@ test('06 reclaimers pull for two seconds after warning, and crossing the active 
     assert.equal(destroyed.battle.cutSerial, 1);
 });
 
-test('10 only signals a cut for the authored tow boss when the cable is crossed', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '10');
+test('legacy tow boss only signals a cut after the player crosses its cable', () => {
+    const rules = legacyRules({ boss: true, seconds: 115,
+        directive: { type: 'escort', points: [{ x: 180, y: 224 }, START, { x: 95, y: 460 }], wavesCarry: true } },
+    { enemyCap: 16, boss: 'tow' });
     const setup = () => {
-        const battle = new Battle(stage.finalWave, 20261120, [], stage.rules);
+        const battle = new Battle(0, 20261120, [], rules);
         battle.moveTo(30, 310);
         tick(65, () => battle.step(0, 0));
         assert.equal(battle.chapterBoss.hazard.state, 'warning');
@@ -574,9 +714,11 @@ test('10 only signals a cut for the authored tow boss when the cable is crossed'
     assert.equal(crossed.cutSerial, 1);
 });
 
-test('20 shows both live bypass terminals and the timed dispatch before central takeover', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '20');
-    const battle = new Battle(stage.finalWave, 4, [], stage.rules);
+test('legacy core can require live bypass terminals and a timed handoff before takeover', () => {
+    const rules = legacyRules({ boss: true, seconds: 145, directive: { type: 'handoff',
+        points: [{ x: 82, y: 353 }, { x: 278, y: 353 }], label: '去两侧端口交回执',
+        holdTicks: 180, windowTicks: 360, afterBoss: true } }, { enemyCap: 20, boss: 'core' });
+    const battle = new Battle(0, 4, [], rules);
     const { unit } = battle.boss;
     const [left, right] = battle.spec.directive.points;
     const advance = (n, point) => {
@@ -729,40 +871,28 @@ test('pulse nozzle keeps off-axis enemies safe and only pushes an eligible targe
     assert.equal(side.hp, 20);
 });
 
-test('05 replay keeps the bypass wrench combo after 59 ticks out of melee and clears it after 60', () => {
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '05');
+test('bypass wrench keeps a combo through 59 absent ticks and clears it after 60', () => {
     for (const [absent, returnDamage] of [[59, 5], [60, 2]]) {
-        const battle = new Battle(stage.finalWave, 20261120, [{ id: 'bypass_wrench', mods: [] }], stage.rules);
-        const { unit: boss } = battle.boss;
-        const advanceTo = (target) => tick(target - battle.tick, () => battle.step(0, 0));
-        const inMelee = () => battle.enemies.some(enemy => enemy.hp > 0 && Math.hypot(enemy.x - battle.player.x, enemy.y - battle.player.y) < 78);
-        battle.moveTo(120, 402);
-        advanceTo(118);
-        assert.equal(battle.chapterBoss.vulnerable, true);
-        battle.moveTo(166, 459);
-        advanceTo(164);
-        const beforeRetreat = boss.hp;
-        assert.equal(beforeRetreat, battle.chapterBoss.maxHp - 6);
-        battle.moveTo(95, 405);
-        advanceTo(169);
-        assert.ok(inMelee());
-        advanceTo(170);
-        assert.equal(inMelee(), false);
-        advanceTo(170 + absent - 12);
-        battle.moveTo(166, 459);
-        advanceTo(170 + absent - 1);
-        assert.equal(inMelee(), false);
-        assert.equal(boss.hp, beforeRetreat);
+        const battle = new Battle(0, 20261120, [{ id: 'bypass_wrench', mods: [] }], legacyRules({}));
+        const target = unit('turret', START.x + 45, 1, 40);
+        battle.enemies.push(target);
+        tick(31, () => battle.step(0, 0));
+        assert.equal(target.hp, 34);
+        target.x = START.x + 140;
+        tick(absent, () => battle.step(0, 0));
+        assert.equal(target.hp, 34);
+        target.x = START.x + 45;
         battle.step(0, 0);
-        assert.ok(inMelee());
-        assert.equal(boss.hp, beforeRetreat - returnDamage);
+        assert.equal(target.hp, 34 - returnDamage);
     }
 });
 
 test('traction coil still damages a charger at a closed gate and cannot pull it through or shove it away', () => {
     const coil = [{ id: 'traction_coil', mods: [] }];
-    const stage = CAMPAIGN_CATALOG.find(item => item.id === '16');
-    const battle = new Battle(0, 20261120, coil, stage.rules);
+    const rules = legacyRules({ seconds: 35, spawnEvery: 44, enemies: ['charger', 'crawler', 'crawler', 'crawler'],
+        directive: { type: 'switch', points: [{ x: 82, y: 353 }], variant: 'bypass', minTicks: 960 } },
+    { enemyCap: 16, terrain: 'gates' });
+    const battle = new Battle(0, 20261120, coil, rules);
     battle.moveTo(300, 395);
     tick(285, () => battle.step(0, 0));
     const charger = battle.enemies.find(enemy => enemy.id === 5 && enemy.kind === 'charger');

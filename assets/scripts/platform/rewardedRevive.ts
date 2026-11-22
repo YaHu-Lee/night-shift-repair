@@ -1,17 +1,27 @@
+import { miniGamePlatform } from './platform';
+
 type CloseListener = (result?: { isEnded?: boolean; count?: number }) => void;
 type ErrorListener = (failure: unknown) => void;
 
 interface NativeVideo {
+    load?(): Promise<void> | void;
     show(): Promise<void> | void;
     onClose(callback: CloseListener): void;
     offClose(callback: CloseListener): void;
     onError(callback: ErrorListener): void;
     offError(callback: ErrorListener): void;
-    destroy(): Promise<void> | void;
+    destroy?(): Promise<void> | void;
 }
 
+type AdSdk = { createRewardedVideoAd?: (options: { adUnitId: string }) => NativeVideo };
 interface AdHost {
-    tt?: { createRewardedVideoAd?: (options: { adUnitId: string }) => NativeVideo };
+    tt?: AdSdk;
+    wx?: AdSdk;
+}
+
+export interface RewardedAdUnits {
+    readonly douyin?: string;
+    readonly wechat?: string;
 }
 
 export interface RewardedRevive {
@@ -24,16 +34,20 @@ export interface RewardedRevive {
 
 const busyAdHosts = new WeakSet<object>();
 
-export function createRewardedRevive(adUnitId: string, host: AdHost = globalThis as AdHost,
+export function createRewardedRevive(adUnits: RewardedAdUnits | string, host: AdHost = globalThis as AdHost,
     timeoutMs = 120_000): RewardedRevive | null {
-    const native = host.tt;
-    const unit = adUnitId.trim();
-    if (!unit || typeof native?.createRewardedVideoAd !== 'function') return null;
+    const platform = miniGamePlatform(host);
+    if (!platform) return null;
+    const native = platform === 'douyin' ? host.tt : host.wx;
+    const units = typeof adUnits === 'string' ? { douyin: adUnits } : adUnits;
+    const unit = units[platform]?.trim();
+    const create = native?.createRewardedVideoAd;
+    if (!unit || !native || typeof create !== 'function') return null;
     let disposed = false;
     let cancel: (() => void) | null = null;
     return {
         show(onShown) {
-            // Douyin exposes one native instance. Do not recreate it until its destroy promise settles.
+            // Both SDKs expose a singleton. Keep its lease until native cleanup settles.
             if (disposed || busyAdHosts.has(native)) return Promise.resolve(false);
             busyAdHosts.add(native);
             return new Promise<boolean>(resolve => {
@@ -41,6 +55,9 @@ export function createRewardedRevive(adUnitId: string, host: AdHost = globalThis
                 let timer: ReturnType<typeof setTimeout> | undefined;
                 let settled = false;
                 let shown = false;
+                let showing = false;
+                let retried = false;
+                let reloadScheduled = false;
                 const reportShown = () => {
                     if (settled || shown) return;
                     shown = true;
@@ -55,28 +72,55 @@ export function createRewardedRevive(adUnitId: string, host: AdHost = globalThis
                     try { ad?.offError(onError); } catch { /* a failed native handle can already be gone */ }
                     const releaseHost = () => { busyAdHosts.delete(native); };
                     try {
-                        void Promise.resolve(ad?.destroy()).then(releaseHost, releaseHost);
+                        void Promise.resolve(ad?.destroy?.()).then(releaseHost, releaseHost);
                     } catch {
                         releaseHost();
                     }
                     resolve(rewarded);
                 };
                 const onClose: CloseListener = result => {
+                    if (!showing) return;
                     const count = result?.count;
-                    const hasCount = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0;
+                    const hasCount = platform === 'douyin' && typeof count === 'number' && Number.isSafeInteger(count) && count >= 0;
                     if (hasCount || typeof result?.isEnded === 'boolean') reportShown();
                     finish(hasCount ? count > 0 : result?.isEnded === true);
                 };
-                const onError: ErrorListener = () => finish(false);
+                const showNative = () => {
+                    if (!ad || settled) return;
+                    const wasRetry = retried;
+                    const current = () => wasRetry === retried;
+                    showing = true;
+                    try {
+                        const showingAd = ad.show();
+                        if (showingAd) void Promise.resolve(showingAd).then(() => {
+                            if (current()) reportShown();
+                        }, failure => { if (current()) onError(failure); });
+                    } catch (failure) {
+                        if (current()) onError(failure);
+                    }
+                };
+                const onError: ErrorListener = () => {
+                    if (settled || reloadScheduled) return;
+                    if (platform !== 'wechat' || shown || retried || !ad?.load) {
+                        finish(false);
+                        return;
+                    }
+                    // WeChat recommends one load-and-show retry when the first show cannot run.
+                    showing = false;
+                    retried = reloadScheduled = true;
+                    void Promise.resolve().then(() => {
+                        reloadScheduled = false;
+                        return settled ? undefined : ad?.load?.();
+                    }).then(showNative, () => finish(false));
+                };
                 cancel = () => finish(false);
                 try {
-                    ad = native.createRewardedVideoAd!({ adUnitId: unit });
+                    ad = create.call(native, { adUnitId: unit });
                     ad.onClose(onClose);
                     ad.onError(onError);
                     if (settled) return;
-                    timer = setTimeout(onError, timeoutMs);
-                    const showing = ad.show();
-                    if (showing) void Promise.resolve(showing).then(reportShown, onError);
+                    timer = setTimeout(() => finish(false), timeoutMs);
+                    if (!retried) showNative();
                 } catch {
                     finish(false);
                 }

@@ -1,10 +1,13 @@
 import { Color, Graphics, JsonAsset, Node, Rect, resources, Sprite, SpriteFrame, Texture2D, UITransform } from 'cc';
 import type { Battle } from '../m1/Battle';
-import type { ChapterBossView } from '../m1/Encounter';
-import type { EnemyId } from '../m1/content';
+import type { ChapterBossView, MissionView } from '../m1/Encounter';
+import type { EnemyId, ToolId } from '../m1/content';
 import { FIELD } from '../m1/content';
 import { CAMPAIGN_MACHINE_ART, CAMPAIGN_TOOL_ART } from '../campaign/CampaignArt';
 import { loadCampaignTexture } from './CampaignAssetLoader';
+import { PrototypeDispatchView } from './PrototypeDispatchView';
+import { PrototypeItemIcons } from './PrototypeItemIcons';
+import type { PrototypeToolReveal } from './PrototypeToolReveal';
 
 // All coordinates passed to the view use the existing 360 × 640 game space.
 // The skin folder supplies semantic frame names; snapshots contain only gameplay IDs.
@@ -21,6 +24,8 @@ const pressedColor = new Color(50, 90, 90);
 const brass = new Color(255, 200, 114);
 const brassDown = new Color(224, 161, 87);
 const outline = new Color(10, 18, 23, 110);
+const shadowFeather = new Color(11, 20, 24, 30);
+const shadowContact = new Color(8, 16, 20, 62);
 const wake = new Color(255, 216, 151);
 const grapple = new Color(255, 177, 116);
 const interference = new Color(211, 166, 255);
@@ -29,6 +34,34 @@ const shadowMachine = new Color(167, 183, 200, 58);
 const offlineCore = new Color(108, 123, 134, 223);
 const recovering = new Color(169, 187, 197);
 type Enemy = Battle['enemies'][number];
+type Actor = Readonly<{ x: number; y: number }>;
+type Pose = 'idle' | 'step-a' | 'step-b' | 'windup' | 'strike' | 'recover' | 'hit';
+type ActorMotion = { x: number; y: number; dx: number; dy: number; tick: number; stride: number; heading: number };
+const poses: readonly Pose[] = ['idle', 'step-a', 'step-b', 'windup', 'strike', 'recover', 'hit'];
+const headings = ['e', 'ne', 'n', 'nw', 'w', 'sw', 's', 'se'] as const;
+const directionalAtlases: Readonly<Record<string, readonly string[]>> = {
+    'enemy-yard': ['crawler', 'charger', 'turret', 'armored', 'inspector'],
+    'enemy-specialists': ['pursuer', 'reclaimer', 'jammer', 'ambusher'],
+    'enemy-command': ['supervisor', 'elite', 'gatekeeper', 'tow', 'silence', 'core'],
+    'mechanic-directional': ['mechanic'],
+};
+const SOUTH = 6;
+
+function facing(dx: number, dy: number, previous = SOUTH): number {
+    if (Math.hypot(dx, dy) < 0.02) return previous;
+    return (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + headings.length) % headings.length;
+}
+
+function actorFrame(actor: string, pose: Pose, heading: number): string {
+    return actor + ':' + pose + ':' + headings[heading];
+}
+
+function walkPose(motion: ActorMotion): Pose {
+    if (Math.hypot(motion.dx, motion.dy) < 0.02) return 'idle';
+    return motion.stride < 6 ? 'step-a' : 'step-b';
+}
+
+function age(tick: number, event?: number): number { return tick - (event ?? -Infinity); }
 
 function enemyPose(battle: Readonly<Battle>, enemy: Enemy, chapterBoss: ChapterBossView | null): number {
     const step = Math.floor((battle.tick + enemy.id * 3) / 5);
@@ -103,24 +136,22 @@ export class BattleSkinView {
     private readonly pendingArenas = new Set<string>();
     private prepared = false;
     private disposed = false;
-    private lastBattle: Readonly<Battle> | null = null;
-    private lastTick = -1;
-    private previousX = 0;
-    private previousY = 0;
-    private stride = 0;
-    private walking = false;
-    private facing: 'walk' | 'side' | 'back' = 'walk';
-    private facingLeft = false;
+    private modelIcons?: PrototypeItemIcons;
+    private modelDispatch?: PrototypeDispatchView;
+    private dispatchVisible = false;
+    private toolReveal?: PrototypeToolReveal;
+    private toolRevealVisible = false;
+    private readonly motion = new WeakMap<Actor, ActorMotion>();
 
-    constructor(private readonly root: string, floor: Node, actors: Node, ui: Node,
-        private readonly invalidate: () => void, private readonly campaign = false) {
+    constructor(private readonly root: string, floor: Node, actors: Node, private readonly uiRoot: Node,
+        private readonly invalidate: () => void, private readonly campaign = false, private readonly modelArt = false) {
         this.floor = new SpritePool(floor);
         const signals = new Node('MachineShadows');
         signals.layer = actors.layer;
         actors.addChild(signals);
         this.machineGround = signals.addComponent(Graphics);
         this.world = new SpritePool(actors);
-        this.ui = new SpritePool(ui);
+        this.ui = new SpritePool(uiRoot);
         if (!campaign) this.prepare();
     }
 
@@ -128,7 +159,39 @@ export class BattleSkinView {
         if (this.prepared) return;
         this.prepared = true;
         this.setStage(this.stageId, this.arena);
+        if (!this.modelArt) this.prepareSpriteArt();
         const { root, invalidate } = this;
+        resources.load(root + '/frames', JsonAsset, (error, manifest) => {
+            if (error || this.disposed) return;
+            resources.load(root + '/sheet/texture', Texture2D, (loadError, texture) => {
+                if (loadError || this.disposed) return;
+                const rectangles = manifest.json as Record<string, number[]>;
+                for (const key of Object.keys(rectangles)) {
+                    const rect = rectangles[key];
+                    if (!Array.isArray(rect) || rect.length !== 4) continue;
+                    const [x, y, w, h] = rect;
+                    if (!rect.every(Number.isFinite) || x < 0 || y < 0 || w <= 0 || h <= 0
+                        || x + w > texture.width || y + h > texture.height) continue;
+                    const frame = new SpriteFrame();
+                    frame.reset({ texture, rect: new Rect(x, y, w, h) });
+                    frame.packable = false;
+                    if (key === 'panel') {
+                        frame.insetTop = frame.insetBottom = 9;
+                        frame.insetLeft = frame.insetRight = 10;
+                    }
+                    this.frames.set(key, frame);
+                }
+                invalidate();
+            });
+        });
+    }
+
+    private prepareSpriteArt(): void {
+        const { root, invalidate } = this;
+        for (const [atlas, actors] of Object.entries(directionalAtlases)) {
+            this.loadAtlas(atlas, actors.flatMap(actor => poses.flatMap(pose =>
+                headings.map((_heading, index) => actorFrame(actor, pose, index)))), headings.length);
+        }
         resources.load(root + '/yard/texture', Texture2D, (error, texture) => {
             if (error || this.disposed) return;
             const frame = new SpriteFrame();
@@ -156,32 +219,9 @@ export class BattleSkinView {
             this.loadAtlas('campaign-tools', CAMPAIGN_TOOL_ART, 3);
             this.loadAtlas('radio-portraits', ['radio-aruan', 'radio-chenqi'], 2);
         }
-        resources.load(root + '/frames', JsonAsset, (error, manifest) => {
-            if (error || this.disposed) return;
-            resources.load(root + '/sheet/texture', Texture2D, (loadError, texture) => {
-                if (loadError || this.disposed) return;
-                const rectangles = manifest.json as Record<string, number[]>;
-                for (const key of Object.keys(rectangles)) {
-                    const rect = rectangles[key];
-                    if (!Array.isArray(rect) || rect.length !== 4) continue;
-                    const [x, y, w, h] = rect;
-                    if (!rect.every(Number.isFinite) || x < 0 || y < 0 || w <= 0 || h <= 0
-                        || x + w > texture.width || y + h > texture.height) continue;
-                    const frame = new SpriteFrame();
-                    frame.reset({ texture, rect: new Rect(x, y, w, h) });
-                    frame.packable = false;
-                    if (key === 'panel') {
-                        frame.insetTop = frame.insetBottom = 9;
-                        frame.insetLeft = frame.insetRight = 10;
-                    }
-                    this.frames.set(key, frame);
-                }
-                invalidate();
-            });
-        });
     }
 
-    has(key: string): boolean { return this.frames.has(key); }
+    has(key: string): boolean { return this.frames.has(key) || this.frames.has(actorFrame(key, 'idle', SOUTH)); }
 
     private loadAtlas(asset: string, keys: readonly string[], columns: number): void {
         resources.load(this.root + '/' + asset + '/texture', Texture2D, (error, texture) => {
@@ -201,11 +241,13 @@ export class BattleSkinView {
     setStage(id: string, arena = id === '02' ? 'pump-floor' : 'yard'): void {
         this.stageId = id;
         this.arena = arena;
-        this.loadArena(arena);
-        const frame = this.arenas.get(arena)?.floor ?? this.frames.get(arena) ?? this.frames.get('yard');
         this.floor.begin();
-        if (frame) this.floor.put(frame, (FIELD.left + FIELD.right) / 2, (FIELD.top + FIELD.bottom) / 2,
-            FIELD.right - FIELD.left, FIELD.top - FIELD.bottom, 0, Color.WHITE);
+        if (!this.modelArt || !PrototypeDispatchView.supports(id)) {
+            this.loadArena(arena);
+            const frame = this.arenas.get(arena)?.floor ?? this.frames.get(arena) ?? this.frames.get('yard');
+            if (frame) this.floor.put(frame, (FIELD.left + FIELD.right) / 2, (FIELD.top + FIELD.bottom) / 2,
+                FIELD.right - FIELD.left, FIELD.top - FIELD.bottom, 0, Color.WHITE);
+        }
         this.floor.finish();
     }
 
@@ -246,6 +288,13 @@ export class BattleSkinView {
     }
 
     dispatchArt(x: number, y: number, id: string, arena: string, height: number): void {
+        if (this.modelArt && PrototypeDispatchView.supports(id)) {
+            this.modelDispatch ??= new PrototypeDispatchView(this.uiRoot.scene!, this.invalidate);
+            this.dispatchVisible = true;
+            const model = this.modelDispatch.show(id);
+            if (model) this.putDispatchArt(model, x, y, height);
+            return;
+        }
         const asset = id === 'ending' ? 'city-restored' : arena;
         this.ticketArena = asset;
         this.loadArena(asset);
@@ -255,6 +304,10 @@ export class BattleSkinView {
             if (height >= 110) this.shopfront(x, y);
             return;
         }
+        this.putDispatchArt(source, x, y, height);
+    }
+
+    private putDispatchArt(source: SpriteFrame, x: number, y: number, height: number): void {
         let frame = source;
         if (height < 164) {
             if (this.dispatchCrop?.source !== source || this.dispatchCrop.height !== height) {
@@ -282,33 +335,99 @@ export class BattleSkinView {
         return true;
     }
 
-    private drawMechanic(battle: Readonly<Battle>): void {
-        const { player, tick } = battle;
-        if (this.lastBattle !== battle) {
-            this.facing = 'walk';
-            this.facingLeft = false;
-            this.walking = false;
-            this.stride = 0;
-        } else if (tick !== this.lastTick) {
-            const dx = player.x - this.previousX;
-            const dy = player.y - this.previousY;
-            const distance = Math.hypot(dx, dy);
-            this.walking = distance > 0.02;
-            if (this.walking) {
-                this.stride = (this.stride + distance) % 48;
-                const bias = this.facing === 'side' ? 0.85 : 1.15;
-                this.facing = Math.abs(dx) >= Math.abs(dy) * bias ? 'side' : dy > 0 ? 'back' : 'walk';
-                this.facingLeft = this.facing === 'side' && dx < 0;
-            } else this.stride = 0;
+    private sampleMotion(actor: Actor, tick: number, heading = SOUTH): ActorMotion {
+        let motion = this.motion.get(actor);
+        if (!motion) {
+            motion = { x: actor.x, y: actor.y, dx: 0, dy: 0, tick, stride: 0, heading };
+            this.motion.set(actor, motion);
         }
-        this.lastBattle = battle;
-        this.lastTick = tick;
-        this.previousX = player.x;
-        this.previousY = player.y;
-        const index = this.walking ? Math.floor(this.stride / 12) : 1;
-        const pose = this.facing === 'walk' && !this.walking ? 'mechanic' : this.facing + index;
-        this.icon(this.world, this.has(pose) ? pose : 'mechanic', player.x, player.y, 34, 0,
-            tick < player.invulnerableUntil && tick % 6 < 3 ? hurt : Color.WHITE, this.facingLeft);
+        if (motion.tick !== tick) {
+            motion.dx = actor.x - motion.x;
+            motion.dy = actor.y - motion.y;
+            motion.x = actor.x;
+            motion.y = actor.y;
+            motion.tick = tick;
+            const distance = Math.hypot(motion.dx, motion.dy);
+            motion.stride = distance < 0.02 ? 0 : (motion.stride + distance) % 12;
+        }
+        return motion;
+    }
+
+    private drawMechanic(battle: Readonly<Battle>): void {
+        const { player, tick, playerAttack } = battle;
+        const motion = this.sampleMotion(player, tick);
+        const attackAge = age(tick, playerAttack?.tick);
+        const injuryAge = age(tick, player.hurtAt);
+        motion.heading = attackAge < 8 && playerAttack ? facing(playerAttack.x, playerAttack.y, motion.heading)
+            : facing(motion.dx, motion.dy, motion.heading);
+        const pose = injuryAge < 6 ? 'hit' : attackAge < 5 ? 'strike'
+            : attackAge < 8 ? 'recover' : walkPose(motion);
+        const tint = injuryAge < 5 || tick < player.invulnerableUntil && tick % 6 < 3 ? hurt : Color.WHITE;
+        if (this.icon(this.world, actorFrame('mechanic', pose, motion.heading), player.x, player.y, 40, 0, tint)) return;
+        const horizontal = motion.heading === 0 || motion.heading === 4;
+        const legacy = horizontal ? 'side' : motion.heading > 0 && motion.heading < 4 ? 'back' : 'walk';
+        const index = pose === 'step-a' ? 0 : pose === 'step-b' ? 2 : 1;
+        const frame = legacy === 'walk' && pose === 'idle' ? 'mechanic' : legacy + index;
+        this.icon(this.world, this.has(frame) ? frame : 'mechanic', player.x, player.y, 34, 0, tint, motion.heading === 4);
+    }
+
+    private drawDirectionalEnemy(battle: Readonly<Battle>, enemy: Enemy, boss: ChapterBossView | null,
+        mission: MissionView | null): boolean {
+        const { player, tick } = battle;
+        const { kind, x, y, state } = enemy;
+        const key = boss?.kind ?? kind;
+        if (!this.frames.has(actorFrame(key, 'idle', SOUTH))) return false;
+        const motion = this.sampleMotion(enemy, tick, facing(player.x - x, player.y - y));
+        const legacyBoss = kind === 'inspector' && !boss ? battle.boss : null;
+        const shotAge = age(tick, enemy.shotAt);
+        const contactAge = age(tick, enemy.contactAt);
+        const impactAge = age(tick, enemy.hitAt);
+        const emergeAge = age(tick, enemy.revealedAt);
+        const warning = boss ? boss.hazard?.state === 'warning' : legacyBoss
+            ? legacyBoss.phase === 'warning' : state === 'warn';
+        const striking = boss ? boss.hazard?.state === 'active' : legacyBoss
+            ? legacyBoss.phase === 'sweep' || legacyBoss.phase === 'charge'
+                || legacyBoss.phase === 'recover' && legacyBoss.attack === 'summon' && age(tick, legacyBoss.attackAt) < 5
+            : state === 'dash' || shotAge < 5 || contactAge < 5 || kind === 'ambusher' && emergeAge >= 7 && emergeAge < 13;
+        const recoveringPose = boss ? boss.recovering : legacyBoss ? legacyBoss.phase === 'recover'
+            : shotAge < 11 || contactAge < 9 || kind === 'charger' && enemy.next - tick > 46
+                || kind === 'reclaimer' && enemy.next - tick > 65 || kind === 'jammer' && enemy.next - tick > 58;
+        const hazard = boss?.hazard;
+        if (boss?.kind === 'supervisor') {
+            // The protected front points south in ChapterBoss.damage.
+            motion.heading = SOUTH;
+        } else if (kind === 'armored') {
+            motion.heading = facing(enemy.facingX ?? 0, enemy.facingY ?? 0, motion.heading);
+        } else if (hazard?.shape === 'sector') {
+            const center = hazard.from + hazard.sweep / 2;
+            motion.heading = facing(Math.cos(center), Math.sin(center), motion.heading);
+        } else if (hazard?.shape === 'tether') {
+            motion.heading = facing(hazard.end.x - hazard.x, hazard.end.y - hazard.y, motion.heading);
+        } else if (hazard?.shape === 'rect') {
+            motion.heading = facing((hazard.left + hazard.right) / 2 - x, (hazard.bottom + hazard.top) / 2 - y, motion.heading);
+        } else if ((legacyBoss && (warning || striking)) || kind === 'charger' && state !== 'walk'
+            || kind === 'turret' && (state === 'warn' || shotAge < 11) || kind === 'pursuer' && state === 'dash') {
+            motion.heading = facing(enemy.vx, enemy.vy, motion.heading);
+        } else if (state !== 'walk' && (kind === 'reclaimer' || kind === 'jammer')) {
+            const target = (kind === 'reclaimer' ? mission?.escort : mission?.points.find(point => point.state === 'active')) ?? player;
+            motion.heading = facing(target.x - x, target.y - y, motion.heading);
+        } else if (!boss || (!warning && !striking)) {
+            if (walkPose(motion) !== 'idle') motion.heading = facing(motion.dx, motion.dy, motion.heading);
+            else if (!boss && (kind === 'turret' || legacyBoss)) motion.heading = facing(player.x - x, player.y - y, motion.heading);
+        }
+        const hidden = kind === 'ambusher' && state === 'warn';
+        const pose = hidden ? 'windup' : impactAge < 6 && !warning && !striking ? 'hit'
+            : striking ? 'strike' : warning ? 'windup' : recoveringPose ? 'recover' : walkPose(motion);
+        const tint = hidden ? shadowMachine : impactAge < 5 ? hurt : boss?.vulnerable ? exposed : Color.WHITE;
+        const size = unitSize[kind];
+        const ground = this.machineGround;
+        if (!hidden) {
+            ground.fillColor = outline;
+            ground.ellipse(x, y - size * 0.16, size * 0.31, size * 0.14);
+            ground.fill();
+        }
+        const rise = impactAge < 6 ? (6 - impactAge) / 3 : striking ? 0.7 * Math.sin(tick * 0.5) : 0;
+        return this.icon(this.world, actorFrame(key, pose, motion.heading), x, y + rise, size * 1.43, 0, tint);
     }
 
     private drawMachine(key: string, battle: Readonly<Battle>, enemy: Enemy, boss: ChapterBossView | null): void {
@@ -399,18 +518,29 @@ export class BattleSkinView {
         }
     }
 
-    drawWorld(battle: Readonly<Battle> | null): void {
+    drawWorld(battle: Readonly<Battle> | null, prototypeModels = false): void {
         this.world.begin();
         this.machineGround.clear();
         if (battle) {
             const { player, tick } = battle;
+            const mission = battle.mission;
             const core = battle.boss?.unit;
-            if (core && core.hp <= 0 && battle.chapterBoss?.kind === 'core') {
+            if (core && core.hp <= 0 && battle.chapterBoss?.kind === 'core' && !prototypeModels) {
                 // The housing drops below the released scrap, which remains at its pickup point.
-                this.icon(this.world, 'machine-core', core.x, core.y - 14, unitSize.inspector * 0.83, 0, offlineCore);
+                const settled = actorFrame('core', 'recover', this.sampleMotion(core, tick).heading);
+                if (!this.icon(this.world, settled, core.x, core.y - 14, unitSize.inspector * 1.17, 0, offlineCore)) {
+                    this.icon(this.world, 'machine-core', core.x, core.y - 14, unitSize.inspector * 0.83, 0, offlineCore);
+                }
             }
-            for (const part of battle.parts) this.icon(this.world, 'scrap', part.x, part.y, 9);
+            if (!prototypeModels) for (const part of battle.parts) this.icon(this.world, 'scrap', part.x, part.y, 9);
             for (const enemy of battle.enemies) {
+                if (prototypeModels) {
+                    const size = unitSize[enemy.kind];
+                    this.drawModelShadow(enemy.x, enemy.y, size / 2, size * 0.24);
+                    continue;
+                }
+                const chapterBoss = enemy === battle.boss?.unit ? battle.chapterBoss : null;
+                if (this.drawDirectionalEnemy(battle, enemy, chapterBoss, mission)) continue;
                 const bossLocked = enemy === battle.boss?.unit && battle.boss.phase !== 'patrol';
                 const locked = enemy.state !== 'walk' || bossLocked;
                 const dx = enemy.kind === 'armored' ? enemy.facingX! : locked ? enemy.vx : player.x - enemy.x;
@@ -418,7 +548,6 @@ export class BattleSkinView {
                 const flip = dx < 0;
                 const directional = enemy.kind === 'armored' || enemy.kind === 'turret' || enemy.kind === 'charger';
                 const angle = directional ? Math.atan2(dy, Math.abs(dx)) * (flip ? -1 : 1) * 180 / Math.PI : 0;
-                const chapterBoss = enemy === battle.boss?.unit ? battle.chapterBoss : null;
                 const machine = 'machine-' + (chapterBoss?.kind ?? enemy.kind);
                 if (this.has(machine)) {
                     this.drawMachine(machine, battle, enemy, chapterBoss);
@@ -429,8 +558,9 @@ export class BattleSkinView {
                 const hint = chapterBoss?.vulnerable || locked && enemy.state === 'warn' && tick % 8 < 4 ? amber : Color.WHITE;
                 this.icon(this.world, frame, enemy.x, enemy.y, unitSize[enemy.kind], angle, hint, flip);
             }
-            this.drawMechanic(battle);
-            for (const bullet of battle.bullets) this.icon(this.world, 'bullet', bullet.x, bullet.y, 11, 0, amber);
+            if (prototypeModels) this.drawModelShadow(player.x, player.y, 9, 5);
+            else this.drawMechanic(battle);
+            if (!prototypeModels) for (const bullet of battle.bullets) this.icon(this.world, 'bullet', bullet.x, bullet.y, 11, 0, amber);
             for (const enemy of battle.enemies) {
                 if (!enemy.marked) continue;
                 const size = 12 + Math.cos(tick * 0.28);
@@ -440,9 +570,72 @@ export class BattleSkinView {
         this.world.finish();
     }
 
-    beginUi(): void { this.ticketArena = undefined; this.ui.begin(); }
-    endUi(): void { this.ui.finish(); }
-    uiIcon(key: string, x: number, y: number, size: number): boolean { return this.icon(this.ui, key, x, y, size); }
+    private drawModelShadow(x: number, y: number, horizontal: number, vertical: number): void {
+        const ground = this.machineGround;
+        ground.fillColor = shadowFeather;
+        ground.ellipse(x + 1, y - 1, horizontal + 4, vertical + 2);
+        ground.fill();
+        ground.ellipse(x + 0.5, y - 0.5, horizontal + 2, vertical + 1);
+        ground.fill();
+        ground.fillColor = shadowContact;
+        ground.ellipse(x, y, horizontal, vertical);
+        ground.fill();
+    }
+
+    beginUi(): void {
+        this.ticketArena = undefined;
+        this.dispatchVisible = false;
+        this.toolRevealVisible = false;
+        this.ui.begin();
+    }
+    endUi(): void {
+        this.ui.finish();
+        if (!this.dispatchVisible && this.modelDispatch) {
+            this.dispatchCrop?.frame.destroy();
+            this.dispatchCrop = undefined;
+            this.modelDispatch.destroy();
+            this.modelDispatch = undefined;
+        }
+        if (!this.toolRevealVisible && this.toolReveal) {
+            this.toolReveal.destroy();
+            this.toolReveal = undefined;
+        }
+    }
+
+    drawToolReward(tool: ToolId, x: number, y: number, size: number, progress: number): void {
+        if (this.modelArt) {
+            this.toolRevealVisible = true;
+            this.modelIcons ??= new PrototypeItemIcons(this.uiRoot.scene!, this.invalidate);
+            if (this.toolReveal?.tool !== tool) {
+                this.toolReveal?.destroy();
+                this.toolReveal = this.modelIcons.createReveal(tool);
+            }
+            const frame = this.toolReveal.show(progress);
+            if (frame) {
+                this.ui.put(frame, x, y, size, size, 0, Color.WHITE);
+                return;
+            }
+        }
+        this.uiIcon(tool, x, y, size);
+    }
+
+    uiIconFrame(key: string): SpriteFrame | undefined {
+        if (this.modelArt && PrototypeItemIcons.supports(key)) {
+            this.modelIcons ??= new PrototypeItemIcons(this.uiRoot.scene!, this.invalidate);
+            const frame = this.modelIcons.frame(key);
+            if (frame) return frame;
+        }
+        return this.frames.get(key);
+    }
+
+    uiIcon(key: string, x: number, y: number, size: number): boolean {
+        const frame = this.uiIconFrame(key);
+        if (!frame) return false;
+        const { width, height } = frame.rect;
+        const scale = size / Math.max(width, height);
+        this.ui.put(frame, x, y, width * scale, height * scale, 0, Color.WHITE);
+        return true;
+    }
     shopfront(x: number, y: number): void {
         const frame = this.frames.get('shutter');
         if (frame) this.ui.put(frame, x, y, 330, 110, 0, new Color(115, 144, 155));
@@ -458,9 +651,12 @@ export class BattleSkinView {
 
     dispose(): void {
         this.disposed = true;
+        this.toolReveal?.destroy();
+        this.modelIcons?.destroy();
         this.arenas.forEach((_value, key) => this.releaseArena(key));
         this.dispatchCrop?.frame.destroy();
         this.dispatchCrop = undefined;
+        this.modelDispatch?.destroy();
         this.frames.forEach(frame => frame.destroy());
         this.frames.clear();
     }

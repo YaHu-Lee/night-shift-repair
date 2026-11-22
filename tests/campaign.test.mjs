@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CAMPAIGN_NAMESPACE, CAMPAIGN_STAGES, Campaign } from '../.m0-build/campaign/Campaign.js';
+import { WORKSHOP_TIERS } from '../.m0-build/campaign/CampaignLedger.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
 
 function fixture() {
@@ -104,6 +105,28 @@ test('each cleared station permits a new attempt and preserves later unlocks on 
         assert.deepEqual(profile.clearedStages, clearedStages);
         assert.deepEqual(profile.unlockedWeapons, unlockedWeapons);
     }
+});
+
+test('workshop supplies follow committed milestones through reload and backup restore', () => {
+    const original = fixture();
+    const campaign = original.campaign();
+    const supplies = current => WORKSHOP_TIERS[current.workshopTier].supplies;
+    assert.equal(supplies(campaign), 0);
+    const milestones = new Map([['02', 3], ['05', 5], ['10', 7], ['15', 9], ['20', 11]]);
+    let expected = 0;
+    for (const stage of CAMPAIGN_STAGES) {
+        const attempt = 'workshop-' + stage.id;
+        assert.ok(campaign.beginAttempt(stage.id, attempt));
+        assert.equal(supplies(original.campaign()), expected);
+        assert.equal(campaign.replayWon(stage.id, won(stage, attempt)), 'committed');
+        expected = milestones.get(stage.id) ?? expected;
+        assert.equal(supplies(original.campaign()), expected);
+    }
+    assert.ok(campaign.beginAttempt('01', 'workshop-replay'));
+    assert.equal(campaign.replayWon('01', won(CAMPAIGN_STAGES[0], 'workshop-replay')), 'already-cleared');
+    const restored = fixture().campaign();
+    assert.ok(restored.restoreBackup(campaign.backup()));
+    assert.equal(supplies(restored), 11);
 });
 
 test('boot replay after failed campaign write, after commit, and on corrupt latest A/B slot', () => {
@@ -378,7 +401,7 @@ test('overtime and commission badges are earned by eligible distinct runs', () =
     assert.equal(c.isModeUnlocked(stage.id, 'overtime_2'), true);
     assert.equal(complete('extra-ii', 'overtime_2', ['ring', 'coil'], { magnet: 1 }), 'committed');
     assert.equal(c.profile.overtimeRank, 2);
-    assert.equal(c.profile.credits, 36);
+    assert.equal(c.profile.credits, 40);
     assert.deepEqual(c.profile.clearedStages, ['01']);
     assert.ok(c.profile.badges.includes('heat_recovery'));
     assert.ok(c.profile.badges.includes('two_builds'));

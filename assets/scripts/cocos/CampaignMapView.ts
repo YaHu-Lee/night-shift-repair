@@ -33,12 +33,130 @@ const LAMP_CORE = new Color(255, 232, 169);
 const CAUTION_GLOW = new Color(233, 78, 47, 114);
 const CAUTION_CORE = new Color(255, 142, 103);
 const RADIO = new Color(124, 223, 225);
-const RESTORED_LINE = new Color(114, 224, 185);
-const RESTORED_GLOW = new Color(107, 218, 177, 74);
 const DARK_LINE = new Color(12, 19, 27, 191);
 const FREIGHT_BODY = new Color(58, 82, 80);
 const FREIGHT_CELL = new Color(247, 200, 112);
 const FREIGHT_CAB = new Color(220, 233, 208);
+const FEED_SHADOW = new Color(11, 16, 19, 220);
+const FEED_STEEL = new Color(92, 100, 92);
+const FEED_DARK = new Color(36, 44, 43);
+const FEED_AMBER = new Color(244, 198, 107);
+const FEED_GREEN = new Color(130, 194, 165);
+const FEED_PAPER = new Color(234, 227, 207);
+const FEED_DIM = new Color(177, 182, 170);
+
+export type RouteStationState = 'locked' | 'current' | 'cleared';
+export const ROUTE_STATION_EXTENT = 29;
+
+/** Cable sections share their endpoints with the terminals on the chapter artwork. */
+export function drawRouteCable(g: Graphics, points: readonly Point[], span: Span,
+    states: readonly RouteStationState[]): void {
+    const [lower, upper] = span;
+    const segments = points.slice(1).flatMap((end, index) => {
+        const [x, y] = points[index];
+        const dx = end[0] - x;
+        const dy = end[1] - y;
+        if (!dy && !inView(y, span)) return [];
+        const a = dy ? (lower - y) / dy : 0;
+        const b = dy ? (upper - y) / dy : 1;
+        const from = Math.max(0, Math.min(a, b));
+        const to = Math.min(1, Math.max(a, b));
+        if (from >= to) return [];
+        return [{ startX: x + dx * from, startY: y + dy * from,
+            endX: x + dx * to, endY: y + dy * to, state: states[index] }];
+    });
+    const line = (color: Color, width: number, predicate: (state: RouteStationState) => boolean): void => {
+        g.strokeColor = color;
+        g.lineWidth = width;
+        let hasPath = false;
+        for (const segment of segments) {
+            if (!predicate(segment.state)) continue;
+            g.moveTo(segment.startX, segment.startY);
+            g.lineTo(segment.endX, segment.endY);
+            hasPath = true;
+        }
+        if (hasPath) g.stroke();
+    };
+    const cap = g.lineCap;
+    g.lineCap = Graphics.LineCap.ROUND;
+    line(FEED_SHADOW, 11, () => true);
+    line(FEED_STEEL, 6, () => true);
+    line(FEED_DARK, 3, state => state === 'locked');
+    line(FEED_GREEN, 3, state => state === 'cleared');
+    line(FEED_AMBER, 3, state => state === 'current');
+    g.lineCap = cap;
+}
+
+export function drawRouteTerminal(g: Graphics, x: number, y: number, tagX: number,
+    state: RouteStationState, held: boolean): void {
+    const active = state === 'current';
+    const cleared = state === 'cleared';
+    const pinY = y - (held ? 2 : 0);
+    const lip = active ? FEED_AMBER : cleared ? FEED_GREEN : FEED_STEEL;
+    g.strokeColor = FEED_SHADOW;
+    g.lineWidth = 5;
+    g.moveTo(x, y);
+    g.lineTo(tagX, y);
+    g.stroke();
+
+    // The text is printed on the station's inspection plate next to the terminal.
+    const left = tagX - 69;
+    const right = tagX + 69;
+    g.fillColor = new Color(15, 24, 25, 248);
+    g.moveTo(left + 5, y + 22);
+    g.lineTo(right, y + 22);
+    g.lineTo(right, y - 17);
+    g.lineTo(right - 5, y - 22);
+    g.lineTo(left, y - 22);
+    g.lineTo(left, y + 17);
+    g.close();
+    g.fill();
+    g.strokeColor = lip;
+    g.lineWidth = active ? 2 : 1;
+    g.moveTo(left + 7, y + 21);
+    g.lineTo(right - 3, y + 21);
+    g.stroke();
+
+    const casing = (radius: number, offset: number, color: Color): void => {
+        const cy = pinY + offset;
+        g.fillColor = color;
+        g.moveTo(x - radius * 0.65, cy + radius * 0.83);
+        g.lineTo(x + radius * 0.65, cy + radius * 0.83);
+        g.lineTo(x + radius, cy);
+        g.lineTo(x + radius * 0.65, cy - radius * 0.83);
+        g.lineTo(x - radius * 0.65, cy - radius * 0.83);
+        g.lineTo(x - radius, cy);
+        g.close();
+        g.fill();
+    };
+    casing(26, -4, FEED_SHADOW);
+    casing(25, 0, lip);
+    casing(20, 0, active && !held ? new Color(210, 153, 66) : FEED_DARK);
+    g.lineWidth = 2.5;
+    g.strokeColor = cleared ? FEED_PAPER : active ? FEED_DARK : FEED_DIM;
+    if (active) {
+        g.fillColor = held ? FEED_AMBER : FEED_DARK;
+        g.moveTo(x + 3, pinY + 13);
+        g.lineTo(x - 9, pinY + 1);
+        g.lineTo(x - 2, pinY + 1);
+        g.lineTo(x - 4, pinY - 12);
+        g.lineTo(x + 9, pinY + 3);
+        g.lineTo(x + 2, pinY + 3);
+        g.close();
+        g.fill();
+    } else if (cleared) {
+        g.moveTo(x - 8, pinY);
+        g.lineTo(x - 2, pinY - 6);
+        g.lineTo(x + 9, pinY + 7);
+        g.stroke();
+    } else {
+        g.roundRect(x - 5, pinY + 1, 10, 10, 4);
+        g.stroke();
+        g.fillColor = FEED_DIM;
+        g.roundRect(x - 8, pinY - 8, 16, 12, 2);
+        g.fill();
+    }
+}
 
 function inView(y: number, [lower, upper]: Span, margin = 0): boolean {
     return y >= lower + margin && y <= upper - margin;
@@ -129,35 +247,4 @@ export function drawDistrictProgress(g: Graphics, chapter: string, cleared: numb
             drawLamps(g, DISTRICT_WINDOWS, origin, span, cleared === 5);
             break;
     }
-}
-
-export function drawRestoredLeg(g: Graphics, start: Point, end: Point, span: Span, signal: boolean): void {
-    const [x0, y0] = start;
-    const [x1, y1] = end;
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const size = Math.hypot(dx, dy);
-    if (size === 0) return;
-    const steps = Math.max(1, Math.ceil(size / 6));
-    const points = Array.from({ length: steps + 1 }, (_, i) => {
-        const t = i / steps;
-        const ripple = signal ? 5 * Math.sin(Math.PI * 2 * Math.round(size / 25) * t) : 0;
-        return [x0 + dx * t - dy / size * ripple, y0 + dy * t + dx / size * ripple];
-    });
-    const stroke = (color: Color, width: number) => {
-        g.strokeColor = color;
-        g.lineWidth = width;
-        let drawing = false;
-        for (const [x, y] of points) {
-            if (!inView(y, span, 4)) drawing = false;
-            else if (drawing) g.lineTo(x, y);
-            else {
-                g.moveTo(x, y);
-                drawing = true;
-            }
-        }
-        g.stroke();
-    };
-    stroke(signal ? DARK_LINE : RESTORED_GLOW, signal ? 4 : 7);
-    stroke(signal ? RADIO : RESTORED_LINE, 2);
 }

@@ -414,6 +414,8 @@
     },
     "_enabled": true,
     "fullRun": true,
-    "campaignMode": true
+    "campaignMode": true,
+    "reviveAdUnitId": "",
+    "wechatReviveAdUnitId": ""
   }
 ]

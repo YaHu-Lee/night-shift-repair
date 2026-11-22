@@ -1,18 +1,31 @@
 import type { BlueprintId, ChallengeMode } from '../m1/Encounter';
+import { freezeTraining, validTraining } from './CampaignTraining';
+import type { TrainingProgress } from './CampaignTraining';
+
+export const CHALLENGE_BONUS = 4;
 
 export const BLUEPRINTS: Readonly<Record<BlueprintId, { title: string; detail: string }>> = {
-    magnetic_pickup_arm: { title: '磁力拾取臂', detail: '拾取半径提高 25%，波末基础回收降至 35%。' },
-    narrow_beam_clamp: { title: '窄束导电夹', detail: '成型电弧跳得更远，最多再跳 2 次。' },
-    quick_release_heatsink: { title: '快拆散热罩', detail: '过热恢复更快，停火前少打一发。' },
+    magnetic_pickup_arm: { title: '磁力拾取臂', detail: '拾取半径 +25%。波末基础回收率从 50% 降到 35%。' },
+    narrow_beam_clamp: { title: '窄束导电夹', detail: '强化电弧每跳多 20 像素，基础跳数由 3 减为 2。' },
+    quick_release_heatsink: { title: '快拆散热罩', detail: '过热前少打一发，停火从 1.6 秒缩短到 1.2 秒。' },
 };
 
+export const WORKSHOP_TIERS: readonly { title: string; stage: string | null; supplies: number }[] = [
+    { title: '值班工位', stage: null, supplies: 0 },
+    { title: '备件箱', stage: '02', supplies: 3 },
+    { title: '整备工作台', stage: '05', supplies: 5 },
+    { title: '夜班工具库', stage: '10', supplies: 7 },
+    { title: '街区维修站', stage: '15', supplies: 9 },
+    { title: '区域维修站', stage: '20', supplies: 11 },
+];
+
 export const COMMISSIONS = {
-    first_wave: '完成第一波',
-    arc_chain: '触发电弧连锁',
-    magnetic_pulse: '触发磁吸脉冲',
-    heat_recovery: '过热恢复后再出手',
+    first_wave: '清完第 1 波',
+    arc_chain: '用强化电弧连击敌机',
+    magnetic_pulse: '拾零件时放出一次震击',
+    heat_recovery: '让过热的武器冷却后再打一次',
     inspector_clear: '击败配电站巡检机',
-    two_builds: '用两种流派击败巡检机',
+    two_builds: '用两种改装效果各打赢一次配电站',
 } as const;
 
 export type Build = 'arc' | 'magnet' | 'heat';
@@ -35,6 +48,7 @@ export interface Settlement {
     readonly clearedWaves: number;
     readonly credits: number;
     readonly aid: boolean;
+    readonly challengeBonus?: typeof CHALLENGE_BONUS;
     readonly builds: readonly Build[];
     readonly chosenBuild: Build | null;
 }
@@ -55,6 +69,8 @@ export interface CampaignProfile {
     readonly badges: readonly Badge[];
     readonly inspectorBuilds: readonly Build[];
     readonly receipts: readonly Settlement[];
+    readonly training?: TrainingProgress;
+    readonly challengeClears?: readonly string[];
 }
 
 interface LegacyProfile {
@@ -105,7 +121,9 @@ function isSettlement(value: unknown): value is Settlement {
     return safeId(row.stageId) && safeId(row.runId) && typeof row.firstClear === 'boolean'
         && (row.weapon === null || safeId(row.weapon)) && safeNumber(row.clearedWaves, 0)
         && safeNumber(row.credits, 0) && typeof row.aid === 'boolean'
-        && row.credits === row.clearedWaves * 2 + Number(row.aid)
+        && (row.challengeBonus === undefined || (row.challengeBonus === CHALLENGE_BONUS
+            && !row.firstClear && !row.aid && row.weapon === null && row.clearedWaves > 0))
+        && row.credits === row.clearedWaves * 2 + Number(row.aid) + (row.challengeBonus ?? 0)
         && unique(row.builds, isBuild) && (row.chosenBuild === null || row.builds.includes(row.chosenBuild));
 }
 
@@ -122,6 +140,8 @@ export function validProfile(value: unknown): value is CampaignProfile | LegacyP
         && typeof profile.firstWaveAidClaimed === 'boolean' && unique(profile.storySeen, safeId)
         && (profile.overtimeRank === 0 || profile.overtimeRank === 1 || profile.overtimeRank === 2)
         && unique(profile.badges, isBadge) && unique(profile.inspectorBuilds, isBuild)
+        && (profile.training === undefined || validTraining(profile.training))
+        && (profile.challengeClears === undefined || unique(profile.challengeClears, safeId))
         && Array.isArray(profile.receipts) && profile.receipts.every(isSettlement)
         && new Set(profile.receipts.map(row => row.runId)).size === profile.receipts.length;
 }
@@ -160,6 +180,8 @@ export function freezeProfile(profile: CampaignProfile): CampaignProfile {
         storySeen: Object.freeze([...profile.storySeen]),
         badges: Object.freeze([...profile.badges]),
         inspectorBuilds: Object.freeze([...profile.inspectorBuilds]),
+        ...(profile.training && { training: freezeTraining(profile.training) }),
+        ...(profile.challengeClears && { challengeClears: Object.freeze([...profile.challengeClears]) }),
         receipts: Object.freeze(profile.receipts.map(row => Object.freeze({
             ...row, builds: Object.freeze([...row.builds]),
         }))),

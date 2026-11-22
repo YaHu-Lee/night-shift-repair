@@ -1,42 +1,58 @@
 import type { CampaignEncounter, WaveDirective } from './Encounter';
+import type { AttachmentId } from './Equipment';
 
 export const CONTENT_VERSION = 1;
 export const TICK_RATE = 30;
+export interface CombatBounds { readonly left: number; readonly right: number; readonly bottom: number; readonly top: number }
 export const FIELD = { left: 15, right: 345, bottom: 153, top: 553 } as const;
 export const START = { x: 180, y: 353 } as const;
+export const CAMPAIGN_FIELD: CombatBounds = { left: -150, right: 510, bottom: 28, top: 678 };
+export const COMBAT_VIEWPORT = { width: FIELD.right - FIELD.left, height: FIELD.top - FIELD.bottom } as const;
+
+/** Clamp a view of the legacy logical size to the current combat world. */
+export function combatViewport(field: CombatBounds, x: number, y: number, overscan = 0): CombatBounds {
+    const width = Math.min(COMBAT_VIEWPORT.width, field.right - field.left);
+    const height = Math.min(COMBAT_VIEWPORT.height, field.top - field.bottom);
+    const left = Math.min(field.right - width + overscan, Math.max(field.left - overscan, x - width / 2));
+    const bottom = Math.min(field.top - height + overscan, Math.max(field.bottom - overscan, y - height / 2));
+    return { left, right: left + width, bottom, top: bottom + height };
+}
 export const MAX_HP = 8;
 export const RUN_SEED = 20261120;
 export const REFRESH_COST = 2;
+export const BASE_PICKUP_RADIUS = 21;
+export const MAGNET_PICKUP_RADIUS = 39;
+export const MAGNET_PULSE = { parts: 5, radius: 79, damage: 4 } as const;
 export const WAVES = [
     { seconds: 25, spawnEvery: 37, enemies: ['crawler'] },
     { seconds: 30, spawnEvery: 27, enemies: ['crawler', 'crawler', 'charger'] },
     { seconds: 35, spawnEvery: 21, enemies: ['crawler', 'charger', 'turret', 'crawler'] },
 ] as const;
 export const TOOLS = {
-    wrench: { name: '电弧扳手', reach: 104, cooldown: 14, damage: 2, price: 5, detail: '短程链击，优先攻击最近的敌人' },
-    arc_gun: { name: '电弧枪', reach: 123, cooldown: 20, damage: 2, price: 6, detail: '连跳范围更大，擅长打成团的敌人；单体射速较慢' },
-    riveter: { name: '铆钉枪', reach: 185, cooldown: 19, damage: 2, price: 5, detail: '沿直线穿刺，最多命中三个敌人' },
-    torch: { name: '喷火管', reach: 82, cooldown: 10, damage: 1, price: 5, detail: '近距离扇形喷射' },
-    induction: { name: '感应线圈', reach: 71, cooldown: 24, damage: 3, price: 5, detail: '以自身为圆心，周期攻击近处所有敌人' },
-    hydraulic_nailer: { name: '液压钉枪', reach: 155, cooldown: 32, damage: 4, price: 5, detail: '穿一层盾掩体，最多命中两个敌人；弱点开启时伤害更高' },
-    pulse_nozzle: { name: '脉冲喷管', reach: 78, cooldown: 23, damage: 2, price: 5, detail: '喷开前方近敌，适合替电池车清路' },
-    traction_coil: { name: '牵引线圈', reach: 98, cooldown: 28, damage: 2, price: 5, detail: '最多拉近两只敌机，打散护甲掩护；关底机不会被拉动' },
-    split_probe: { name: '分束探针', reach: 140, cooldown: 22, damage: 2, price: 5, detail: '每次朝两个独立敌人发射，善于守住两路' },
-    bypass_wrench: { name: '旁路扳手', reach: 78, cooldown: 15, damage: 2, price: 5, detail: '三次近身命中后的下一击加强，离开战斗会失去连击' },
+    wrench: { name: '电弧扳手', reach: 104, cooldown: 14, damage: 2, price: 5, detail: '打中近处敌机，电弧还能跳 1 次' },
+    arc_gun: { name: '电弧枪', reach: 123, cooldown: 20, damage: 2, price: 6, detail: '电弧最多连跳 2 次' },
+    riveter: { name: '铆钉枪', reach: 185, cooldown: 19, damage: 2, price: 5, detail: '一发最多穿过 3 台敌机' },
+    torch: { name: '喷火管', reach: 82, cooldown: 10, damage: 1, price: 5, detail: '向前喷火，扫过近处一片敌机' },
+    induction: { name: '感应线圈', reach: 71, cooldown: 24, damage: 3, price: 5, detail: '放电击中身边所有敌机' },
+    hydraulic_nailer: { name: '液压钉枪', reach: 155, cooldown: 32, damage: 4, price: 5, detail: '一发最多穿 2 台，打护甲正面更有效' },
+    pulse_nozzle: { name: '脉冲喷管', reach: 78, cooldown: 23, damage: 2, price: 5, detail: '推开前方的普通敌机' },
+    traction_coil: { name: '牵引线圈', reach: 98, cooldown: 28, damage: 2, price: 5, detail: '最多拉近 2 台普通敌机' },
+    split_probe: { name: '分束探针', reach: 140, cooldown: 22, damage: 2, price: 5, detail: '可同时攻击 2 台敌机' },
+    bypass_wrench: { name: '旁路扳手', reach: 78, cooldown: 15, damage: 2, price: 5, detail: '连中 4 次，第 4 击伤害 +3' },
 } as const;
 export const MODS = {
-    contact: { name: '导电触点', tag: 'arc', price: 4, detail: '每次开火，标记瞄准的敌人。' },
-    splitter: { name: '分流器', tag: 'arc', price: 4, detail: '凑齐两种电弧，击中标记可连跳 3 次' },
-    ring: { name: '大拾取圈', tag: 'magnet', price: 4, detail: '拾取范围扩大' },
-    coil: { name: '回收线圈', tag: 'magnet', price: 4, detail: '凑齐两种磁吸，每捡 5 件震击周围' },
-    exchanger: { name: '热交换器', tag: 'heat', price: 3, detail: '缩短装配工具的攻击间隔' },
-    valve: { name: '泄压阀', tag: 'heat', price: 3, detail: '两种过热：连发增伤，过热停火 1.6 秒' },
-    relay: { name: '稳压继电器', tag: 'arc', price: 4, detail: '凑齐两种电弧，连锁可跳得更远' },
-    sweeper: { name: '回收滚轮', tag: 'magnet', price: 4, detail: '扩大拾取范围，可凑磁吸震击' },
-    ceramic: { name: '陶瓷护套', tag: 'heat', price: 4, detail: '凑齐两种过热，多打 2 次再冷却' },
-    bearings: { name: '轻量轴承', tag: 'utility', price: 4, detail: '移动速度提高 12%' },
-    plate: { name: '缓冲挡板', tag: 'utility', price: 4, detail: '每波抵挡第一次伤害' },
-    sorter: { name: '零件分拣器', tag: 'utility', price: 4, detail: '波末自动回收比例提高到 75%' },
+    contact: { name: '导电触点', tag: 'arc', price: 4, detail: '攻击时给目标上标记' },
+    splitter: { name: '分流器', tag: 'arc', price: 4, detail: '装 2 种电弧配件，打标记目标可连跳 3 次' },
+    ring: { name: '大拾取圈', tag: 'magnet', price: 4, detail: '能捡到更远的零件' },
+    coil: { name: '回收线圈', tag: 'magnet', price: 4, detail: '装 2 种磁吸配件，每捡 5 个零件震击一次' },
+    exchanger: { name: '热交换器', tag: 'heat', price: 3, detail: '这把武器的攻击间隔 −100 毫秒' },
+    valve: { name: '泄压阀', tag: 'heat', price: 3, detail: '装 2 种过热配件，连发增伤，过热停火' },
+    relay: { name: '稳压继电器', tag: 'arc', price: 4, detail: '装 2 种电弧配件，强化连跳距离增加' },
+    sweeper: { name: '回收滚轮', tag: 'magnet', price: 4, detail: '拾取范围 +11，计入磁吸套装' },
+    ceramic: { name: '陶瓷护套', tag: 'heat', price: 4, detail: '装 2 种过热配件，这把武器多打 2 次再冷却' },
+    bearings: { name: '轻量轴承', tag: 'utility', price: 4, detail: '移速 +12%' },
+    plate: { name: '缓冲挡板', tag: 'utility', price: 4, detail: '每波挡下第 1 次伤害' },
+    sorter: { name: '零件分拣器', tag: 'utility', price: 4, detail: '每波结束，地上零件的回收率 +25 个百分点' },
 } as const;
 export const ENEMIES = {
     crawler: { hp: 4, speed: 47 },
@@ -57,7 +73,34 @@ export type RegularEnemyId = Exclude<EnemyId, 'inspector'>;
 export type Route = 'arc' | 'magnet';
 export type Tag = typeof MODS[ModId]['tag'];
 export type OfferId = ToolId | ModId;
-export interface EquippedTool { id: ToolId; mods: ModId[] }
+export const TUNING_OPTIONS = {
+    range: { id: 'range', name: '加长导轨', detail: '射程 +20%\n攻击间隔 +15%' },
+    speed: { id: 'speed', name: '快拆电机', detail: '攻击间隔 −20%\n射程 −15%' },
+    close: { id: 'close', name: '贴身增压', detail: '射程 45% 以内\n直接命中伤害 +1' },
+    edge: { id: 'edge', name: '远端聚焦', detail: '从射程 65% 处起\n直接命中伤害 +1' },
+} as const;
+export type TuningChoice = keyof typeof TUNING_OPTIONS;
+export const TUNING_STEPS = {
+    handling: { wave: 2, cost: 6, choices: [TUNING_OPTIONS.range, TUNING_OPTIONS.speed] },
+    finisher: { wave: 4, cost: 8, choices: [TUNING_OPTIONS.close, TUNING_OPTIONS.edge] },
+} as const;
+export type TuningStep = keyof typeof TUNING_STEPS;
+export interface EquippedTool {
+    id: ToolId;
+    mods: ModId[];
+    tuning?: { handling?: 'range' | 'speed'; finisher?: 'close' | 'edge' };
+    attachments?: (AttachmentId | null)[];
+}
+
+export function toolTuningStats(tool: EquippedTool): { reach: number; interval: number } {
+    const base = TOOLS[tool.id];
+    const interval = base.cooldown - (tool.mods.includes('exchanger') ? 3 : 0);
+    switch (tool.tuning?.handling) {
+        case 'range': return { reach: base.reach * 1.2, interval: Math.round(interval * 1.15) };
+        case 'speed': return { reach: base.reach * 0.85, interval: Math.round(interval * 0.8) };
+        default: return { reach: base.reach, interval };
+    }
+}
 
 export const STARTER = { arc: 'contact', magnet: 'ring' } as const;
 export const FIRST_PAIR = { arc: 'splitter', magnet: 'coil' } as const;
@@ -69,11 +112,21 @@ export interface PuddleSpec {
     readonly offset: number;
 }
 
+export type SpawnEdge = 'south' | 'north' | 'west' | 'east';
+
+export interface WaveClearSpec {
+    readonly opening: number;
+    readonly reserves: number;
+    readonly reserveAfterTick?: number;
+}
+
 export interface WaveSpec {
     readonly seconds: number;
     readonly spawnEvery: number;
     readonly enemies: readonly RegularEnemyId[];
+    readonly spawnEdges?: readonly SpawnEdge[];
     readonly boss?: boolean;
+    readonly clear?: WaveClearSpec;
     readonly livePuddles?: readonly PuddleSpec[];
     readonly directive?: WaveDirective;
     readonly liftGroups?: readonly { readonly floor: number; readonly enemies: readonly RegularEnemyId[] }[];
@@ -82,7 +135,13 @@ export interface WaveSpec {
         readonly requiredTicks?: number;
         readonly spawnEvery?: number;
         readonly enemies: readonly RegularEnemyId[];
+        readonly spawnEdges?: readonly SpawnEdge[];
     };
+}
+
+export function waveKillTarget(wave: WaveSpec): number | undefined {
+    return wave.clear && wave.clear.opening + wave.clear.reserves
+        + (wave.liftGroups?.reduce((total, group) => total + group.enemies.length, 0) ?? 0);
 }
 
 export interface RunRules {
@@ -90,11 +149,14 @@ export interface RunRules {
     readonly contentVersion: number;
     readonly maxHp: number;
     readonly hitGrace: number;
+    readonly field?: CombatBounds;
     readonly waves: readonly WaveSpec[];
     readonly startingTools?: readonly ToolId[];
     readonly tools: readonly ToolId[];
     readonly mods: readonly ModId[];
     readonly encounter?: CampaignEncounter;
+    readonly campaign?: boolean;
+    readonly campaignPressure?: boolean;
 }
 
 export const M1_RULES: RunRules = {
@@ -119,7 +181,7 @@ export const M2_RULES: RunRules = {
     mods: ['contact', 'splitter', 'relay', 'ring', 'coil', 'sweeper', 'exchanger', 'valve', 'ceramic', 'bearings', 'plate', 'sorter'],
 };
 
-export const CAMPAIGN_01_RULES: RunRules = { ...M2_RULES, contentVersion: 21 };
+export const CAMPAIGN_01_RULES: RunRules = { ...M2_RULES, contentVersion: 21, campaign: true };
 export const PUDDLE_CYCLE = 150;
 export const PUDDLE_WARNING = 24;
 export const PUDDLE_ACTIVE = 45;
@@ -128,7 +190,7 @@ const PUMP_EAST = { x: 260, y: 397, radius: 48, offset: 75 } as const;
 const PUMP_WEST = { x: 103, y: 304, radius: 48, offset: 0 } as const;
 
 export const CAMPAIGN_02_RULES: RunRules = {
-    ...M2_RULES, contentVersion: 22,
+    ...M2_RULES, contentVersion: 22, campaign: true,
     tools: [...M2_RULES.tools, 'arc_gun'],
     startingTools: ['wrench', 'arc_gun'],
     waves: [

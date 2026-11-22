@@ -129,3 +129,93 @@ test('presentation and viewing are separate, and the native count determines com
     assert.equal(await ad.show(() => shown.push('not shown')), false);
     assert.deepEqual(shown, ['closed', 'fulfilled']);
 });
+
+test('a dual-platform configuration selects the active SDK and uses only its own unit', async () => {
+    const wxVideo = video(), ttVideo = video();
+    const calls = [];
+    const wx = { createRewardedVideoAd(options) { assert.equal(this, wx); calls.push(['wx', options]); return wxVideo; } };
+    const tt = { createRewardedVideoAd(options) { assert.equal(this, tt); calls.push(['tt', options]); return ttVideo; } };
+    const adUnits = { wechat: ' wx-unit ', douyin: ' tt-unit ' };
+    assert.equal(createRewardedRevive(adUnits, {}), null);
+    assert.equal(createRewardedRevive({ douyin: 'only-douyin' }, { wx }), null);
+    assert.equal(createRewardedRevive('legacy-douyin', { wx }), null);
+    assert.equal(createRewardedRevive({ wechat: 'only-wechat' }, { tt, wx }), null);
+    const wechat = createRewardedRevive(adUnits, { wx });
+    const wechatReward = wechat.show();
+    wxVideo.close(true);
+    assert.equal(await wechatReward, true);
+    const douyin = createRewardedRevive(adUnits, { tt, wx });
+    const douyinReward = douyin.show();
+    ttVideo.closeWith({ count: 1 });
+    assert.equal(await douyinReward, true);
+    assert.deepEqual(calls, [['wx', { adUnitId: 'wx-unit' }], ['tt', { adUnitId: 'tt-unit' }]]);
+});
+
+test('WeChat requires native isEnded evidence and disregards the Douyin count field', async () => {
+    const incomplete = video(), unknown = video(), complete = video();
+    const queue = [incomplete, unknown, complete];
+    const adapter = createRewardedRevive({ wechat: 'wx-unit' }, { wx: { createRewardedVideoAd: () => queue.shift() } });
+    const early = adapter.show();
+    incomplete.closeWith({ isEnded: false, count: 1 });
+    assert.equal(await early, false);
+    const legacy = adapter.show();
+    unknown.closeWith(undefined);
+    unknown.closeWith({ isEnded: true });
+    assert.equal(await legacy, false);
+    complete.show = () => new Promise(() => {});
+    let shown = 0;
+    const finished = adapter.show(() => { shown++; });
+    complete.closeWith({ isEnded: true, count: 0 });
+    complete.close(true);
+    assert.equal(await finished, true);
+    assert.equal(shown, 1);
+    assert.deepEqual([incomplete.destroyed, unknown.destroyed, complete.destroyed], [1, 1, 1]);
+});
+
+test('WeChat loads once after the first show fails, and waits for video completion after the retry', async () => {
+    const ad = video();
+    const calls = [];
+    let shows = 0;
+    ad.load = async () => { calls.push('load'); };
+    ad.show = async () => {
+        calls.push('show');
+        if (shows++ === 0) {
+            ad.fail();
+            throw new Error('not ready');
+        }
+    };
+    const revive = createRewardedRevive({ wechat: 'wx-unit' }, { wx: { createRewardedVideoAd: () => ad } });
+    let resolved = false;
+    const playback = revive.show(() => calls.push('presented')).then(value => { resolved = true; return value; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls, ['show', 'load', 'show', 'presented']);
+    assert.equal(resolved, false);
+    ad.close(true);
+    assert.equal(await playback, true);
+    assert.equal(ad.destroyed, 1);
+});
+
+test('WeChat load failure and cancellation during loading ignore late native events', async () => {
+    const rejected = video(), cancelled = video();
+    const queue = [rejected, cancelled];
+    const revive = createRewardedRevive({ wechat: 'wx-unit' }, { wx: { createRewardedVideoAd: () => queue.shift() } });
+    const calls = [];
+    rejected.show = async () => { calls.push('first show'); throw new Error('not ready'); };
+    rejected.load = async () => { calls.push('failed load'); throw new Error('no fill'); };
+    assert.equal(await revive.show(() => calls.push('presented')), false);
+    rejected.close(true);
+    let resolveLoad;
+    cancelled.show = async () => { calls.push('cancelled show'); throw new Error('not ready'); };
+    cancelled.load = () => new Promise(resolve => { resolveLoad = resolve; });
+    const retry = revive.show(() => calls.push('presented'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof resolveLoad, 'function');
+    cancelled.close(true);
+    revive.cancel();
+    resolveLoad();
+    cancelled.close(true);
+    assert.equal(await retry, false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls, ['first show', 'failed load', 'cancelled show']);
+    assert.deepEqual([rejected.destroyed, cancelled.destroyed], [1, 1]);
+});

@@ -4,9 +4,12 @@ import { test } from 'node:test';
 import {
     CAMPAIGN_CATALOG, CAMPAIGN_CHAPTERS, campaignStage, rulesForCampaign,
 } from '../.m0-build/campaign/CampaignCatalog.js';
-import { CAMPAIGN_01_RULES, CAMPAIGN_02_RULES, ENEMIES, FIELD, TICK_RATE, TOOLS } from '../.m0-build/m1/content.js';
+import { WORKSHOP_STARTER_MILESTONES } from '../.m0-build/campaign/CampaignTraining.js';
+import { campaignPressureRules, campaignWaveHint } from '../.m0-build/campaign/CampaignPressure.js';
+import { CAMPAIGN_01_RULES, CAMPAIGN_02_RULES, CAMPAIGN_FIELD, ENEMIES, FIELD, START, TOOLS, waveKillTarget } from '../.m0-build/m1/content.js';
 import { Battle } from '../.m0-build/m1/Battle.js';
-import { Mission } from '../.m0-build/m1/Encounter.js';
+import { Run } from '../.m0-build/m1/Run.js';
+import { makePlatform } from '../.m0-build/platform/platform.js';
 
 test('the 20 dispatches form one route through four five-station chapters', () => {
     assert.equal(CAMPAIGN_CHAPTERS.length, 4);
@@ -24,7 +27,9 @@ test('the 20 dispatches form one route through four five-station chapters', () =
         assert.equal(stage.chapterEnd, (index + 1) % 5 === 0, stage.id);
         for (const tool of stage.rules.tools) {
             assert.ok(TOOLS[tool], `${stage.id}: ${tool}`);
-            if (stage.rules.startingTools.includes(tool) && tool !== 'wrench') assert.ok(played.has(tool), `${stage.id}: ${tool}`);
+            if (stage.rules.startingTools.includes(tool) && tool !== 'wrench') {
+                assert.ok(played.has(tool) || WORKSHOP_STARTER_MILESTONES.some(milestone => milestone.tool === tool), `${stage.id}: ${tool}`);
+            }
         }
         if (stage.firstClearWeapon) {
             assert.ok(TOOLS[stage.firstClearWeapon], stage.id);
@@ -46,8 +51,10 @@ test('the 20 dispatches form one route through four five-station chapters', () =
         }
         return stages.reduce((minutes, stage) => minutes + stage.plannedMinutes, 0);
     }), [32, 33, 34, 35]);
-    assert.deepEqual(CAMPAIGN_CATALOG[0].rules.waves, CAMPAIGN_01_RULES.waves);
-    assert.deepEqual(CAMPAIGN_CATALOG[1].rules.waves, CAMPAIGN_02_RULES.waves);
+    const originalRoster = ({ seconds, spawnEvery, enemies, boss }) => ({ seconds, spawnEvery, enemies, boss });
+    for (const [index, legacy] of [CAMPAIGN_01_RULES, CAMPAIGN_02_RULES].entries()) {
+        assert.deepEqual(CAMPAIGN_CATALOG[index].rules.waves.map(originalRoster), legacy.waves.map(originalRoster));
+    }
     assert.equal(rulesForCampaign(CAMPAIGN_CATALOG[0], 'overtime_2').contentVersion, 21);
     assert.throws(() => rulesForCampaign(CAMPAIGN_CATALOG[1], 'overtime_2'), /Overtime/);
 });
@@ -62,139 +69,138 @@ test('chapter stories have distinct briefs and receipts, paired radios and three
     assert.deepEqual(CAMPAIGN_CATALOG.filter(stage => stage.archiveClue).map(stage => [stage.id, stage.archiveClue.title]), [
         ['10', '授权一 · 医院交接'], ['15', '授权二 · 广播联络'], ['20', '港区来信'],
     ]);
-    assert.match(campaignStage('10').archiveClue.text, /医院与泵站已签收电池/);
-    assert.match(campaignStage('15').archiveClue.text, /收到求救与接管指令/);
-    assert.match(campaignStage('20').archiveClue.text, /零号线路收到港区校验回传/);
+    const delivery = campaignStage('10').archiveClue.text;
+    assert.match(delivery, /电池.*医院、泵站各自签收/);
+    assert.match(delivery, /医院值班室.*同意将机柜切回手动/);
+    const broadcast = campaignStage('15').archiveClue.text;
+    assert.match(broadcast, /东岸、西岸、北街.*求救广播收到/);
+    assert.match(broadcast, /准许把机柜切回手动/);
+    assert.match(campaignStage('20').archiveClue.text, /零号线路.*港区回信/);
 });
 
-test('dispatch goals describe the work that opens after the final boss', () => {
-    for (const stage of CAMPAIGN_CATALOG) {
-        const finale = stage.rules.waves[stage.finalWave].directive;
-        if (!finale?.afterBoss) continue;
-        const sequence = stage.id === '20' ? /核心停机后.*回执.*中央接管/ : /击败[^，。]+(?:后|，再)/;
-        assert.match(stage.goal, sequence, stage.id);
-    }
-    const quantity = ['零', '一', '二', '三', '四', '五', '六'];
-    for (const [id, task] of [['07', '处稳压'], ['11', '段信号'], ['12', '处录音端']]) {
-        const stage = campaignStage(id);
-        const { points } = stage.rules.waves[stage.finalWave].directive;
-        assert.ok(stage.goal.includes(quantity[points.length] + task), id + ' finale objective count');
-    }
-});
-
-test('the approach to the core teaches dual-signing and previews a sector turn', () => {
-    const approach = campaignStage('19').rules.waves;
-    const firstDual = approach.find(wave => wave.directive?.type === 'handoff' && wave.directive.points.length === 2);
-    assert.equal(firstDual, approach[2]);
-    assert.equal(firstDual.directive.windowTicks, 12 * TICK_RATE);
-    assert.ok(!firstDual.enemies.includes('turret'), 'leave the first timed crossing free of long-range fire');
-    assert.ok(approach.slice(3, 5).every(wave => wave.enemies.includes('turret')));
-
-    const central = campaignStage('20').rules.waves;
-    const sectors = new Mission(central[0].directive);
-    const opening = sectors.view(1).scan.angle;
-    const warning = sectors.view(151).scan.previewAngle;
-    assert.ok(Number.isFinite(warning) && opening !== warning);
-    assert.equal(sectors.view(181).scan.angle, warning);
-    assert.equal(central[4].directive.type, 'handoff');
-    assert.match(central[4].directive.label, /12 秒.*旁路/);
-});
-
-test('05 teaches both orderings at the same A/B controls used by the gatekeeper', () => {
-    const stage = campaignStage('05');
-    const waves = stage.rules.waves;
-    const first = new Battle(stage.finalWave, 20261120, [], stage.rules);
-    for (let tick = 0; tick < 65; tick++) first.step(0, 0);
-    const { x, y } = first.chapterBoss.station;
-    const [a] = waves[0].directive.points;
-    const [b] = waves[1].directive.points;
-    assert.deepEqual(a, { x, y });
-    assert.equal(b.x - a.x, 120);
-    assert.equal(b.y, a.y);
-    assert.deepEqual(waves.map(wave => wave.directive.points), [[a], [b], [a, b], [b, a], [a, b], [a, b]]);
-    assert.match(waves[0].directive.label, /A 区/);
-    assert.match(waves[1].directive.label, /B 区/);
-    assert.deepEqual(waves.flatMap((wave, index) => wave.directive.powerDrill ? [index + 1] : []), [5]);
-    assert.match(waves[4].directive.label, /先合 A 闸.*B 区预警结束/);
-});
-
-test('08 lets the player feel the conveyor and see its first reversal before crawlers arrive', () => {
-    const stage = campaignStage('08');
-    const opening = new Battle(0, 20261120, [{ id: 'wrench', mods: [] }], stage.rules);
-    const advance = (ticks) => {
-        for (let tick = 0; tick < ticks; tick++) opening.step(0, 0);
-    };
-    opening.moveTo(180, 296);
-    advance(30);
-    assert.equal(opening.warnings.length, 0);
-    assert.ok(opening.player.x > 180, 'standing on the belt moves the player');
-    const [switchPort] = opening.spec.directive.points;
-    opening.moveTo(switchPort.x, switchPort.y);
-    advance(180);
-    assert.deepEqual(opening.terrainRects.map(belt => [belt.state, belt.direction]), [['warning', 1], ['warning', -1]]);
-    advance(30);
-    assert.deepEqual(opening.terrainRects.map(belt => [belt.state, belt.direction]), [['open', -1], ['open', 1]]);
-    assert.equal(opening.enemies.length, 0);
-    assert.equal(opening.warnings.length, 0);
-    assert.equal(opening.mission.status, 'complete');
-    advance(30);
-    assert.equal(opening.warnings[0].kind, 'crawler');
-    assert.equal(stage.rules.waves[1].enemies[0], 'crawler');
-    assert.equal(stage.rules.waves[1].directive.points.length, 2);
-});
-
-test('09 teaches a single lift leg before introducing progressively more bridge stops', () => {
-    const waves = campaignStage('09').rules.waves;
-    assert.ok(waves.every(wave => wave.directive.variant === 'lift'));
-    assert.deepEqual(waves.map(wave => wave.directive.points.length - 2), [0, 1, 2, 3, 3, 3]);
-    assert.equal(waves[0].enemies.length, 0);
-    assert.equal(waves[0].escalation.atTick, 6 * TICK_RATE);
-    assert.equal(waves[0].escalation.enemies[0], 'crawler');
-    assert.deepEqual(waves.slice(1).map(wave => wave.liftGroups.map(group => group.floor)),
-        [[2], [2, 3], [2, 3, 4], [2, 3, 4], [2, 3, 4]]);
-    for (const wave of waves.slice(1)) {
-        assert.ok(!wave.enemies.includes('reclaimer'));
-        for (const { floor, enemies } of wave.liftGroups) {
-            assert.equal(enemies.filter(enemy => enemy === 'reclaimer').length, floor === 3 ? 1 : 0);
-        }
-    }
-    assert.equal(waves[5].directive.afterBoss, true);
-});
-
-test('campaign waves have playable spawn plans, objective bounds and chapter boss rules', () => {
+test('all 120 campaign waves use open combat with finite rosters and no map objectives', () => {
+    assert.ok(CAMPAIGN_FIELD.right - CAMPAIGN_FIELD.left > FIELD.right - FIELD.left);
+    assert.ok(CAMPAIGN_FIELD.top - CAMPAIGN_FIELD.bottom > FIELD.top - FIELD.bottom);
+    assert.equal((CAMPAIGN_FIELD.left + CAMPAIGN_FIELD.right) / 2, START.x);
+    assert.equal((CAMPAIGN_FIELD.bottom + CAMPAIGN_FIELD.top) / 2, START.y);
     assert.deepEqual(CAMPAIGN_CATALOG.filter(stage => stage.chapterEnd).map(stage => stage.rules.encounter.boss),
         ['gatekeeper', 'tow', 'silence', 'core']);
-    const types = new Set();
     for (const stage of CAMPAIGN_CATALOG) {
-        assert.ok(stage.rules.encounter.enemyCap <= 36, stage.id);
-        assert.equal(stage.rules.waves.length, 6, stage.id);
-        for (const [index, wave] of stage.rules.waves.entries()) {
-            assert.equal(Boolean(wave.boss), index === stage.finalWave, stage.id);
-            assert.ok(wave.seconds > 0 && (wave.spawnEvery === 0 || wave.enemies.length > 0 || wave.liftGroups?.length > 0), stage.id);
-            assert.ok(wave.enemies.every(kind => ENEMIES[kind] && kind !== 'inspector'), stage.id);
-            if (wave.escalation) {
-                const reserve = wave.escalation;
-                assert.equal(index, reserve.requiredTicks === undefined ? 0 : 4, stage.id);
-                assert.ok(reserve.enemies.length > 0 && reserve.enemies.some(kind => ENEMIES[kind]), stage.id);
-                assert.ok(reserve.atTick + (reserve.requiredTicks ?? 0) < wave.seconds * TICK_RATE, stage.id);
+        const { encounter, field, waves } = stage.rules;
+        assert.deepEqual(field, CAMPAIGN_FIELD, stage.id);
+        assert.equal(encounter.combatOnly, true, stage.id);
+        assert.equal(encounter.terrain, undefined, stage.id);
+        assert.ok(Number.isInteger(encounter.enemyCap) && encounter.enemyCap >= 10 && encounter.enemyCap <= 36, stage.id);
+        assert.equal(waves.length, 6, stage.id);
+        assert.match(stage.goal, /击败|击倒|击毁|击退|拆掉|摧毁|拆开/, stage.id);
+        for (const [index, wave] of waves.entries()) {
+            const label = stage.id + ' wave ' + (index + 1);
+            assert.equal(wave.directive, undefined, label);
+            assert.equal(wave.liftGroups, undefined, label);
+            assert.equal(wave.livePuddles, undefined, label);
+            assert.ok(wave.seconds > 0, label);
+            assert.equal(Boolean(wave.boss), index === stage.finalWave, label);
+            if (wave.boss) {
+                assert.equal(wave.enemies.length, 0, label);
+                assert.equal(wave.spawnEvery, 0, label);
+                assert.equal(wave.clear, undefined, label);
+                continue;
             }
-            if (!wave.directive) continue;
-            const directive = wave.directive;
-            types.add(directive.type);
-            assert.ok(directive.points.length > 0 && directive.points.every(({ x, y }) =>
-                x >= FIELD.left + 10 && x <= FIELD.right - 10 && y >= FIELD.bottom + 10 && y <= FIELD.top - 10),
-            stage.id);
-            assert.ok((directive.minTicks ?? 0) < wave.seconds * TICK_RATE, stage.id);
-            if (directive.afterBoss) assert.equal(index, stage.finalWave, stage.id);
-            if (directive.type === 'escort') assert.ok(directive.points.length >= 2, stage.id);
-            if (directive.type === 'hybrid') assert.ok(directive.points.length >= (directive.switchCount ?? 1) + 2, stage.id);
+            assert.ok(wave.spawnEvery > 0 && wave.enemies.length > 0, label);
+            assert.ok(wave.enemies.every(kind => ENEMIES[kind] && kind !== 'inspector'), label);
+            assert.ok(Number.isInteger(wave.clear.opening) && wave.clear.opening > 0, label);
+            assert.ok(Number.isInteger(wave.clear.reserves) && wave.clear.reserves >= 0, label);
+            assert.equal(waveKillTarget(wave), wave.clear.opening + wave.clear.reserves, label);
+            assert.equal(Boolean(wave.escalation), wave.clear.reserves > 0, label);
+            if (wave.escalation) {
+                assert.ok(wave.escalation.enemies.length && wave.escalation.enemies.every(kind => ENEMIES[kind]), label);
+                assert.equal(wave.escalation.requiredTicks, undefined, label);
+            }
         }
     }
-    assert.deepEqual([...types].sort(), ['escort', 'handoff', 'hybrid', 'relay', 'scan', 'switch', 'thermal']);
+});
+
+test('pressure alternates visible entrances, rejects spawns beside the player and releases reserves after kills', () => {
+    const { rules } = campaignStage('01');
+    const battle = new Battle(2, 42, [], rules);
+    battle.step(0, 0);
+    assert.equal(battle.warnings[0].x, battle.spawnBounds.left + 10);
+    for (let tick = 0; tick < battle.spec.spawnEvery; tick++) battle.step(0, 0);
+    assert.equal(battle.warnings.at(-1).x, battle.spawnBounds.right - 10);
+
+    const fallback = new Battle(2, 42, [], rules);
+    fallback.random = () => 0.5;
+    Object.assign(fallback.player, { x: CAMPAIGN_FIELD.left + 16, y: START.y });
+    fallback.step(0, 0);
+    const warning = fallback.warnings[0];
+    assert.equal(fallback.spawnBounds.left, CAMPAIGN_FIELD.left);
+    assert.notEqual(warning.x, fallback.spawnBounds.left + 10);
+    assert.ok(Math.hypot(warning.x - fallback.player.x, warning.y - fallback.player.y) >= 115);
+
+    const reserve = new Battle(4, 42, [], rules);
+    reserve.player.invulnerableUntil = 10_000;
+    while (reserve.kills < reserve.spec.clear.opening && reserve.tick < 10_000) {
+        reserve.step(0, 0);
+        assert.equal(reserve.escalationSince, 0);
+        for (const enemy of [...reserve.enemies]) reserve.hit(enemy, 100, reserve.player, 'magnet');
+    }
+    assert.equal(reserve.kills, reserve.spec.clear.opening);
+    reserve.step(0, 0);
+    assert.equal(reserve.escalationSince, reserve.tick);
+    assert.equal(reserve.warnings[0].kind, 'charger');
+    assert.equal(reserve.warnings[0].y, reserve.spawnBounds.top - 10);
+});
+
+test('campaign pressure preserves time windows and gives a usable hint for each next wave', () => {
+    for (const stage of CAMPAIGN_CATALOG) {
+        const normal = stage.rules;
+        assert.equal(normal.contentVersion, stage.contentVersion);
+        assert.equal(normal.encounter.revive, true);
+        assert.equal(Boolean(normal.encounter.overtime), stage.id === '01');
+        for (const [index] of normal.waves.entries()) {
+            const hint = campaignWaveHint(normal, index);
+            assert.ok(hint && hint.length <= 26, stage.id + ' wave ' + (index + 1));
+        }
+    }
+    const { id, rules } = campaignStage('01');
+    for (const mode of ['overtime_1', 'overtime_2']) {
+        const challenge = campaignPressureRules(id, rules, mode);
+        assert.equal(challenge.encounter.revive, false);
+        assert.equal(challenge.maxHp, rules.maxHp);
+        assert.deepEqual(challenge.waves.map(wave => wave.seconds), rules.waves.map(wave => wave.seconds));
+        assert.deepEqual(challenge.waves.map(waveKillTarget), rules.waves.map(waveKillTarget));
+        assert.ok(challenge.waves[2].spawnEvery < rules.waves[2].spawnEvery);
+    }
+    assert.match(campaignWaveHint(campaignStage('03').rules, 1), /护甲机.*炮台/);
+    assert.match(campaignWaveHint(campaignStage('05').rules, 5), /车道.*扫击/);
+    assert.match(campaignWaveHint(campaignStage('06').rules, 2), /回收机.*侧面/);
+    assert.match(campaignWaveHint(campaignStage('20').rules, 5), /预警.*核心/);
+});
+
+test('a cold start preserves open combat and restores checkpoint pressure mode', () => {
+    const stage = campaignStage('01');
+    const slots = new Map();
+    const host = { localStorage: { getItem: key => slots.get(key) ?? null, setItem: (key, value) => slots.set(key, value) } };
+    const open = () => new Run(makePlatform(host, 'campaign-pressure-version'), stage.rules, {
+        rulesForEquipment: mode => campaignPressureRules(stage.id, stage.rules, mode),
+    });
+    const run = open();
+    run.start('arc', 20261120, 'wrench', 'legacy');
+    assert.equal(open().rules, stage.rules);
+    assert.equal(open().rules.encounter.combatOnly, true);
+
+    run.start('arc', 20261120, 'wrench', 'challenge', undefined, 'overtime_1', 0, {});
+    const cold = open();
+    assert.equal(cold.data.runId, 'challenge');
+    assert.equal(cold.data.mode, 'overtime_1');
+    assert.equal(cold.rules.campaignPressure, true);
+    assert.deepEqual(cold.battle.field, CAMPAIGN_FIELD);
+    assert.equal(cold.rules.encounter.revive, false);
+    assert.equal(cold.rules.contentVersion, stage.contentVersion);
 });
 
 test('Creator consumes the same campaign catalogue and wave plans as headless tests', () => {
-    for (const name of ['CampaignCatalog', 'CampaignWaves']) {
+    for (const name of ['CampaignCatalog', 'CampaignWaves', 'CampaignPressure']) {
         const path = `assets/scripts/campaign/${name}.ts`;
         assert.deepEqual(readFileSync(new URL('../' + path, import.meta.url)),
             readFileSync(new URL('../creator-m0/' + path, import.meta.url)));

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { makePlatform } from '../assets/scripts/platform/platform.ts';
+import { makePlatform, miniGamePlatform } from '../assets/scripts/platform/platform.ts';
 
 function storageHost() {
   const backing = new Map();
@@ -123,4 +123,78 @@ test('native capsule position supplements the safe area when the geometry is ava
   assert.deepEqual(platform.getSafeInsets(), safeArea);
   tt.getMenuButtonLayout = () => ({ bottom: 853 });
   assert.deepEqual(platform.getSafeInsets(), safeArea);
+});
+
+test('WeChat uses its own durable journal and foreground callbacks with their native receiver', () => {
+  const backing = new Map();
+  const callbacks = new Set();
+  const { storage } = storageHost();
+  const wx = {
+    getStorageSync(key) { assert.equal(this, wx); return backing.get(key) ?? ''; },
+    setStorageSync(key, raw) { assert.equal(this, wx); backing.set(key, raw); },
+    onShow(cb) { assert.equal(this, wx); callbacks.add(cb); },
+    offShow(cb) { assert.equal(this, wx); assert.equal(callbacks.delete(cb), true); },
+    onHide(cb) { assert.equal(this, wx); this.hide = cb; },
+  };
+  const host = { wx, localStorage: storage };
+  const platform = makePlatform(host, 'night-shift.campaign');
+  assert.equal(platform.kind, 'wechat');
+  assert.equal(platform.checkpointPresence(), 'empty');
+  assert.equal(platform.writeCheckpoint(1, { wave: 2 }), true);
+  assert.deepEqual(makePlatform(host, 'night-shift.campaign').readCheckpoint(1), { wave: 2 });
+  assert.equal(platform.checkpointPresence(), 'present');
+  assert.equal(storage.getItem('night-shift.campaign.a'), null);
+  assert.equal(platform.clearCheckpoint(), true);
+  assert.equal(makePlatform(host, 'night-shift.campaign').readCheckpoint(1), null);
+
+  const events = [];
+  const stopShow = platform.onShow(() => events.push('show'));
+  const stopHide = platform.onHide(() => events.push('hide'));
+  for (const show of callbacks) show();
+  wx.hide();
+  stopShow();
+  stopHide();
+  for (const show of callbacks) show();
+  wx.hide();
+  assert.deepEqual(events, ['show', 'hide']);
+});
+
+test('WeChat normalizes screen-relative safe area and capsule to the gameplay window', () => {
+  const wx = {
+    getWindowInfo() {
+      assert.equal(this, wx);
+      return { screenWidth: 393, screenHeight: 852, screenTop: 24, windowHeight: 818,
+        safeArea: { top: 59, right: 392, bottom: 818, left: 2 } };
+    },
+    getSystemInfoSync() { assert.fail('modern window info should be preferred'); },
+    getMenuButtonBoundingClientRect() { assert.equal(this, wx); return { bottom: 101 }; },
+  };
+  const platform = makePlatform({ wx });
+  assert.deepEqual(platform.getSafeInsets(), { top: 35, right: 1, bottom: 24, left: 2, menuBottom: 77 });
+  wx.getWindowInfo = () => { throw new Error('older SDK'); };
+  wx.getSystemInfoSync = function () {
+    assert.equal(this, wx);
+    return { screenWidth: 393, screenHeight: 852, safeArea: { top: 59, right: 393, bottom: 818, left: 0 } };
+  };
+  assert.deepEqual(platform.getSafeInsets(), { top: 59, right: 0, bottom: 34, left: 0, menuBottom: 101 });
+  wx.getWindowInfo = () => ({ screenWidth: 393, screenHeight: 852 });
+  wx.getMenuButtonBoundingClientRect = () => ({ bottom: 999 });
+  assert.deepEqual(platform.getSafeInsets(), { top: 0, right: 0, bottom: 0, left: 0 });
+});
+
+test('native platform selection does not cross SDKs or accept a browser storage shim', () => {
+  const { storage, host } = storageHost();
+  assert.equal(miniGamePlatform(host), undefined);
+  const wx = { getStorageSync: storage.getItem, setStorageSync: storage.setItem };
+  const tt = { getSystemInfoSync: () => ({ screenWidth: 393, screenHeight: 852 }) };
+  const native = { ...host, wx, tt };
+  assert.equal(miniGamePlatform(native), 'douyin');
+  const platform = makePlatform(native);
+  assert.equal(platform.kind, 'douyin');
+  assert.equal(platform.checkpointPresence(), 'unreadable');
+  assert.equal(platform.writeCheckpoint(1, { wave: 2 }), false);
+  assert.equal(platform.clearCheckpoint(), false);
+  assert.equal(storage.getItem('night-shift.checkpoint.a'), null);
+  assert.equal(miniGamePlatform({ ...native, tt: null }), 'wechat');
+  assert.equal(makePlatform({ ...host, wx: {} }).writeCheckpoint(1, { wave: 2 }), false);
 });

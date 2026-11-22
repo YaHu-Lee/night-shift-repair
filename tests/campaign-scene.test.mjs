@@ -30,10 +30,19 @@ test('campaign portrait build has its own scene UUID and preserves M2 settings',
     assert.equal(m2.some(item => item?.campaignMode === true), false);
 });
 
-test('chapter bundles keep startup art available and the Douyin release disables debug', () => {
+test('chapter bundles keep startup art available and both release candidates disable debug', () => {
     const release = json(dir + 'build-campaign-release.json');
     assert.equal(release.debug, false);
     assert.deepEqual(release.scenes.map(scene => scene.uuid), [release.startScene]);
+    const review = json(dir + 'build-campaign-web.json');
+    const playtest = json(dir + 'build-campaign-web-playtest.json');
+    assert.equal(playtest.debug, false);
+    assert.deepEqual(playtest.scenes, release.scenes);
+    assert.equal(playtest.startScene, release.startScene);
+    assert.equal(playtest.platform, 'web-mobile');
+    assert.equal(playtest.packages['web-mobile'].orientation, 'portrait');
+    assert.notEqual(playtest.outputName, review.outputName);
+    assert.deepEqual(playtest.bundleConfigs, review.bundleConfigs);
     const profile = json(dir + 'settings/v2/packages/builder.json').bundleConfig.custom['campaign-local-chapter'];
     assert.equal(profile.configs.miniGame.fallbackOptions.compressionType, 'subpackage');
     assert.equal(profile.configs.web.fallbackOptions.compressionType, 'merge_dep');
@@ -43,7 +52,7 @@ test('chapter bundles keep startup art available and the Douyin release disables
         assert.equal(meta.userData.bundleName, name);
         assert.equal(meta.userData.bundleConfigID, 'campaign-local-chapter');
     }
-    for (const name of ['build-campaign', 'build-campaign-web', 'build-campaign-release']) {
+    for (const name of ['build-campaign', 'build-campaign-web', 'build-campaign-web-playtest', 'build-campaign-release']) {
         const preset = json(dir + name + '.json');
         assert.deepEqual(preset.bundleConfigs.map(bundle => bundle.name), ['resources', ...chapters]);
         assert.equal(preset.engineModulesConfigKey, 'nightShift2D');
