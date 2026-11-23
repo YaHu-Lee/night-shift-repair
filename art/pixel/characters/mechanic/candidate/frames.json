@@ -1,0 +1,2246 @@
+{
+  "version": 1,
+  "palette": "original source colors; shared palette not yet art-directed",
+  "cell": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    59
+  ],
+  "mountSchema": {
+    "coordinate": "offset pixels from pivot, x right y down",
+    "angle": "clockwise degrees from +x",
+    "hands": "anatomical; no loadout swap on mirror",
+    "layer": "relative to character body",
+    "missing": "null: not authored/verified; do not equip without a deliberate fallback"
+  },
+  "directions": [
+    "N",
+    "NE",
+    "E",
+    "SE",
+    "S",
+    "SW",
+    "W",
+    "NW"
+  ],
+  "mirrors": {
+    "SW": "SE",
+    "W": "E",
+    "NW": "NE"
+  },
+  "source": {
+    "sources/mechanic-four-direction-keys.png": "1243deb6e2c3acb3ddff4adf1c26f5ecdb65a9692759c273bafde7fc958eb5f3",
+    "sources/idle-se.png": "ca24c2009779b21b779ee785cf87d740ab53376c734c7a10df9bafaf904839a9",
+    "sources/walk-n.png": "c33c14d9c339f4c5150aa503b7f94989de6b434646491b19c03b9555ec198d1f",
+    "sources/walk-ne.png": "c57cb9a00e5a993256b73c879242fd474e91996f143e008bf1f60f8267238aac",
+    "sources/walk-e.png": "163f0116358175348a6713adbef6c344e73a952f498f06b54090684a6e865bcf",
+    "sources/walk-se.png": "58a95ecfc9c2a3adfc5c8211b55759e61b9e41032a5167296c8fed0ec8df6ebb",
+    "sources/walk-s.png": "e48d1b99967b672976ff0954a50fae001b6ed47b1d12fd1dda7f5a03973a464f",
+    "sources/attack-n.png": "f33a1725471a4e53cbb90cc11b4bf81b33289fde981b9fd5b2e1e18466642ce1",
+    "sources/attack-ne.png": "d78f49bc0ecd0a4540d473d21984b524fed6df7be46bcbd6a3dfea95de9d171c",
+    "sources/attack-e.png": "2f1bb5946906a180d12049bcf620877d0a3b08d03dc825346a5a63a2d0e0970e",
+    "sources/attack-se.png": "2575e5f0a0a1ca9a513d9ee32415b480cdfa5fbad99cb9e2cd0ff94e9b3327ec",
+    "sources/attack-s.png": "26981e341a95845cefa30f8ef5849325a414c271d9f2a7d178abce5b7a14bff3",
+    "sources/hit-n.png": "b70a365ce8555692de274e266eea8d624fcc61674adca58b10f75dd80d253ac5",
+    "sources/hit-ne.png": "70a30523f9d5e2ff91cc9540a833255ade75928d958966ef42cbcc5e69b616c9",
+    "sources/hit-e.png": "2b98e5c5d238c0f0f6c0645b4449f4f7361457480d9a1fefee62a7ca0376ef53",
+    "sources/hit-se.png": "f067512ee8c4e1a4617b3965907fc33952031c6c147013169360cea5bc91b884",
+    "sources/hit-s.png": "02f88d19014425be31e95443a076e0cfdb0dbbeed27af85e5075ace4874a5a6f"
+  },
+  "missing": [],
+  "animations": {
+    "idle": {
+      "N": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            0,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -8.24,
+              "dy": -17.314,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 6.802,
+              "dy": -17.314,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NE": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            64,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -7.652,
+              "dy": -16.405,
+              "angle": 75,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 6.435,
+              "dy": -15.096,
+              "angle": 100,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "E": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            128,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -0.957,
+              "dy": -16.58,
+              "angle": 75,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -2.348,
+              "dy": -15.458,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SE": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            192,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 6.597,
+              "dy": -15.559,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -4.469,
+              "dy": -15.268,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "S": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            256,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 6.262,
+              "dy": -14.905,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.64,
+              "dy": -14.905,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SW": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            320,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -6.597,
+              "dy": -15.559,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 4.469,
+              "dy": -15.268,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "W": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            384,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 0.957,
+              "dy": -16.58,
+              "angle": 105,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 2.348,
+              "dy": -15.458,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NW": {
+        "fps": 1,
+        "loop": true,
+        "frames": [
+          [
+            448,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 7.652,
+              "dy": -16.405,
+              "angle": 105,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -6.435,
+              "dy": -15.096,
+              "angle": 80,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      }
+    },
+    "walk": {
+      "N": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            512,
+            0,
+            64,
+            64
+          ],
+          [
+            576,
+            0,
+            64,
+            64
+          ],
+          [
+            640,
+            0,
+            64,
+            64
+          ],
+          [
+            704,
+            0,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -5.727,
+              "dy": -20.451,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 10.727,
+              "dy": -17.331,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -8.081,
+              "dy": -14.761,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 7.931,
+              "dy": -18.779,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -11.444,
+              "dy": -18.458,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 5.651,
+              "dy": -19.151,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.682,
+              "dy": -16.464,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 7.475,
+              "dy": -18.024,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NE": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            0,
+            64,
+            64,
+            64
+          ],
+          [
+            64,
+            64,
+            64,
+            64
+          ],
+          [
+            128,
+            64,
+            64,
+            64
+          ],
+          [
+            192,
+            64,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -1.708,
+              "dy": -17.823,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 15.68,
+              "dy": -20.899,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.997,
+              "dy": -17.248,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 9.634,
+              "dy": -20.854,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -6.101,
+              "dy": -18.454,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 12.262,
+              "dy": -22.871,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.285,
+              "dy": -17.255,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 9.007,
+              "dy": -19.059,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "E": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            256,
+            64,
+            64,
+            64
+          ],
+          [
+            320,
+            64,
+            64,
+            64
+          ],
+          [
+            384,
+            64,
+            64,
+            64
+          ],
+          [
+            448,
+            64,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 7.76,
+              "dy": -20.759,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -3.52,
+              "dy": -15.59,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 0.04,
+              "dy": -20.9,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 4.76,
+              "dy": -18.006,
+              "angle": 75,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.69,
+              "dy": -19.807,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 5.464,
+              "dy": -20.048,
+              "angle": 75,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -2.8,
+              "dy": -20.498,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 6.4,
+              "dy": -18.248,
+              "angle": 80,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SE": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            512,
+            64,
+            64,
+            64
+          ],
+          [
+            576,
+            64,
+            64,
+            64
+          ],
+          [
+            640,
+            64,
+            64,
+            64
+          ],
+          [
+            704,
+            64,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 8.758,
+              "dy": -18.828,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.067,
+              "dy": -17.031,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.304,
+              "dy": -16.824,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -2.644,
+              "dy": -16.669,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.562,
+              "dy": -18.594,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -9.632,
+              "dy": -20.391,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 8.702,
+              "dy": -17.107,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -3.315,
+              "dy": -16.488,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "S": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            0,
+            128,
+            64,
+            64
+          ],
+          [
+            64,
+            128,
+            64,
+            64
+          ],
+          [
+            128,
+            128,
+            64,
+            64
+          ],
+          [
+            192,
+            128,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 4.642,
+              "dy": -18.954,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -9.158,
+              "dy": -18.546,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.965,
+              "dy": -15.263,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.046,
+              "dy": -15.021,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 5.53,
+              "dy": -18.189,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -9.561,
+              "dy": -19.168,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.818,
+              "dy": -15.321,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.22,
+              "dy": -15.565,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SW": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            256,
+            128,
+            64,
+            64
+          ],
+          [
+            320,
+            128,
+            64,
+            64
+          ],
+          [
+            384,
+            128,
+            64,
+            64
+          ],
+          [
+            448,
+            128,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -8.758,
+              "dy": -18.828,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 8.067,
+              "dy": -17.031,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.304,
+              "dy": -16.824,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 2.644,
+              "dy": -16.669,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -6.562,
+              "dy": -18.594,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 9.632,
+              "dy": -20.391,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -8.702,
+              "dy": -17.107,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 3.315,
+              "dy": -16.488,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "W": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            512,
+            128,
+            64,
+            64
+          ],
+          [
+            576,
+            128,
+            64,
+            64
+          ],
+          [
+            640,
+            128,
+            64,
+            64
+          ],
+          [
+            704,
+            128,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -7.76,
+              "dy": -20.759,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 3.52,
+              "dy": -15.59,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -0.04,
+              "dy": -20.9,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -4.76,
+              "dy": -18.006,
+              "angle": 105,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.69,
+              "dy": -19.807,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -5.464,
+              "dy": -20.048,
+              "angle": 105,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 2.8,
+              "dy": -20.498,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -6.4,
+              "dy": -18.248,
+              "angle": 100,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NW": {
+        "fps": 8,
+        "loop": true,
+        "frames": [
+          [
+            0,
+            192,
+            64,
+            64
+          ],
+          [
+            64,
+            192,
+            64,
+            64
+          ],
+          [
+            128,
+            192,
+            64,
+            64
+          ],
+          [
+            192,
+            192,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 1.708,
+              "dy": -17.823,
+              "angle": 80,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -15.68,
+              "dy": -20.899,
+              "angle": 180,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.997,
+              "dy": -17.248,
+              "angle": 80,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -9.634,
+              "dy": -20.854,
+              "angle": 180,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.101,
+              "dy": -18.454,
+              "angle": 80,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -12.262,
+              "dy": -22.871,
+              "angle": 180,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.285,
+              "dy": -17.255,
+              "angle": 80,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -9.007,
+              "dy": -19.059,
+              "angle": 180,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      }
+    },
+    "attack": {
+      "N": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            256,
+            192,
+            64,
+            64
+          ],
+          [
+            320,
+            192,
+            64,
+            64
+          ],
+          [
+            384,
+            192,
+            64,
+            64
+          ],
+          [
+            448,
+            192,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -7.327,
+              "dy": -16.581,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 8.065,
+              "dy": -16.581,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -9.362,
+              "dy": -20.438,
+              "angle": 5,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 7.319,
+              "dy": -19.583,
+              "angle": 10,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.701,
+              "dy": -18.544,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 12.334,
+              "dy": -28.25,
+              "angle": 320,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -9.615,
+              "dy": -19.259,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 8.7,
+              "dy": -19.685,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NE": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            512,
+            192,
+            64,
+            64
+          ],
+          [
+            576,
+            192,
+            64,
+            64
+          ],
+          [
+            640,
+            192,
+            64,
+            64
+          ],
+          [
+            704,
+            192,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -7.355,
+              "dy": -18.954,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 7.631,
+              "dy": -17.075,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.175,
+              "dy": -19.363,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 9.126,
+              "dy": -23.366,
+              "angle": 345,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -3.006,
+              "dy": -20.016,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 13.666,
+              "dy": -28.758,
+              "angle": 325,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -6.68,
+              "dy": -19.771,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 9.113,
+              "dy": -23.366,
+              "angle": 345,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "E": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            0,
+            256,
+            64,
+            64
+          ],
+          [
+            64,
+            256,
+            64,
+            64
+          ],
+          [
+            128,
+            256,
+            64,
+            64
+          ],
+          [
+            192,
+            256,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 3.114,
+              "dy": -18.653,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -1.303,
+              "dy": -15.325,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.91,
+              "dy": -21.827,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -0.576,
+              "dy": -19.272,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 12.334,
+              "dy": -25.232,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -1.627,
+              "dy": -19.04,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.096,
+              "dy": -20.666,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -1.188,
+              "dy": -18.653,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SE": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            256,
+            256,
+            64,
+            64
+          ],
+          [
+            320,
+            256,
+            64,
+            64
+          ],
+          [
+            384,
+            256,
+            64,
+            64
+          ],
+          [
+            448,
+            256,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 6.4,
+              "dy": -16.165,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -4.545,
+              "dy": -15.689,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.636,
+              "dy": -20.966,
+              "angle": 10,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -2.925,
+              "dy": -19.16,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 12.725,
+              "dy": -24.42,
+              "angle": 355,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -4.45,
+              "dy": -18.116,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.406,
+              "dy": -18.839,
+              "angle": 10,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -4.014,
+              "dy": -17.806,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "S": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            512,
+            256,
+            64,
+            64
+          ],
+          [
+            576,
+            256,
+            64,
+            64
+          ],
+          [
+            640,
+            256,
+            64,
+            64
+          ],
+          [
+            704,
+            256,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 8.014,
+              "dy": -16.332,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.184,
+              "dy": -16.332,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.403,
+              "dy": -20.152,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -6.657,
+              "dy": -20.57,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.398,
+              "dy": -18.105,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.987,
+              "dy": -22.59,
+              "angle": 180,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.5,
+              "dy": -18.258,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.5,
+              "dy": -18.677,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SW": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            0,
+            320,
+            64,
+            64
+          ],
+          [
+            64,
+            320,
+            64,
+            64
+          ],
+          [
+            128,
+            320,
+            64,
+            64
+          ],
+          [
+            192,
+            320,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -6.4,
+              "dy": -16.165,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 4.545,
+              "dy": -15.689,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.636,
+              "dy": -20.966,
+              "angle": 170,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 2.925,
+              "dy": -19.16,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -12.725,
+              "dy": -24.42,
+              "angle": 185,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 4.45,
+              "dy": -18.116,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -7.406,
+              "dy": -18.839,
+              "angle": 170,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 4.014,
+              "dy": -17.806,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "W": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            256,
+            320,
+            64,
+            64
+          ],
+          [
+            320,
+            320,
+            64,
+            64
+          ],
+          [
+            384,
+            320,
+            64,
+            64
+          ],
+          [
+            448,
+            320,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -3.114,
+              "dy": -18.653,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": 1.303,
+              "dy": -15.325,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -6.91,
+              "dy": -21.827,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 0.576,
+              "dy": -19.272,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -12.334,
+              "dy": -25.232,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 1.627,
+              "dy": -19.04,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": -6.096,
+              "dy": -20.666,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 1.188,
+              "dy": -18.653,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NW": {
+        "fps": 10,
+        "loop": false,
+        "frames": [
+          [
+            512,
+            320,
+            64,
+            64
+          ],
+          [
+            576,
+            320,
+            64,
+            64
+          ],
+          [
+            640,
+            320,
+            64,
+            64
+          ],
+          [
+            704,
+            320,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 7.355,
+              "dy": -18.954,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -7.631,
+              "dy": -17.075,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 7.175,
+              "dy": -19.363,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -9.126,
+              "dy": -23.366,
+              "angle": 195,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 3.006,
+              "dy": -20.016,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -13.666,
+              "dy": -28.758,
+              "angle": 215,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          },
+          {
+            "L": {
+              "dx": 6.68,
+              "dy": -19.771,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "dx": -9.113,
+              "dy": -23.366,
+              "angle": 195,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      }
+    },
+    "hit": {
+      "N": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            0,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -8.32,
+              "dy": -16.166,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 8.32,
+              "dy": -15.753,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NE": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            64,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -8.3,
+              "dy": -17.45,
+              "angle": 140,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 6.0,
+              "dy": -16.75,
+              "angle": 350,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "E": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            128,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 4.872,
+              "dy": -16.639,
+              "angle": 5,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -2.667,
+              "dy": -16.537,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SE": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            192,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 6.354,
+              "dy": -16.549,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -6.1,
+              "dy": -16.717,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "S": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            256,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 7.474,
+              "dy": -16.88,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -8.81,
+              "dy": -16.88,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "SW": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            320,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -6.354,
+              "dy": -16.549,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 6.1,
+              "dy": -16.717,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "W": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            384,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": -4.872,
+              "dy": -16.639,
+              "angle": 175,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": 2.667,
+              "dy": -16.537,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      },
+      "NW": {
+        "fps": 8,
+        "loop": false,
+        "frames": [
+          [
+            448,
+            384,
+            64,
+            64
+          ]
+        ],
+        "mounts": [
+          {
+            "L": {
+              "dx": 8.3,
+              "dy": -17.45,
+              "angle": 40,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "dx": -6.0,
+              "dy": -16.75,
+              "angle": 190,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "frameCount": 80,
+  "atlasSize": [
+    768,
+    448
+  ],
+  "atlas": "mechanic-atlas.png"
+}

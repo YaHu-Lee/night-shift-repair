@@ -1,0 +1,1398 @@
+{
+  "sources": {
+    "N": "sources/mechanic-four-direction-keys.png",
+    "NE": "sources/mechanic-four-direction-keys.png",
+    "E": "sources/mechanic-four-direction-keys.png",
+    "S": "sources/mechanic-four-direction-keys.png"
+  },
+  "frames": {
+    "idle": {
+      "N": [
+        {
+          "rect": [
+            0,
+            0,
+            617,
+            637
+          ],
+          "mounts": {
+            "L": {
+              "x": 271,
+              "y": 398,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic"
+            },
+            "R": {
+              "x": 443,
+              "y": 398,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic"
+            }
+          }
+        }
+      ],
+      "NE": [
+        {
+          "rect": [
+            617,
+            0,
+            618,
+            637
+          ],
+          "mounts": {
+            "L": {
+              "x": 164,
+              "y": 413,
+              "angle": 75,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 326,
+              "y": 428,
+              "angle": 100,
+              "layer": "front",
+              "status": "heuristic"
+            }
+          }
+        }
+      ],
+      "E": [
+        {
+          "rect": [
+            0,
+            637,
+            617,
+            637
+          ],
+          "mounts": {
+            "L": {
+              "x": 366,
+              "y": 418,
+              "angle": 75,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 350,
+              "y": 431,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic"
+            }
+          }
+        }
+      ],
+      "S": [
+        {
+          "rect": [
+            617,
+            637,
+            618,
+            637
+          ],
+          "mounts": {
+            "L": {
+              "x": 333,
+              "y": 432,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic"
+            },
+            "R": {
+              "x": 160,
+              "y": 432,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic"
+            }
+          }
+        }
+      ],
+      "SE": [
+        {
+          "rect": [
+            0,
+            0,
+            1235,
+            1274
+          ],
+          "source": "sources/idle-se.png",
+          "mounts": {
+            "L": {
+              "x": 737,
+              "y": 748,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 546,
+              "y": 753,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ]
+    },
+    "attack": {
+      "N": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-n.png",
+          "mounts": {
+            "L": {
+              "x": 184,
+              "y": 455,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 360,
+              "y": 455,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-n.png",
+          "mounts": {
+            "L": {
+              "x": 160,
+              "y": 409,
+              "angle": 5,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 356,
+              "y": 419,
+              "angle": 10,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-n.png",
+          "mounts": {
+            "L": {
+              "x": 181,
+              "y": 434,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 414,
+              "y": 322,
+              "angle": 320,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-n.png",
+          "mounts": {
+            "L": {
+              "x": 162,
+              "y": 422,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 377,
+              "y": 417,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "NE": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-ne.png",
+          "mounts": {
+            "L": {
+              "x": 158,
+              "y": 437,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 345,
+              "y": 460,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-ne.png",
+          "mounts": {
+            "L": {
+              "x": 160,
+              "y": 432,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 362,
+              "y": 383,
+              "angle": 345,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-ne.png",
+          "mounts": {
+            "L": {
+              "x": 212,
+              "y": 424,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 417,
+              "y": 317,
+              "angle": 325,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-ne.png",
+          "mounts": {
+            "L": {
+              "x": 167,
+              "y": 427,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 362,
+              "y": 383,
+              "angle": 345,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "S": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-s.png",
+          "mounts": {
+            "L": {
+              "x": 365,
+              "y": 455,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 174,
+              "y": 455,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-s.png",
+          "mounts": {
+            "L": {
+              "x": 349,
+              "y": 409,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 195,
+              "y": 404,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-s.png",
+          "mounts": {
+            "L": {
+              "x": 348,
+              "y": 432,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 164,
+              "y": 378,
+              "angle": 180,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-s.png",
+          "mounts": {
+            "L": {
+              "x": 362,
+              "y": 432,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 170,
+              "y": 427,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "E": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-e.png",
+          "mounts": {
+            "L": {
+              "x": 332,
+              "y": 445,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 276,
+              "y": 488,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-e.png",
+          "mounts": {
+            "L": {
+              "x": 367,
+              "y": 404,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 270,
+              "y": 437,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-e.png",
+          "mounts": {
+            "L": {
+              "x": 422,
+              "y": 360,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 243,
+              "y": 440,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-e.png",
+          "mounts": {
+            "L": {
+              "x": 344,
+              "y": 419,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 249,
+              "y": 445,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "SE": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-se.png",
+          "mounts": {
+            "L": {
+              "x": 365,
+              "y": 457,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 227,
+              "y": 463,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-se.png",
+          "mounts": {
+            "L": {
+              "x": 374,
+              "y": 394,
+              "angle": 10,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 239,
+              "y": 417,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-se.png",
+          "mounts": {
+            "L": {
+              "x": 427,
+              "y": 355,
+              "angle": 355,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 212,
+              "y": 434,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/attack-se.png",
+          "mounts": {
+            "L": {
+              "x": 374,
+              "y": 424,
+              "angle": 10,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 231,
+              "y": 437,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ]
+    },
+    "walk": {
+      "N": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-n.png",
+          "mounts": {
+            "L": {
+              "x": 179,
+              "y": 404,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 365,
+              "y": 440,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-n.png",
+          "mounts": {
+            "L": {
+              "x": 175,
+              "y": 455,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 356,
+              "y": 409,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-n.png",
+          "mounts": {
+            "L": {
+              "x": 171,
+              "y": 427,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 365,
+              "y": 419,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-n.png",
+          "mounts": {
+            "L": {
+              "x": 190,
+              "y": 450,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 362,
+              "y": 432,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "E": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-e.png",
+          "mounts": {
+            "L": {
+              "x": 381,
+              "y": 414,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 240,
+              "y": 478,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-e.png",
+          "mounts": {
+            "L": {
+              "x": 272,
+              "y": 414,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 331,
+              "y": 450,
+              "angle": 75,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-e.png",
+          "mounts": {
+            "L": {
+              "x": 199,
+              "y": 427,
+              "angle": 180,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 360,
+              "y": 424,
+              "angle": 75,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-e.png",
+          "mounts": {
+            "L": {
+              "x": 224,
+              "y": 419,
+              "angle": 0,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": false
+            },
+            "R": {
+              "x": 339,
+              "y": 447,
+              "angle": 80,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "S": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-s.png",
+          "mounts": {
+            "L": {
+              "x": 360,
+              "y": 424,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 189,
+              "y": 429,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-s.png",
+          "mounts": {
+            "L": {
+              "x": 364,
+              "y": 437,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 178,
+              "y": 440,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-s.png",
+          "mounts": {
+            "L": {
+              "x": 371,
+              "y": 434,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 184,
+              "y": 422,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-s.png",
+          "mounts": {
+            "L": {
+              "x": 362,
+              "y": 445,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 175,
+              "y": 442,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "SE": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-se.png",
+          "mounts": {
+            "L": {
+              "x": 399,
+              "y": 424,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 181,
+              "y": 447,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-se.png",
+          "mounts": {
+            "L": {
+              "x": 382,
+              "y": 440,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 257,
+              "y": 442,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-se.png",
+          "mounts": {
+            "L": {
+              "x": 396,
+              "y": 427,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 184,
+              "y": 404,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-se.png",
+          "mounts": {
+            "L": {
+              "x": 387,
+              "y": 437,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 236,
+              "y": 445,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "NE": [
+        {
+          "rect": [
+            0,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-ne.png",
+          "mounts": {
+            "L": {
+              "x": 166,
+              "y": 445,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 386,
+              "y": 406,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            543,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-ne.png",
+          "mounts": {
+            "L": {
+              "x": 167,
+              "y": 442,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 387,
+              "y": 396,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1086,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-ne.png",
+          "mounts": {
+            "L": {
+              "x": 166,
+              "y": 437,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 394,
+              "y": 381,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        },
+        {
+          "rect": [
+            1629,
+            0,
+            543,
+            724
+          ],
+          "source": "sources/walk-ne.png",
+          "mounts": {
+            "L": {
+              "x": 175,
+              "y": 429,
+              "angle": 100,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 379,
+              "y": 406,
+              "angle": 0,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ]
+    },
+    "hit": {
+      "N": [
+        {
+          "rect": [
+            0,
+            0,
+            1235,
+            1274
+          ],
+          "source": "sources/hit-n.png",
+          "mounts": {
+            "L": {
+              "x": 446,
+              "y": 742,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 775,
+              "y": 750,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "SE": [
+        {
+          "rect": [
+            0,
+            0,
+            1235,
+            1274
+          ],
+          "source": "sources/hit-se.png",
+          "mounts": {
+            "L": {
+              "x": 734,
+              "y": 723,
+              "angle": 90,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 512,
+              "y": 720,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "NE": [
+        {
+          "rect": [
+            0,
+            0,
+            1235,
+            1274
+          ],
+          "source": "sources/hit-ne.png",
+          "mounts": {
+            "L": {
+              "x": 451,
+              "y": 695,
+              "angle": 140,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 737,
+              "y": 709,
+              "angle": 350,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "S": [
+        {
+          "rect": [
+            0,
+            0,
+            1235,
+            1274
+          ],
+          "source": "sources/hit-s.png",
+          "mounts": {
+            "L": {
+              "x": 759,
+              "y": 701,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 468,
+              "y": 701,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ],
+      "E": [
+        {
+          "rect": [
+            0,
+            0,
+            1235,
+            1274
+          ],
+          "source": "sources/hit-e.png",
+          "mounts": {
+            "L": {
+              "x": 712,
+              "y": 759,
+              "angle": 5,
+              "layer": "back",
+              "status": "heuristic",
+              "visible": true
+            },
+            "R": {
+              "x": 565,
+              "y": 761,
+              "angle": 90,
+              "layer": "front",
+              "status": "heuristic",
+              "visible": true
+            }
+          }
+        }
+      ]
+    }
+  }
+}
