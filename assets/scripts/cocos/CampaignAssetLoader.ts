@@ -25,41 +25,58 @@ function boundedLoad<T>(start: (complete: (error: Error | null, asset?: T | null
     });
 }
 
-// The callback borrows the texture. Call addRef synchronously to keep it after the callback.
+// Each callback borrows the texture. Add a reference synchronously to retain it.
+function loadTexture(bundle: AssetManager.Bundle, path: string, done: (texture: Texture2D | null) => void): void {
+    void boundedLoad<Texture2D>(complete => {
+        bundle.load(path, Texture2D, (error, texture) => {
+            if (error || !texture) {
+                complete(error);
+                return;
+            }
+            texture.addRef();
+            if (!complete(null, texture)) texture.decRef();
+        });
+    }).then(texture => {
+        try {
+            done(texture);
+        } finally {
+            texture?.decRef();
+        }
+    });
+}
+
 export function loadCampaignTexture(root: string, key: string, done: (texture: Texture2D | null) => void): void {
     const name = campaignArtBundle(key);
-    const loadTexture = (bundle: AssetManager.Bundle, path: string) => {
-        void boundedLoad<Texture2D>(complete => {
-            bundle.load(path, Texture2D, (error, texture) => {
-                if (error || !texture) {
-                    complete(error);
-                    return;
-                }
-                texture.addRef();
-                if (!complete(null, texture)) texture.decRef();
-            });
-        }).then(texture => {
-            try {
-                done(texture);
-            } finally {
-                texture?.decRef();
-            }
-        });
-    };
     if (!name) {
-        loadTexture(resources, root + '/' + key + '/texture');
+        loadTexture(resources, root + '/' + key + '/texture', done);
         return;
     }
-    const onBundle = (bundle: AssetManager.Bundle | null) => {
+    loadCampaignBundle(name, bundle => {
         if (!bundle) {
             done(null);
             return;
         }
-        loadTexture(bundle, key + '/texture');
-    };
+        loadTexture(bundle, key + '/texture', done);
+    });
+}
+
+export function loadCampaignPixelTexture(name: string, key: string, done: (texture: Texture2D | null) => void): void {
+    loadCampaignBundle(name, bundle => {
+        if (!bundle) {
+            done(null);
+            return;
+        }
+        loadTexture(bundle, 'pixel/' + key + '/texture', texture => {
+            texture?.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+            done(texture);
+        });
+    });
+}
+
+export function loadCampaignBundle(name: string, done: (bundle: AssetManager.Bundle | null) => void): void {
     const bundle = assetManager.getBundle(name);
     if (bundle) {
-        onBundle(bundle);
+        done(bundle);
         return;
     }
     let pending = inflight.get(name);
@@ -70,5 +87,5 @@ export function loadCampaignTexture(root: string, key: string, done: (texture: T
         inflight.set(name, attempt);
         void attempt.then(() => { if (inflight.get(name) === attempt) inflight.delete(name); });
     }
-    void pending.then(onBundle);
+    void pending.then(done);
 }

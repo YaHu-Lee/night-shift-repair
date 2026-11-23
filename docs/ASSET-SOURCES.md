@@ -28,7 +28,7 @@
 
 ## 原创整备台素材
 
-整备台工作垫由项目内脚本用固定种子生成，无第三方素材，随项目使用。输出是 360 × 640 的不透明 PNG，保留 35 个低对比度色阶，作为文字和物品图标下方的底图。已通过尺寸、色阶及原尺寸目视检查。 [生成源文件](../art/workshop/bake-workbench.py) · [游戏资源](../creator-m0/assets/resources/workshop-ui/workbench.png)
+整备台工作垫由项目内脚本用固定种子生成，无第三方素材，随项目使用。输出是 360 × 640 的不透明 PNG，保留 35 个低对比度色阶，作为文字和物品图标下方的底图。已通过尺寸、色阶及原尺寸目视检查。 [生成源文件](../art/workshop/bake-workbench.py) · [游戏资源](../creator-m0/assets/campaign-content/campaign-ch01/workbench.png)
 
 ## 3D 模型
 

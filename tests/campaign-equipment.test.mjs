@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Campaign, CAMPAIGN_STAGES } from '../.m0-build/campaign/Campaign.js';
+import { CAMPAIGN_CATALOG } from '../.m0-build/campaign/CampaignCatalog.js';
 import { Battle } from '../.m0-build/m1/Battle.js';
 import { ATTACHMENTS, GEAR, attachmentIdsForWeapon, createEquipment, equipmentBuilds, openEquipmentSlots, resolveEquipment } from '../.m0-build/m1/Equipment.js';
 import { Run } from '../.m0-build/m1/Run.js';
@@ -35,6 +36,37 @@ function settle(run, earned = 12) {
 function next(run) {
     assert.ok(run.nextWave(run.data.revision));
 }
+
+test('late campaign shops sell up to six distinct weapons and reload the full loadout', () => {
+    const { platform } = storage();
+    const { rules } = CAMPAIGN_CATALOG.at(-1);
+    const options = { clearByKills: true };
+    let run = new Run(platform, rules, options);
+    run.start('arc', 3, 'wrench', 'floating-loadout', undefined, 'normal', 50, {});
+    settle(run);
+    assert.equal(run.equipmentShop.weaponCapacity, 1);
+    for (let wave = 1; wave < 5; wave++) {
+        next(run);
+        settle(run);
+        assert.equal(run.equipmentShop.weaponCapacity, 6);
+        const weapons = run.equipmentShop.offers.filter(item => item.kind === 'weapon');
+        assert.ok(weapons.length >= (wave === 1 ? 2 : 1));
+        for (const weapon of weapons.slice(0, wave === 1 ? 2 : 1)) {
+            assert.ok(run.buyEquipment(weapon.id, { kind: 'weapon' }, run.data.revision));
+        }
+    }
+    const checkpoint = run.data;
+    assert.equal(new Set(checkpoint.tools.map(tool => tool.id)).size, 6);
+    assert.ok(run.refresh(checkpoint.revision));
+    assert.ok(run.equipmentShop.offers.every(item => item.kind !== 'weapon'));
+    const saved = run.data;
+    run.dispose();
+    run = new Run(platform, rules, options);
+    assert.deepEqual(run.data, saved);
+    next(run);
+    assert.equal(run.battle.tools.length, 6);
+    run.dispose();
+});
 
 test('new shops delay the second weapon and extra sockets and keep W3/W5 weapon-specific offers', () => {
     const { platform } = storage();

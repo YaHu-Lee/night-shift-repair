@@ -89,7 +89,7 @@ export function drawDispatchHandle(g: Graphics, x: number, y: number, held: bool
     g.stroke();
 }
 
-export function drawLobbyDial(g: Graphics, x: number, y: number, icon: LobbyShortcut, held: boolean): void {
+export function drawLobbyDial(g: Graphics, x: number, y: number, icon: LobbyShortcut, held: boolean, glyph = true): void {
     const radius = icon === 'settings' ? 15 : 20;
     const faceY = y - (held ? 2 : 0);
     g.fillColor = BLACK;
@@ -102,6 +102,7 @@ export function drawLobbyDial(g: Graphics, x: number, y: number, icon: LobbyShor
     g.lineWidth = 1.2;
     g.arc(x, faceY, radius - 1.5, 0.12, Math.PI - 0.12, false);
     g.stroke();
+    if (!glyph) return;
     g.strokeColor = STEEL_TEXT;
     g.lineWidth = 1.8;
     if (icon === 'equipment') {

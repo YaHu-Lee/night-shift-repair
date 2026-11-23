@@ -72,8 +72,8 @@ function integer(value: unknown, minimum: number, maximum: number): value is num
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum;
 }
 
-function equipmentSource(data: Checkpoint): EquipmentSource | undefined {
-    return data.equipment ? { ...data, equipment: data.equipment } : undefined;
+function equipmentSource(data: Checkpoint, rules: RunRules): EquipmentSource | undefined {
+    return data.equipment ? { ...data, equipment: data.equipment, weaponLimit: rules.weaponLimit } : undefined;
 }
 
 function validReports(data: Checkpoint, rules: RunRules, previousCombat: boolean): boolean {
@@ -132,7 +132,7 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
         || (data.firstWaveMoved !== undefined && typeof data.firstWaveMoved !== 'boolean')
         || (data.revived !== undefined && typeof data.revived !== 'boolean')
         || (data.mission !== undefined && !validMission(data.mission))
-        || !Array.isArray(data.tools) || data.tools.length < 1 || data.tools.length > 2
+        || !Array.isArray(data.tools) || data.tools.length < 1 || data.tools.length > (data.equipment ? rules.weaponLimit ?? 2 : 2)
         || !(rules.startingTools ?? ['wrench']).includes(data.tools[0]?.id)) return false;
     const installed = new Set<string>();
     const slots = new Set<string>();
@@ -161,7 +161,7 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
     }
     const completed = data.wave + Number(data.phase === 'shop');
     if (data.equipment !== undefined) {
-        if (!rules.campaign || !validEquipment(data.equipment, data.tools, completed)) return false;
+        if (!rules.campaign || !validEquipment(data.equipment, data.tools, completed, rules.weaponLimit)) return false;
     } else if (!installed.has(STARTER[data.route])) return false;
     const reason = data.finishReason;
     if (data.phase === 'revive' && (reason !== 'defeated' || !reviveEligible(rules, data) ||
@@ -178,7 +178,7 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
     if (data.phase !== 'shop') return data.shop === null && (data.phase !== 'won' || data.wave === rules.waves.length - 1);
     const shop = data.shop;
     if (data.wave >= rules.waves.length - 1 || !shop || typeof shop.refreshed !== 'boolean' || !Array.isArray(shop.offers)) return false;
-    const equipment = equipmentSource(data);
+    const equipment = equipmentSource(data, rules);
     if (equipment) return shop.offers.length === 0 && validEquipmentOffers(shop.equipmentOffers, equipment, rules.tools);
     return shop.equipmentOffers === undefined && shop.offers.length <= 3
         && new Set(shop.offers).size === shop.offers.length
@@ -264,6 +264,7 @@ export class Run {
     dispose(): void { this.disposeEvents.forEach((unsubscribe) => unsubscribe()); }
     get waitingForSave(): boolean { return this.pending !== null; }
     get rules(): RunRules { return this.rulesFor(this.data); }
+    get frameFraction(): number { return Math.max(0, this.elapsed / STEP); }
 
     private get shopWeaponPool(): readonly ToolId[] {
         const rules = this.rules;
@@ -374,14 +375,14 @@ export class Run {
 
     get equipmentShop(): EquipmentShop | null {
         const data = this.data;
-        const source = data && equipmentSource(data);
+        const source = data && equipmentSource(data, this.rules);
         const shop = this.shop;
         return source && shop?.equipmentOffers ? equipmentShopView(source, shop.equipmentOffers, shop.refreshed) : null;
     }
 
     previewEquipment(id: string, target: EquipmentTarget): EquipmentPreview | null {
         const data = this.data;
-        const source = data && equipmentSource(data);
+        const source = data && equipmentSource(data, this.rules);
         const offers = this.shop?.equipmentOffers;
         return source && offers ? previewEquipmentChange(source, offers, id, target, this.rules.maxHp) : null;
     }
@@ -393,7 +394,8 @@ export class Run {
         const preview = this.previewEquipment(id, target);
         if (!preview?.next) return false;
         const next = preview.next;
-        const remaining = shop.equipmentOffers.filter(candidate => candidate !== id && (!isTool(candidate) || next.tools.length < 2));
+        const remaining = shop.equipmentOffers.filter(candidate => candidate !== id
+            && (!isTool(candidate) || next.tools.length < (this.rules.weaponLimit ?? 2)));
         return this.commit({ ...data, ...next, revision: revision + 1, parts: data.parts - preview.price,
             shop: { ...shop, equipmentOffers: remaining } });
     }
@@ -441,7 +443,7 @@ export class Run {
         const data = this.data;
         const before = this.shop;
         if (!data || !before || before.refreshed || data.revision !== revision || data.parts < REFRESH_COST || this.background) return false;
-        const equipment = equipmentSource(data);
+        const equipment = equipmentSource(data, this.rules);
         const shop: Shop = equipment
             ? { offers: [], equipmentOffers: rollEquipmentOffers(equipment, this.shopWeaponPool, data.seed, true, before.equipmentOffers), refreshed: true }
             : { offers: nextOffers({ ...data, shop: before }, true, this.rules, this.shopWeaponPool), refreshed: true };
@@ -486,7 +488,7 @@ export class Run {
             : finishReason === 'objective-failed' ? battle.objectiveFailure : undefined;
         // Campaign supplies are an opening bonus, on top of the first shop's ordinary earnings floor.
         const firstWaveEarnings = earned + (this.rules.campaign ? 0 : data.parts);
-        const equipment = equipmentSource(data);
+        const equipment = equipmentSource(data, this.rules);
         const pairPrice = equipment ? getEquipmentOffer(firstEquipmentPair(equipment))!.price : MODS[FIRST_PAIR[data.route]].price;
         const shopCredit = phase === 'shop' && data.wave === 0
             ? Math.max(0, pairPrice + REFRESH_COST - firstWaveEarnings) : 0;

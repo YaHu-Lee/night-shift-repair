@@ -4,11 +4,11 @@
   "outputName": "campaign-3d-prototype",
   "buildPath": "project://build",
   "debug": true,
-  "startScene": "7f373326-3951-44b0-9397-ba9d08626070",
+  "startScene": "da1f938b-31b2-4c18-bb6e-c1239a310d32",
   "scenes": [
     {
-      "url": "db://assets/scenes/Campaign.scene",
-      "uuid": "7f373326-3951-44b0-9397-ba9d08626070"
+      "url": "db://assets/scenes/Campaign3D.scene",
+      "uuid": "da1f938b-31b2-4c18-bb6e-c1239a310d32"
     },
     {
       "url": "db://assets/scenes/M1.scene",

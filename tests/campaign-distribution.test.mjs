@@ -194,6 +194,23 @@ test('distribution check rejects a missing native image declared by a chapter bu
     assert.match(result.stderr, /Missing chapter image: subpackages\/campaign-ch04\/native\//);
 });
 
+test('the chapter mechanic atlas uses an alpha-capable PNG', t => {
+    const { run, put, putText } = fixture(t);
+    const atlas = readFileSync(new URL('../art/pixel/characters/mechanic/candidate/mechanic-atlas.png', import.meta.url));
+    const folder = 'subpackages/campaign-ch01/';
+    const pngPath = folder + 'native/0c/' + imageUuid + '.png';
+    put(folder + 'config.json', {
+        name: 'campaign-ch01', nativeBase: 'native', uuids: [compactImageUuid],
+        types: ['cc.ImageAsset'], paths: { 0: ['pixel/mechanic/mechanic-atlas', 0, 1] },
+    });
+    assert.match(run().stderr, /Missing chapter image: .*\.png/);
+    putText(pngPath, 'wrong file');
+    assert.match(run().stderr, /Invalid chapter PNG/);
+    putText(pngPath, atlas);
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+});
+
 test('distribution check rejects a missing or stale built combat score', t => {
     const { run, remove, putText } = fixture(t);
     const combatScore = audioManifest.scores.find(clip => clip.id === 'live-circuit');

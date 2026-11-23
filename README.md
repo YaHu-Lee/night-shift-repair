@@ -1,8 +1,8 @@
 # 夜班修理局 · M0 技术验证
 
-《夜班修理局》是竖屏俯视肉鸽小游戏，战役支持浏览器、微信小游戏和抖音小游戏。正式美术方向为 **2D 像素风**，战斗判定仍使用原有平面坐标。此前的 3D 预览保留作回归与对照，不代表新美术方向已接入。M0 是用于测试输入、生命周期、存档和画面压力的独立场景。
+《夜班修理局》是竖屏斜俯视肉鸽小游戏，战役支持浏览器、微信小游戏和抖音小游戏。正式美术方向为 **2D 像素风**，战斗判定使用平面坐标。M0 是用于测试输入、生命周期、存档和画面压力的独立场景。
 
-项目协作约定见 [AGENTS.md](AGENTS.md)，出图、切帧和验收流程见 [像素美术 Skill](.agents/skills/night-shift-pixel-art/SKILL.md)。
+项目协作约定见 [AGENTS.md](AGENTS.md)，出图、切帧和验收流程见 [像素美术 Skill](.agents/skills/night-shift-pixel-art/SKILL.md)，正式接入范围见 [战役像素化进度](art/pixel/README.md)。
 
 ## 浏览器与自动验证
 
@@ -21,7 +21,13 @@ npm run preview
 
 [Creator 3.8.8 编辑器接入与 M0 预览](docs/COCOS-EDITOR.md)。`creator-m0/` 包含 360 × 640 的工程和两端战役构建配置。包体校验与广告位设置见 [微信和抖音发布说明](cloud/README.md#发布包身份核对)。
 
-后续美术和玩法验收使用 Creator 构建。以下为保留的 3D 对照预览配置，不是新像素管线的发布配置。
+用 `creator-m0/build-campaign-web.json` 构建像素战役试玩，运行 `node scripts/serve.mjs creator-m0/build/campaign-web-review`。主角、8 种小怪和 7 种 Boss 均使用固定斜俯视八向图。素材和更新步骤见[像素战役资产](art/pixel/README.md)。
+
+正式战役中，武器约每 13 秒顺时针绕行一圈。第 2 波后的整备台开放其余武器位，最多同时装备 6 把已解锁武器。电弧扳手交替横扫和直刺，旁路扳手交替钩扫和压击。近战先按角色周围的射程筛选，再优先瞄向距离该武器最近的敌机，挥击沿途每台敌机最多受击一次。
+
+浏览器调试包用 `?weaponShowcase=armory` 或 `?weaponShowcase=utility` 跳到第 3 波的两组六武器样片，共覆盖 10 把武器。原双武器对照入口为 `?weaponShowcase=floating` 和 `?weaponShowcase=held`，3D 对照构建用 `?prototype3d=1`。样片进度仅存于当前页面内存。贴图及打包方式见[武器素材](art/pixel/weapons/README.md)。
+
+像素战役使用独立的章节分包。旧开场和整备画面作为第一章的回退资产保留，3D 模型由以下对照配置打包。
 
 | 目标 | 构建配置 | 本地产物目录 |
 | --- | --- | --- |

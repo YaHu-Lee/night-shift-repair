@@ -163,7 +163,8 @@ for (const { name, root: directory } of game.subpackages) {
         const uuid = decodeAssetUuid(config.uuids?.[index]);
         assert.match(uuid, uuidPattern, 'Invalid image UUID for ' + name + '/' + key);
         const version = versionSuffix(config.versions?.native, Number(index), uuid);
-        requiredImages.add(directory + 'native/' + uuid.slice(0, 2) + '/' + uuid + version + '.jpg');
+        const extension = key.startsWith('pixel/') || key === 'workbench' ? '.png' : '.jpg';
+        requiredImages.add(directory + 'native/' + uuid.slice(0, 2) + '/' + uuid + version + extension);
     }
     subpackages[name] = 0;
     requiredScripts.add(directory + 'game.js');
@@ -178,7 +179,8 @@ for await (const { path, relative } of filesUnder(root)) {
         assert.ok(data.toString('utf8').trim(), `Empty runtime script: ${relative}`);
     }
     if (requiredImages.delete(relative)) {
-        assert.ok(data[0] === 0xff && data[1] === 0xd8, `Invalid chapter JPEG: ${relative}`);
+        if (extname(relative) === '.png') assert.equal(data.toString('hex', 0, 8), '89504e470d0a1a0a', `Invalid chapter PNG: ${relative}`);
+        else assert.ok(data[0] === 0xff && data[1] === 0xd8, `Invalid chapter JPEG: ${relative}`);
     }
     if (requiredAudio.has(relative)) {
         assert.equal(createHash('sha256').update(data).digest('hex'), requiredAudio.get(relative), `Mismatched campaign audio: ${relative}`);

@@ -9,7 +9,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 WIDTH, HEIGHT = 360, 640
 SEED = 2417
-OUTPUT = Path(__file__).resolve().parents[2] / "creator-m0/assets/resources/workshop-ui/workbench.png"
+OUTPUT = Path(__file__).resolve().parents[2] / "creator-m0/assets/campaign-content/campaign-ch01/workbench.png"
 
 
 def workbench():

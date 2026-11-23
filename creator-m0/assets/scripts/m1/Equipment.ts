@@ -144,7 +144,7 @@ const attachment = (weapon: ToolId, variant: AttachmentKind, name: string, detai
 
 const toolIds = Object.keys(TOOLS) as ToolId[];
 export const ATTACHMENTS: Readonly<Record<string, Attachment>> = Object.fromEntries(toolIds.flatMap(weapon => [
-    attachment(weapon, 'link', '分流接头', '给敌机上标记，再打能强化连跳', 0, 4, 'splitter', {}),
+    attachment(weapon, 'link', '分流接头', '给敌机上标记，强化再命中', 0, 4, 'splitter', {}),
     ...partSpecs.map(([variant, firstShop, price, icon], index) => {
         const [name, detail, change] = weaponParts[weapon][index];
         return attachment(weapon, variant, name, detail, firstShop, price, icon, change);
@@ -225,13 +225,13 @@ const partEligible = (part: Attachment, equipment: EquipmentState, shopWave: num
 const gearEligible = (item: Gear, equipment: EquipmentState, shopWave: number) =>
     shopWave >= item.firstShop && (item.id !== 'gear/harness' || equipment.unlockedGear.includes(item.id));
 
-export function validEquipment(data: EquipmentState, tools: readonly EquippedTool[], completed: number): boolean {
+export function validEquipment(data: EquipmentState, tools: readonly EquippedTool[], completed: number, weaponLimit = 2): boolean {
     if (!data || data.version !== 1 || !whole(data.attachmentSlots, 3) || !data.attachmentSlots || !validWeaponSlots(data.weaponSlots)
         || !distinct(data.unlockedAttachments, unlockedPart) || !distinct(data.unlockedGear, unlockedGear)
         || !validTraining(data.weapon, data.role) || (data.starterAttachment !== undefined
             && (!data.unlockedAttachments.includes(data.starterAttachment)
                 || !owns(ATTACHMENTS, data.starterAttachment) || ATTACHMENTS[data.starterAttachment].weapon !== tools[0]?.id))
-        || !Array.isArray(data.gear) || data.gear.length !== 3 || tools.length > (completed >= 2 ? 2 : 1)) return false;
+        || !Array.isArray(data.gear) || data.gear.length !== 3 || tools.length > (completed >= 2 ? weaponLimit : 1)) return false;
     const open = openEquipmentSlots(completed);
     const items = new Set<string>();
     for (let slot = 0; slot < data.gear.length; slot++) {
@@ -347,6 +347,7 @@ export interface EquipmentShop {
 }
 export interface EquipmentSource {
     tools: readonly EquippedTool[];
+    weaponLimit?: number;
     equipment: EquipmentState;
     route: Route;
     wave: number;
@@ -360,14 +361,15 @@ export function equipmentShopView(source: EquipmentSource, offers: readonly Equi
     return {
         offers: offers.map(id => getEquipmentOffer(id)!),
         weapons: source.tools.map(tool => ({ id: tool.id, name: TOOLS[tool.id].name, slots: slots(tool.attachments ?? []) })),
-        gear: slots(source.equipment.gear), weaponCapacity: source.wave >= 1 ? 2 : 1, refreshed,
+        gear: slots(source.equipment.gear), weaponCapacity: source.wave >= 1 ? source.weaponLimit ?? 2 : 1, refreshed,
     };
 }
 
 function availableEquipment(source: EquipmentSource, tools: readonly ToolId[]): EquipmentOfferId[] {
     const installed = new Set(source.tools.flatMap(tool => tool.attachments ?? []));
     return [
-        ...(source.wave >= 1 && source.tools.length < 2 ? tools.filter(id => !source.tools.some(tool => tool.id === id)) : []),
+        ...(source.wave >= 1 && source.tools.length < (source.weaponLimit ?? 2)
+            ? tools.filter(id => !source.tools.some(tool => tool.id === id)) : []),
         ...Object.values(ATTACHMENTS).filter(part => source.tools.some(tool => tool.id === part.weapon)
             && !installed.has(part.id) && partEligible(part, source.equipment, source.wave)).map(part => part.id),
         ...Object.values(GEAR).filter(item => !source.equipment.gear.includes(item.id)
@@ -398,7 +400,12 @@ export function rollEquipmentOffers(source: EquipmentSource, tools: readonly Too
         const first = firstEquipmentPair(source);
         if (available.includes(first)) offers.push(first);
     }
-    if (source.wave === 1) add(available.filter(isTool));
+    const expanded = (source.weaponLimit ?? 2) > 2;
+    if (source.wave >= 1 && (source.wave === 1 || expanded)) {
+        const weapons = available.filter(isTool);
+        add(weapons);
+        if (source.wave === 1 && expanded) add(weapons);
+    }
     if (source.wave === 2 || source.wave === 4) {
         const variants: AttachmentKind[] = source.wave === 2 ? ['handling', 'alternate'] : ['finisher', 'signature'];
         for (const weapon of source.tools) add(available.filter(id =>
@@ -473,7 +480,7 @@ export function previewEquipmentChange(source: EquipmentSource, offers: readonly
     const tools = source.tools.slice();
     let equipment = source.equipment, old: AttachmentId | GearId | null = null;
     if (target.kind === 'weapon') {
-        if (source.wave < 1 || tools.length >= 2) return deny('没有空的武器位');
+        if (source.wave < 1 || tools.length >= (source.weaponLimit ?? 2)) return deny('没有空的武器位');
         if (!isTool(id) || tools.some(tool => tool.id === id)) return deny('这把武器已经装上了');
         tools.push({ id, mods: [], attachments: Array<null>(weaponAttachmentCapacity(equipment, id)).fill(null) });
     } else if (target.kind === 'attachment') {

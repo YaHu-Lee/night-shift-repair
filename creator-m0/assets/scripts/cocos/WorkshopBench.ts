@@ -1,47 +1,57 @@
 import { Color, Graphics } from 'cc';
 
 export const BENCH = {
-    ink: new Color(24, 30, 29), paper: new Color(234, 227, 207), muted: new Color(183, 181, 168),
-    yellow: new Color(244, 198, 107), shadow: new Color(7, 11, 10, 150),
-    steel: new Color(38, 44, 42), edge: new Color(91, 99, 92), recess: new Color(22, 29, 27),
-    weapon: { fill: new Color(34, 53, 61), accent: new Color(164, 206, 223), label: '武器' },
-    attachment: { fill: new Color(41, 60, 50), accent: new Color(169, 211, 179), label: '专属配件' },
-    gear: { fill: new Color(61, 49, 39), accent: new Color(232, 183, 147), label: '通用装备' },
+    ink: new Color(20, 28, 37), paper: new Color(239, 229, 206), muted: new Color(172, 185, 192),
+    yellow: new Color(250, 198, 105), shadow: new Color(6, 11, 17, 160),
+    steel: new Color(34, 47, 58), edge: new Color(76, 100, 115), recess: new Color(19, 29, 39),
+    weapon: { fill: new Color(35, 54, 67), accent: new Color(155, 212, 236), label: '武器' },
+    attachment: { fill: new Color(32, 56, 50), accent: new Color(163, 215, 182), label: '专属配件' },
+    gear: { fill: new Color(58, 46, 40), accent: new Color(236, 185, 145), label: '通用装备' },
 };
 
 export function benchPlate(g: Graphics, x: number, y: number, width: number, height: number,
     fill: Color, edge?: Color, cut = 7): void {
-    const outline = () => {
-        g.moveTo(x + cut, y + height);
-        g.lineTo(x + width, y + height);
-        g.lineTo(x + width, y + cut);
-        g.lineTo(x + width - cut, y);
-        g.lineTo(x, y);
-        g.lineTo(x, y + height - cut);
-        g.close();
+    const left = Math.round(x), right = Math.round(x + width);
+    const bottom = Math.round(y), top = Math.round(y + height);
+    const corner = Math.max(0, Math.min(Math.round(cut), Math.floor((right - left) / 2), Math.floor((top - bottom) / 2)));
+    const plate = (color: Color, inset: number) => {
+        const step = Math.ceil(corner / 2);
+        const l = left + inset, r = right - inset, b = bottom + inset, t = top - inset;
+        const inner = Math.max(0, corner - inset);
+        const shortStep = Math.min(step, inner);
+        g.fillColor = color;
+        g.rect(l, b + inner, r - l, t - b - 2 * inner);
+        if (inner > 0) {
+            g.rect(l, b, r - l - inner, inner - shortStep);
+            g.rect(l, b + inner - shortStep, r - l - shortStep, shortStep);
+            g.rect(l + shortStep, t - inner, r - l - shortStep, shortStep);
+            g.rect(l + inner, t - inner + shortStep, r - l - inner, inner - shortStep);
+        }
+        g.fill();
     };
-    g.fillColor = fill;
-    outline(); g.fill();
-    if (edge) {
-        g.strokeColor = edge;
-        g.lineWidth = 1;
-        outline(); g.stroke();
-    }
+    if (edge) plate(edge, 0);
+    plate(fill, edge ? 1 : 0);
 }
 
 export function benchScrew(g: Graphics, x: number, y: number): void {
     g.fillColor = BENCH.recess;
-    g.circle(x, y, 2.5); g.fill();
-    g.strokeColor = BENCH.edge;
-    g.lineWidth = 1;
-    g.moveTo(x - 1.3, y - 1.3); g.lineTo(x + 1.3, y + 1.3); g.stroke();
+    g.rect(Math.round(x) - 2, Math.round(y) - 2, 5, 5);
+    g.fill();
+    g.fillColor = BENCH.edge;
+    g.rect(Math.round(x) - 1, Math.round(y), 3, 1);
+    g.fill();
 }
 
 export function benchLock(g: Graphics, x: number, y: number, color: Color): void {
-    g.strokeColor = color;
-    g.lineWidth = 1.4;
-    g.roundRect(x - 5, y - 5, 10, 8, 1);
-    g.moveTo(x - 3, y + 3); g.lineTo(x - 3, y + 5);
-    g.quadraticCurveTo(x, y + 10, x + 3, y + 5); g.lineTo(x + 3, y + 3);
-    g.stroke();
+    x = Math.round(x);
+    y = Math.round(y);
+    g.fillColor = color;
+    g.rect(x - 5, y - 5, 10, 7);
+    g.rect(x - 4, y + 2, 2, 4);
+    g.rect(x + 2, y + 2, 2, 4);
+    g.rect(x - 2, y + 6, 4, 2);
+    g.fill();
+    g.fillColor = BENCH.recess;
+    g.rect(x - 1, y - 3, 2, 3);
+    g.fill();
 }

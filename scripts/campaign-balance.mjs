@@ -4,7 +4,7 @@ import { CAMPAIGN_CATALOG } from '../.m0-build/campaign/CampaignCatalog.js';
 import { campaignPressureRules } from '../.m0-build/campaign/CampaignPressure.js';
 import { Run } from '../.m0-build/m1/Run.js';
 import { firstEquipmentPair, resolveEquipment } from '../.m0-build/m1/Equipment.js';
-import { FIRST_PAIR, TICK_RATE, TOOLS, TUNING_STEPS, isTool, offer, toolTuningStats } from '../.m0-build/m1/content.js';
+import { FIRST_PAIR, TICK_RATE, TOOLS, TUNING_STEPS, attackReach, isTool, offer, toolTuningStats } from '../.m0-build/m1/content.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
 
 // Run npm run build:web first. The bot only uses movement destinations and shop actions.
@@ -54,7 +54,8 @@ function chooseDestination(battle, tool, equippedReach) {
     let desiredRange = 8;
     let urgency = 0.62;
     const angle = tick / 65;
-    const weaponReach = equippedReach ?? (battle.tools[0].tuning ? toolTuningStats(battle.tools[0]).reach : TOOLS[tool].reach);
+    const reach = equippedReach ?? (battle.tools[0].tuning ? toolTuningStats(battle.tools[0]).reach : TOOLS[tool].reach);
+    const weaponReach = attackReach(tool, reach, battle.rules.sweptMelee);
     const bossRange = Math.min(weaponReach - 8, 74);
     if (!boss && battle.enemies.length) {
         // Work toward the current pack. In a larger field the cap can be reached before

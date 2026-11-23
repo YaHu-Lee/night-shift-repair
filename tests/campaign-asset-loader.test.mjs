@@ -38,7 +38,7 @@ function harness() {
     };
     const resources = makeBundle();
     const modules = {
-        cc: { assetManager, resources, Texture2D: class {} },
+        cc: { assetManager, resources, Texture2D: class { static Filter = { NEAREST: 0 }; } },
         '../campaign/CampaignArt': { campaignArtBundle: key => key === 'shared' ? null : 'campaign-ch03' },
     };
     let nextTimer = 0;
@@ -54,10 +54,28 @@ function harness() {
     });
     return {
         load: (key, done) => exports.loadCampaignTexture('scenery', key, done),
+        loadPixel: (bundle, key, done) => exports.loadCampaignPixelTexture(bundle, key, done),
         expire() { for (const complete of Array.from(timers.values())) complete(); },
         bundles, bundleRequests, textureRequests, makeBundle, assetManager, resources, timers,
     };
 }
+
+test('pixel assets use the requested chapter folder, nearest sampling and a borrowed reference', async () => {
+    const loader = harness();
+    loader.bundles.set('campaign-ch02', loader.makeBundle());
+    const calls = [];
+    const texture = makeTexture();
+    texture.setFilters = (...filters) => calls.push(filters);
+    loader.loadPixel('campaign-ch02', 'arenas/stage-08', asset => {
+        assert.equal(asset, texture);
+        assert.equal(asset.refCount, 1);
+    });
+    assert.equal(loader.textureRequests[0].path, 'pixel/arenas/stage-08/texture');
+    loader.textureRequests[0].complete(null, texture);
+    await flush();
+    assert.deepEqual(calls, [[0, 0]]);
+    assert.equal(texture.refCount, 0);
+});
 
 test('a silent chapter download releases all callers and a retry ignores the old result', async () => {
     const loader = harness();

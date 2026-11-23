@@ -1,10 +1,12 @@
-import { BASE_PICKUP_RADIUS, ENEMIES, FIELD, M1_RULES, MAGNET_PICKUP_RADIUS, MAGNET_PULSE, PUDDLE_ACTIVE, PUDDLE_CYCLE, PUDDLE_WARNING, START, TICK_RATE, TOOLS, combatViewport, hasPair, randomStream, toolTuningStats, waveKillTarget } from './content';
+import { BASE_PICKUP_RADIUS, ENEMIES, FIELD, M1_RULES, MAGNET_PICKUP_RADIUS, MAGNET_PULSE, PUDDLE_ACTIVE, PUDDLE_CYCLE, PUDDLE_WARNING, START, TICK_RATE, TOOLS, attackReach, combatViewport, hasPair, randomStream, toolTuningStats, waveKillTarget } from './content';
 import type { CombatBounds, EnemyId, EquippedTool, ModId, RegularEnemyId, Route, RunRules, SpawnEdge, ToolId, WaveClearSpec, WaveSpec } from './content';
 import { resolveEquipment } from './Equipment';
 import type { EquipmentState, ResolvedEquipment, WeaponEquipmentStats } from './Equipment';
 import { CONVEYOR_STEP, GATEKEEPER_PORTS, GATEKEEPER_WARNING_TICKS, Mission, RECLAIMER_PULL_TICKS, clamp, clipTerrainReach, distance, distanceToSegment, fieldRayEnd, gatekeeperLane, insideRect, nearestOpen, routeAround, terrainAt } from './Encounter';
 import type { BlueprintId, ChapterBossView, ChapterHazard, ChallengeMode, MissionCue, MissionFailure, MissionState, MissionView, Position, TerrainRect } from './Encounter';
 import { ChapterBoss } from './ChapterBoss';
+import { MELEE_RETURN_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from './WeaponMotion';
+import type { MeleeMotion, MeleeTool } from './WeaponMotion';
 
 export type { Position } from './Encounter';
 interface Enemy extends Position {
@@ -51,6 +53,7 @@ export interface WeaponCast extends Readonly<Position> {
     readonly uy: number;
     readonly targetRange: number;
     readonly tick: number;
+    readonly melee?: MeleeMotion;
 }
 
 export type MeleeWindup = Pick<WeaponCast, 'slot' | 'ux' | 'uy'> & {
@@ -78,7 +81,17 @@ interface ToolRuntime {
     cooling: boolean;
     reach: number;
     interval: number;
+    swings: number;
     equipment?: WeaponEquipmentStats;
+}
+interface ActiveMelee {
+    cast: WeaponCast & { readonly melee: MeleeMotion; readonly tool: MeleeTool };
+    damage: (enemy: Enemy, center: Readonly<Position>) => number;
+    bonus: number;
+    marks: boolean;
+    arcLink: boolean;
+    struck: Set<Enemy>;
+    landed: boolean;
 }
 type BossAttack = 'sweep' | 'charge' | 'summon';
 export type HitSource = EnemyId | 'projectile' | 'boss-sweep' | 'boss-charge' | 'live-puddle' | 'chapter-hazard';
@@ -103,6 +116,10 @@ export interface BossState {
 const SPAWN_WARNING = 22;
 const NO_PUDDLES: readonly LivePuddle[] = [];
 const SPEED = 156 / TICK_RATE;
+const CHARGER_DASH_SPEED = 7.6;
+const CHARGER_DASH_TICKS = 18;
+export const CHARGER_DASH_TRAVEL = CHARGER_DASH_SPEED * CHARGER_DASH_TICKS;
+export const ENEMY_FIELD_MARGIN = 7;
 const PLAYER_MARGIN = 10;
 const MAX_ENEMIES = 36;
 const MAX_BULLETS = 40;
@@ -122,6 +139,7 @@ export class Battle {
     readonly warnings: Spawn[] = [];
     readonly effects: Attack[] = [];
     readonly weaponCasts: WeaponCast[] = [];
+    private readonly activeMelee: ActiveMelee[] = [];
     readonly triggers = { arc: 0, magnet: 0, heat: 0 };
     readonly duration: number;
     readonly boss: BossState | null;
@@ -196,7 +214,8 @@ export class Battle {
         this.runtime = tools.map((tool, index) => {
             const equipment = this.equipment?.weapons[index];
             const { reach, interval } = equipment ?? toolTuningStats(tool);
-            return { next: 0, heat: 0, combo: 0, lastInMelee: -Infinity, cooling: false, reach, interval, equipment };
+            return { next: 0, heat: 0, combo: 0, lastInMelee: -Infinity, cooling: false,
+                reach: attackReach(tool.id, reach, rules.sweptMelee), interval, swings: 0, equipment };
         });
         this.magnet = actor?.pulse ?? hasPair(tools, 'magnet');
         this.arc = hasPair(tools, 'arc');
@@ -280,7 +299,7 @@ export class Battle {
             const { next, reach } = this.runtime[slot];
             const remaining = next - this.tick;
             if (remaining <= 0 || remaining > MELEE_WINDUP_TICKS) return;
-            const target = this.nearest(this.player, reach);
+            const target = this.swingTarget(slot, reach);
             if (!target) return;
             const range = distance(this.player, target) || 1;
             windups.push({ tool, slot, ux: (target.x - this.player.x) / range, uy: (target.y - this.player.y) / range,
@@ -372,12 +391,15 @@ export class Battle {
         this.applyTerrain(this.player, PLAYER_MARGIN);
         if (steering && Math.hypot(this.player.x - x, this.player.y - y) > 0.02) this.moved = true;
         this.spawn();
+        const priorEnemies = this.activeMelee.length
+            ? new Map(this.enemies.map(enemy => [enemy, { x: enemy.x, y: enemy.y }])) : undefined;
         this.moveEnemies();
         this.moveBullets();
         if (this.livePuddles.some((puddle) => puddle.phase === 'active' && distance(puddle, this.player) < puddle.radius)) {
             this.hurt('live-puddle');
         }
         if (this.player.hp <= 0) return;
+        if (priorEnemies) this.advanceMelee(priorEnemies, { x, y });
         this.tools.forEach((tool, index) => {
             const firstEffect = this.effects.length;
             const nextCast = this.weaponCasts.length;
@@ -596,12 +618,12 @@ export class Battle {
             const length = Math.max(1, range);
             if (enemy.kind === 'charger' && enemy.state === 'warn' && this.tick >= enemy.next) {
                 enemy.state = 'dash';
-                enemy.next = this.tick + 17;
+                enemy.next = this.tick + CHARGER_DASH_TICKS - 1;
                 this.signalEnemyAttack('melee');
             }
             if (enemy.state === 'dash') {
-                enemy.x += enemy.vx * 7.6;
-                enemy.y += enemy.vy * 7.6;
+                enemy.x += enemy.vx * CHARGER_DASH_SPEED;
+                enemy.y += enemy.vy * CHARGER_DASH_SPEED;
                 if (this.tick >= enemy.next) {
                     enemy.state = 'walk';
                     enemy.next = this.tick + 55;
@@ -659,8 +681,8 @@ export class Battle {
                     this.signalEnemyAttack('projectile');
                 }
             }
-            this.keepInField(enemy, 7);
-            this.applyTerrain(enemy, 7);
+            this.keepInField(enemy, ENEMY_FIELD_MARGIN);
+            this.applyTerrain(enemy, ENEMY_FIELD_MARGIN);
             if (distance(enemy, this.player) < 15) this.enemyContact(enemy);
         }
     }
@@ -909,13 +931,86 @@ export class Battle {
         return result;
     }
 
+    private swingTarget(slot: number, reach: number): Enemy | undefined {
+        if (!this.rules.sweptMelee) return this.nearest(this.player, reach);
+        const dock = weaponDock(slot, this.tools.length, this.tick);
+        const weapon = { x: this.player.x + dock.x, y: this.player.y + dock.y };
+        let picked: Enemy | undefined;
+        let best = Infinity;
+        for (const enemy of this.enemies) {
+            if (!this.canTarget(enemy) || distance(this.player, enemy) > reach) continue;
+            const gap = distance(weapon, enemy);
+            if (gap < best) {
+                picked = enemy;
+                best = gap;
+            }
+        }
+        return picked;
+    }
+
+    private advanceMelee(priorEnemies: ReadonlyMap<Enemy, Position>, priorPlayer: Readonly<Position>): void {
+        for (const active of this.activeMelee) {
+            const { cast } = active;
+            const { melee } = cast;
+            const frame = this.tick - cast.tick;
+            updateMeleePath(melee, frame, this.player, this.field);
+            if (frame < melee.first) continue;
+            const from = melee.points[Math.max(melee.first, frame - 1)], to = melee.points[frame];
+            const startPlayer = frame === melee.first ? this.player : priorPlayer;
+            const playerDx = this.player.x - startPlayer.x, playerDy = this.player.y - startPlayer.y;
+            const contacts: { enemy: Enemy; time: number; center: Position }[] = [];
+            for (const enemy of this.enemies) {
+                if (!this.canTarget(enemy) || active.struck.has(enemy)) continue;
+                const previous = frame === melee.first ? enemy : priorEnemies.get(enemy) ?? enemy;
+                const vx = enemy.x - previous.x, vy = enemy.y - previous.y;
+                const ax = previous.x - from.x, ay = previous.y - from.y;
+                const radius = melee.radius + (enemy.kind === 'inspector' ? 13 : enemy.kind === 'crawler' ? 6 : 9);
+                const overlap = circleContact(ax, ay, vx - (to.x - from.x), vy - (to.y - from.y), radius);
+                const inside = circleContact(previous.x - startPlayer.x, previous.y - startPlayer.y,
+                    vx - playerDx, vy - playerDy, melee.range);
+                if (!overlap || !inside) continue;
+                const time = Math.max(overlap[0], inside[0]);
+                if (time > Math.min(overlap[1], inside[1])) continue;
+                const center = { x: startPlayer.x + playerDx * time, y: startPlayer.y + playerDy * time };
+                const dx = previous.x + vx * time - center.x, dy = previous.y + vy * time - center.y;
+                const reach = Math.hypot(dx, dy);
+                if (reach && this.terrain.length &&
+                    clipTerrainReach(center, dx / reach, dy / reach, reach, this.terrain, 0) < reach) continue;
+                contacts.push({ enemy, time, center });
+            }
+            const start = this.effects.length;
+            for (const { enemy, time, center } of contacts.sort((a, b) => a.time - b.time || a.enemy.id - b.enemy.id)) {
+                active.struck.add(enemy);
+                const point = { x: from.x + (to.x - from.x) * time, y: from.y + (to.y - from.y) * time };
+                const markedBonus = active.arcLink && enemy.marked ? 1 : 0;
+                if (active.marks) enemy.marked = true;
+                if (!this.hit(enemy, active.damage(enemy, center) + active.bonus + markedBonus, point, 'arc', false, 'melee')) continue;
+                if (markedBonus) this.triggers.arc++;
+                if (active.landed) continue;
+                active.landed = true;
+                if (cast.tool === 'bypass_wrench') {
+                    const runtime = this.runtime[cast.slot];
+                    runtime.combo = (runtime.combo + 1) % 4;
+                    runtime.lastInMelee = this.tick;
+                }
+            }
+            for (let i = start; i < this.effects.length; i++) this.effects[i].sourceCast = cast;
+        }
+        while (this.activeMelee.length) {
+            const expired = this.activeMelee.findIndex(({ cast }) => this.tick - cast.tick >= cast.melee.last);
+            if (expired < 0) break;
+            this.activeMelee.splice(expired, 1);
+        }
+    }
+
     private fire(tool: EquippedTool, runtime: ToolRuntime, slot: number): void {
         const ready = this.tick >= runtime.next;
         const trackingCombo = tool.id === 'bypass_wrench' && runtime.combo > 0;
         if (!ready && !trackingCombo) return;
         const spec = TOOLS[tool.id];
         const { reach, interval, equipment } = runtime;
-        const target = this.nearest(this.player, reach);
+        const meleeTool = this.rules.sweptMelee && isMeleeTool(tool.id) ? tool.id : undefined;
+        const target = meleeTool ? this.swingTarget(slot, reach) : this.nearest(this.player, reach);
         if (trackingCombo) {
             if (target) runtime.lastInMelee = this.tick;
             else if (this.tick - runtime.lastInMelee >= 2 * TICK_RATE) runtime.combo = 0;
@@ -930,7 +1025,7 @@ export class Battle {
         const ux = (target.x - this.player.x) / aim, uy = (target.y - this.player.y) / aim;
         this.playerAttack = { tick: this.tick, x: ux, y: uy };
         this.playerAttackTool = tool.id;
-        this.weaponCasts.push({ tool: tool.id, slot, x: this.player.x, y: this.player.y, ux, uy, targetRange, tick: this.tick });
+        const cast = { tool: tool.id, slot, x: this.player.x, y: this.player.y, ux, uy, targetRange, tick: this.tick };
         this.weaponAttackCue = WEAPON_ATTACK_CUES[tool.id];
         this.weaponAttackSerial++;
         if (runtime.cooling) {
@@ -941,9 +1036,9 @@ export class Battle {
         const damage = (equipment?.damage ?? spec.damage) + (heatTool && runtime.heat >= 3 ? 1 : 0);
         const close = equipment?.close ?? Number(tool.tuning?.finisher === 'close');
         const far = equipment?.far ?? Number(tool.tuning?.finisher === 'edge');
-        const damageAt = (enemy: Enemy): number => {
+        const damageAt = (enemy: Enemy, center: Readonly<Position> = cast): number => {
             if (!close && !far) return damage;
-            const relativeReach = distance(this.player, enemy) / reach;
+            const relativeReach = distance(center, enemy) / reach;
             return damage + (relativeReach <= 0.45 ? close : relativeReach >= 0.65 ? far : 0);
         };
         runtime.next = this.tick + interval;
@@ -954,8 +1049,21 @@ export class Battle {
             runtime.cooling = true;
             this.triggers.heat++;
         }
-        const chain = (equipment?.arcLink ?? this.arc) && target.marked;
-        if (equipment?.marks ?? (tool.mods.indexOf('contact') >= 0 || (this.arc && tool.mods.indexOf('relay') >= 0))) target.marked = true;
+        const marks = equipment?.marks ?? (tool.mods.indexOf('contact') >= 0 || (this.arc && tool.mods.indexOf('relay') >= 0));
+        const linked = equipment?.arcLink ?? this.arc;
+        if (meleeTool) {
+            const melee = createMeleeMotion(meleeTool, runtime.swings++, weaponDock(slot, this.tools.length, this.tick),
+                cast, ux, uy, reach, this.field);
+            const attack = { ...cast, tool: meleeTool, melee };
+            this.weaponCasts.push(attack);
+            this.activeMelee.push({ cast: attack, damage: damageAt, marks, arcLink: linked, landed: false, struck: new Set(),
+                bonus: meleeTool === 'bypass_wrench' && runtime.combo === 3 ? 3 + (equipment?.combo ?? 0) : 0 });
+            runtime.next = Math.max(runtime.next, this.tick + melee.last + MELEE_RETURN_TICKS);
+            return;
+        }
+        this.weaponCasts.push(cast);
+        const chain = linked && target.marked;
+        if (marks) target.marked = true;
         if (tool.id === 'wrench' || tool.id === 'arc_gun') {
             const excluded = new Set([target]);
             this.hit(target, damageAt(target), this.player, 'arc', false, tool.id === 'wrench' ? 'melee' : 'launch');

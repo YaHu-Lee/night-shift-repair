@@ -27,6 +27,16 @@ test('campaign portrait build has its own scene UUID and preserves M2 settings',
     assert.equal(build.platform, 'bytedance-mini-game');
     assert.equal(build.packages['bytedance-mini-game'].orientation, 'portrait');
     assert.equal(scene.find(item => item?.campaignMode === true)?.fullRun, true);
+    assert.equal(scene.some(item => item?.prototypeArt === true), false);
+    const prototype = json(dir + 'assets/scenes/Campaign3D.scene');
+    const prototypeId = json(dir + 'assets/scenes/Campaign3D.scene.meta').uuid;
+    assert.notEqual(prototypeId, meta.uuid);
+    assert.equal(prototype.find(item => item?.campaignMode === true)?.prototypeArt, true);
+    for (const name of ['build-campaign-3d-prototype', 'build-campaign-douyin-3d-preview', 'build-campaign-wechat-3d-preview']) {
+        const preview = json(dir + name + '.json');
+        assert.equal(preview.startScene, prototypeId);
+        assert.deepEqual(preview.scenes[0], { url: 'db://assets/scenes/Campaign3D.scene', uuid: prototypeId });
+    }
     assert.equal(m2.some(item => item?.campaignMode === true), false);
 });
 
@@ -56,13 +66,16 @@ test('chapter bundles keep startup art available and both release candidates dis
         const preset = json(dir + name + '.json');
         assert.deepEqual(preset.bundleConfigs.map(bundle => bundle.name), ['resources', ...chapters]);
         assert.equal(preset.engineModulesConfigKey, 'nightShift2D');
+        assert.deepEqual(preset.bundleConfigs[0].bundleFilterConfig, [{ range: 'exclude', type: 'url',
+            patchOption: { patchType: 'beginWith', value: 'db://assets/resources/prototype3d/' } }]);
     }
 });
 
 test('Creator copies and logic test copies match for the campaign', () => {
     for (const path of ['campaign/Campaign.ts', 'cocos/M1Bootstrap.ts', 'm1/Battle.ts',
         'm1/Run.ts', 'm1/content.ts', 'platform/platform.ts', 'campaign/CampaignArt.ts',
-        'cocos/CampaignAssetLoader.ts', 'cocos/BattleSkinView.ts', 'cocos/CampaignCombatView.ts', 'cocos/CampaignMapView.ts']) {
+        'cocos/CampaignAssetLoader.ts', 'cocos/BattleSkinView.ts', 'cocos/CampaignCombatView.ts',
+        'cocos/CampaignMapView.ts', 'cocos/CampaignLobbyView.ts', 'cocos/WorkshopBench.ts', 'cocos/SkillEffectsView.ts']) {
         assert.equal(read('assets/scripts/' + path), read(dir + 'assets/scripts/' + path), path);
     }
 });

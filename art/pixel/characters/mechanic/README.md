@@ -1,6 +1,6 @@
 # Empty-handed mechanic pixel candidate
 
-Art only. No game files or runtime integration. Original generated sheets go under `sources/`; `manifest.json` explicitly selects accepted rectangles. Never include the prior wrench-in-hand image. `candidate/` is packed for evaluation, not approved shipping art. See the manifest's explicit missing strips; a mirrored heading is not independent authored art.
+Original generated sheets go under `sources/`; `manifest.json` explicitly selects empty-handed rectangles. `candidate/` holds the reproducible atlas and previews for evaluation. The 2D campaign currently uses this candidate for gameplay review. See the manifest for any missing strips and the source heading of each mirror.
 
 ```sh
 python art/pixel/characters/mechanic/assemble.py art/pixel/characters/mechanic/manifest.json art/pixel/characters/mechanic/candidate
@@ -17,3 +17,11 @@ python art/pixel/characters/mechanic/validate.py art/pixel/characters/mechanic/c
 ```
 
 Reproduction verified with Python 3.12.14 / Pillow 13.0.0. Animated WebP canvases are 512 × 64 (eight headings in atlas order, native 1× screen pixels); contact sheets display each tile 2× without smoothing. Preserve original transparent generated inputs and use the manifest, not hand edits to packed outputs. The first NE walk generation with a visible pale fill was rejected; its clean regenerated replacement has native alpha. Fixed hit clips are individual recoil poses, not a full animation.
+
+## Creator integration
+
+After regenerating and validating the candidate, copy `candidate/mechanic-atlas.png` and `candidate/frames.json` to `creator-m0/assets/campaign-content/campaign-ch01/pixel/mechanic/`. This keeps the shared character art in an existing campaign subpackage. The workshop skin test checks that the copies match. Build `creator-m0/build-campaign-web.json` and enter a campaign battle to see the result. Creator browser preview uses the 2D campaign by default. The dedicated 3D build remains available for comparison.
+
+The runtime uses the melee cue for the first two standing poses: load and push-off. A primary cast selects the extended pose, followed by recovery. A standalone off-hand cast uses the braced pose and recovery. A moving primary cast in the direction of travel uses the matching phase of the authored run-strike strip. Aiming elsewhere keeps the walking cycle and aims the acting tool separately.
+
+Slot 0 mounts to the anatomical right hand and slot 1 to the left. The [arc wrench and arc gun](../../weapons/README.md) use distinct pixel frames for eight directions and a carried pose. They provide the visual origin for each weapon's first arc. Other tools retain their existing workshop art during this pass. Occluded grips hide their tools. See the [attack revision record](attack-revision.md) for the source prompts and selected strips.

@@ -1,7 +1,8 @@
-import { MAGNET_PULSE, TICK_RATE, TOOLS, isTool } from './content';
+import { MAGNET_PULSE, TICK_RATE, TOOLS, attackReach, isTool } from './content';
 import type { ToolId } from './content';
 import { ATTACHMENTS, GEAR } from './Equipment';
 import type { EquipmentOffer, WeaponEquipmentStats } from './Equipment';
+import { isMeleeTool } from './WeaponMotion';
 
 interface DetailRow { readonly label: string; readonly value: string }
 interface EquipmentDetail { readonly description: string; readonly rows: readonly DetailRow[] }
@@ -33,21 +34,23 @@ function weaponBonuses(rows: DetailRow[], id: ToolId, change: (typeof ATTACHMENT
     if (change.heat) rows.push({ label: '升温增伤', value: '第 4 次连发起 +1' }, { label: '过热', value: '暂停攻击，冷却后恢复' });
 }
 
-export function equipmentDetail(item: EquipmentOffer, fitted?: WeaponEquipmentStats): EquipmentDetail {
+export function equipmentDetail(item: EquipmentOffer, fitted?: WeaponEquipmentStats, sweptMelee = false): EquipmentDetail {
     const rows: DetailRow[] = [];
     if (item.kind === 'weapon' && isTool(item.id)) {
         const tool = TOOLS[item.id];
+        const contact = sweptMelee && isMeleeTool(item.id);
         const stats = fitted?.id === item.id ? fitted : undefined;
         rows.push(
             { label: '单次伤害', value: currentStat(tool.damage, stats?.damage ?? tool.damage) },
-            { label: rangeName(item.id), value: currentStat(tool.reach, stats?.reach ?? tool.reach, ' 像素') },
+            { label: contact ? '角色周围射程' : rangeName(item.id), value: currentStat(attackReach(item.id, tool.reach, sweptMelee),
+                attackReach(item.id, stats?.reach ?? tool.reach, sweptMelee), ' 像素') },
             { label: '攻击间隔', value: currentStat(milliseconds(tool.cooldown), milliseconds(stats?.interval ?? tool.cooldown), ' 毫秒') },
         );
         if (stats) {
             weaponBonuses(rows, item.id, stats);
-            if (stats.arcLink) rows.push({ label: '分流接头', value: '再打标记目标，连跳增伤' });
+            if (stats.arcLink) rows.push({ label: '分流接头', value: contact ? '再打标记目标，伤害 +1' : '再打标记目标，连跳增伤' });
         }
-        const description = item.id === 'bypass_wrench' ? '第 4 击伤害 +3，连续 2 秒没目标就得重来。' : item.detail;
+        const description = item.id === 'bypass_wrench' ? '交替钩扫和压击。第 4 击伤害 +3，2 秒没有目标后重计。' : item.detail;
         return { description, rows };
     }
     const attachment = item.kind === 'attachment' ? ATTACHMENTS[item.id] : undefined;
@@ -58,10 +61,12 @@ export function equipmentDetail(item: EquipmentOffer, fitted?: WeaponEquipmentSt
         if (change.reach) rows.push({ label: rangeName(weapon), value: signed(change.reach, ' 像素') });
         if (change.interval) rows.push({ label: '攻击间隔', value: signed(milliseconds(change.interval), ' 毫秒') });
         weaponBonuses(rows, weapon, change);
-        if (variant === 'link') rows.push(
-            { label: '标记', value: '攻击时给目标上标记' },
-            { label: '强化连跳', value: '再打标记目标，跳得更远、伤害更高' },
-        );
+        if (variant === 'link') {
+            rows.push({ label: '标记', value: '命中时给目标上标记' });
+            rows.push(sweptMelee && isMeleeTool(weapon)
+                ? { label: '标记增伤', value: '再打标记目标，伤害 +1' }
+                : { label: '强化连跳', value: '再打标记目标，跳得更远、伤害更高' });
+        }
         return { description: '', rows };
     }
     const gear = item.kind === 'gear' ? GEAR[item.id] : undefined;

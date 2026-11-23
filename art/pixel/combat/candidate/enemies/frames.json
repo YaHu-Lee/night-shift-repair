@@ -1,0 +1,4200 @@
+{
+  "pages": [
+    {
+      "texture": "actors",
+      "frames": {
+        "crawler:idle:e": [
+          0,
+          0,
+          80,
+          80
+        ],
+        "crawler:idle:ne": [
+          80,
+          0,
+          80,
+          80
+        ],
+        "crawler:idle:n": [
+          160,
+          0,
+          80,
+          80
+        ],
+        "crawler:idle:nw": [
+          240,
+          0,
+          80,
+          80
+        ],
+        "crawler:idle:w": [
+          320,
+          0,
+          80,
+          80
+        ],
+        "crawler:idle:sw": [
+          400,
+          0,
+          80,
+          80
+        ],
+        "crawler:idle:s": [
+          480,
+          0,
+          80,
+          80
+        ],
+        "crawler:idle:se": [
+          560,
+          0,
+          80,
+          80
+        ],
+        "crawler:step-a:e": [
+          0,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-a:ne": [
+          80,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-a:n": [
+          160,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-a:nw": [
+          240,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-a:w": [
+          320,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-a:sw": [
+          400,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-a:s": [
+          480,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-a:se": [
+          560,
+          80,
+          80,
+          80
+        ],
+        "crawler:step-b:e": [
+          0,
+          160,
+          80,
+          80
+        ],
+        "crawler:step-b:ne": [
+          80,
+          160,
+          80,
+          80
+        ],
+        "crawler:step-b:n": [
+          160,
+          160,
+          80,
+          80
+        ],
+        "crawler:step-b:nw": [
+          240,
+          160,
+          80,
+          80
+        ],
+        "crawler:step-b:w": [
+          320,
+          160,
+          80,
+          80
+        ],
+        "crawler:step-b:sw": [
+          400,
+          160,
+          80,
+          80
+        ],
+        "crawler:step-b:s": [
+          480,
+          160,
+          80,
+          80
+        ],
+        "crawler:step-b:se": [
+          560,
+          160,
+          80,
+          80
+        ],
+        "crawler:strike:e": [
+          0,
+          240,
+          80,
+          80
+        ],
+        "crawler:strike:ne": [
+          80,
+          240,
+          80,
+          80
+        ],
+        "crawler:strike:n": [
+          160,
+          240,
+          80,
+          80
+        ],
+        "crawler:strike:nw": [
+          240,
+          240,
+          80,
+          80
+        ],
+        "crawler:strike:w": [
+          320,
+          240,
+          80,
+          80
+        ],
+        "crawler:strike:sw": [
+          400,
+          240,
+          80,
+          80
+        ],
+        "crawler:strike:s": [
+          480,
+          240,
+          80,
+          80
+        ],
+        "crawler:strike:se": [
+          560,
+          240,
+          80,
+          80
+        ],
+        "crawler:recover:e": [
+          0,
+          320,
+          80,
+          80
+        ],
+        "crawler:recover:ne": [
+          80,
+          320,
+          80,
+          80
+        ],
+        "crawler:recover:n": [
+          160,
+          320,
+          80,
+          80
+        ],
+        "crawler:recover:nw": [
+          240,
+          320,
+          80,
+          80
+        ],
+        "crawler:recover:w": [
+          320,
+          320,
+          80,
+          80
+        ],
+        "crawler:recover:sw": [
+          400,
+          320,
+          80,
+          80
+        ],
+        "crawler:recover:s": [
+          480,
+          320,
+          80,
+          80
+        ],
+        "crawler:recover:se": [
+          560,
+          320,
+          80,
+          80
+        ],
+        "charger:idle:e": [
+          0,
+          400,
+          80,
+          80
+        ],
+        "charger:idle:ne": [
+          80,
+          400,
+          80,
+          80
+        ],
+        "charger:idle:n": [
+          160,
+          400,
+          80,
+          80
+        ],
+        "charger:idle:nw": [
+          240,
+          400,
+          80,
+          80
+        ],
+        "charger:idle:w": [
+          320,
+          400,
+          80,
+          80
+        ],
+        "charger:idle:sw": [
+          400,
+          400,
+          80,
+          80
+        ],
+        "charger:idle:s": [
+          480,
+          400,
+          80,
+          80
+        ],
+        "charger:idle:se": [
+          560,
+          400,
+          80,
+          80
+        ],
+        "charger:step-a:e": [
+          0,
+          480,
+          80,
+          80
+        ],
+        "charger:step-a:ne": [
+          80,
+          480,
+          80,
+          80
+        ],
+        "charger:step-a:n": [
+          160,
+          480,
+          80,
+          80
+        ],
+        "charger:step-a:nw": [
+          240,
+          480,
+          80,
+          80
+        ],
+        "charger:step-a:w": [
+          320,
+          480,
+          80,
+          80
+        ],
+        "charger:step-a:sw": [
+          400,
+          480,
+          80,
+          80
+        ],
+        "charger:step-a:s": [
+          480,
+          480,
+          80,
+          80
+        ],
+        "charger:step-a:se": [
+          560,
+          480,
+          80,
+          80
+        ],
+        "charger:step-b:e": [
+          0,
+          560,
+          80,
+          80
+        ],
+        "charger:step-b:ne": [
+          80,
+          560,
+          80,
+          80
+        ],
+        "charger:step-b:n": [
+          160,
+          560,
+          80,
+          80
+        ],
+        "charger:step-b:nw": [
+          240,
+          560,
+          80,
+          80
+        ],
+        "charger:step-b:w": [
+          320,
+          560,
+          80,
+          80
+        ],
+        "charger:step-b:sw": [
+          400,
+          560,
+          80,
+          80
+        ],
+        "charger:step-b:s": [
+          480,
+          560,
+          80,
+          80
+        ],
+        "charger:step-b:se": [
+          560,
+          560,
+          80,
+          80
+        ],
+        "charger:windup:e": [
+          0,
+          640,
+          80,
+          80
+        ],
+        "charger:windup:ne": [
+          80,
+          640,
+          80,
+          80
+        ],
+        "charger:windup:n": [
+          160,
+          640,
+          80,
+          80
+        ],
+        "charger:windup:nw": [
+          240,
+          640,
+          80,
+          80
+        ],
+        "charger:windup:w": [
+          320,
+          640,
+          80,
+          80
+        ],
+        "charger:windup:sw": [
+          400,
+          640,
+          80,
+          80
+        ],
+        "charger:windup:s": [
+          480,
+          640,
+          80,
+          80
+        ],
+        "charger:windup:se": [
+          560,
+          640,
+          80,
+          80
+        ],
+        "charger:strike:e": [
+          0,
+          720,
+          80,
+          80
+        ],
+        "charger:strike:ne": [
+          80,
+          720,
+          80,
+          80
+        ],
+        "charger:strike:n": [
+          160,
+          720,
+          80,
+          80
+        ],
+        "charger:strike:nw": [
+          240,
+          720,
+          80,
+          80
+        ],
+        "charger:strike:w": [
+          320,
+          720,
+          80,
+          80
+        ],
+        "charger:strike:sw": [
+          400,
+          720,
+          80,
+          80
+        ],
+        "charger:strike:s": [
+          480,
+          720,
+          80,
+          80
+        ],
+        "charger:strike:se": [
+          560,
+          720,
+          80,
+          80
+        ],
+        "charger:recover:e": [
+          0,
+          800,
+          80,
+          80
+        ],
+        "charger:recover:ne": [
+          80,
+          800,
+          80,
+          80
+        ],
+        "charger:recover:n": [
+          160,
+          800,
+          80,
+          80
+        ],
+        "charger:recover:nw": [
+          240,
+          800,
+          80,
+          80
+        ],
+        "charger:recover:w": [
+          320,
+          800,
+          80,
+          80
+        ],
+        "charger:recover:sw": [
+          400,
+          800,
+          80,
+          80
+        ],
+        "charger:recover:s": [
+          480,
+          800,
+          80,
+          80
+        ],
+        "charger:recover:se": [
+          560,
+          800,
+          80,
+          80
+        ],
+        "turret:idle:e": [
+          0,
+          880,
+          80,
+          80
+        ],
+        "turret:idle:ne": [
+          80,
+          880,
+          80,
+          80
+        ],
+        "turret:idle:n": [
+          160,
+          880,
+          80,
+          80
+        ],
+        "turret:idle:nw": [
+          240,
+          880,
+          80,
+          80
+        ],
+        "turret:idle:w": [
+          320,
+          880,
+          80,
+          80
+        ],
+        "turret:idle:sw": [
+          400,
+          880,
+          80,
+          80
+        ],
+        "turret:idle:s": [
+          480,
+          880,
+          80,
+          80
+        ],
+        "turret:idle:se": [
+          560,
+          880,
+          80,
+          80
+        ],
+        "turret:step-a:e": [
+          0,
+          960,
+          80,
+          80
+        ],
+        "turret:step-a:ne": [
+          80,
+          960,
+          80,
+          80
+        ],
+        "turret:step-a:n": [
+          160,
+          960,
+          80,
+          80
+        ],
+        "turret:step-a:nw": [
+          240,
+          960,
+          80,
+          80
+        ],
+        "turret:step-a:w": [
+          320,
+          960,
+          80,
+          80
+        ],
+        "turret:step-a:sw": [
+          400,
+          960,
+          80,
+          80
+        ],
+        "turret:step-a:s": [
+          480,
+          960,
+          80,
+          80
+        ],
+        "turret:step-a:se": [
+          560,
+          960,
+          80,
+          80
+        ],
+        "turret:step-b:e": [
+          0,
+          1040,
+          80,
+          80
+        ],
+        "turret:step-b:ne": [
+          80,
+          1040,
+          80,
+          80
+        ],
+        "turret:step-b:n": [
+          160,
+          1040,
+          80,
+          80
+        ],
+        "turret:step-b:nw": [
+          240,
+          1040,
+          80,
+          80
+        ],
+        "turret:step-b:w": [
+          320,
+          1040,
+          80,
+          80
+        ],
+        "turret:step-b:sw": [
+          400,
+          1040,
+          80,
+          80
+        ],
+        "turret:step-b:s": [
+          480,
+          1040,
+          80,
+          80
+        ],
+        "turret:step-b:se": [
+          560,
+          1040,
+          80,
+          80
+        ],
+        "turret:windup:e": [
+          0,
+          1120,
+          80,
+          80
+        ],
+        "turret:windup:ne": [
+          80,
+          1120,
+          80,
+          80
+        ],
+        "turret:windup:n": [
+          160,
+          1120,
+          80,
+          80
+        ],
+        "turret:windup:nw": [
+          240,
+          1120,
+          80,
+          80
+        ],
+        "turret:windup:w": [
+          320,
+          1120,
+          80,
+          80
+        ],
+        "turret:windup:sw": [
+          400,
+          1120,
+          80,
+          80
+        ],
+        "turret:windup:s": [
+          480,
+          1120,
+          80,
+          80
+        ],
+        "turret:windup:se": [
+          560,
+          1120,
+          80,
+          80
+        ],
+        "turret:strike:e": [
+          0,
+          1200,
+          80,
+          80
+        ],
+        "turret:strike:ne": [
+          80,
+          1200,
+          80,
+          80
+        ],
+        "turret:strike:n": [
+          160,
+          1200,
+          80,
+          80
+        ],
+        "turret:strike:nw": [
+          240,
+          1200,
+          80,
+          80
+        ],
+        "turret:strike:w": [
+          320,
+          1200,
+          80,
+          80
+        ],
+        "turret:strike:sw": [
+          400,
+          1200,
+          80,
+          80
+        ],
+        "turret:strike:s": [
+          480,
+          1200,
+          80,
+          80
+        ],
+        "turret:strike:se": [
+          560,
+          1200,
+          80,
+          80
+        ],
+        "turret:recover:e": [
+          0,
+          1280,
+          80,
+          80
+        ],
+        "turret:recover:ne": [
+          80,
+          1280,
+          80,
+          80
+        ],
+        "turret:recover:n": [
+          160,
+          1280,
+          80,
+          80
+        ],
+        "turret:recover:nw": [
+          240,
+          1280,
+          80,
+          80
+        ],
+        "turret:recover:w": [
+          320,
+          1280,
+          80,
+          80
+        ],
+        "turret:recover:sw": [
+          400,
+          1280,
+          80,
+          80
+        ],
+        "turret:recover:s": [
+          480,
+          1280,
+          80,
+          80
+        ],
+        "turret:recover:se": [
+          560,
+          1280,
+          80,
+          80
+        ],
+        "inspector:idle:e": [
+          0,
+          1360,
+          80,
+          80
+        ],
+        "inspector:idle:ne": [
+          80,
+          1360,
+          80,
+          80
+        ],
+        "inspector:idle:n": [
+          160,
+          1360,
+          80,
+          80
+        ],
+        "inspector:idle:nw": [
+          240,
+          1360,
+          80,
+          80
+        ],
+        "inspector:idle:w": [
+          320,
+          1360,
+          80,
+          80
+        ],
+        "inspector:idle:sw": [
+          400,
+          1360,
+          80,
+          80
+        ],
+        "inspector:idle:s": [
+          480,
+          1360,
+          80,
+          80
+        ],
+        "inspector:idle:se": [
+          560,
+          1360,
+          80,
+          80
+        ],
+        "inspector:step-a:e": [
+          0,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-a:ne": [
+          80,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-a:n": [
+          160,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-a:nw": [
+          240,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-a:w": [
+          320,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-a:sw": [
+          400,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-a:s": [
+          480,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-a:se": [
+          560,
+          1440,
+          80,
+          80
+        ],
+        "inspector:step-b:e": [
+          0,
+          1520,
+          80,
+          80
+        ],
+        "inspector:step-b:ne": [
+          80,
+          1520,
+          80,
+          80
+        ],
+        "inspector:step-b:n": [
+          160,
+          1520,
+          80,
+          80
+        ],
+        "inspector:step-b:nw": [
+          240,
+          1520,
+          80,
+          80
+        ],
+        "inspector:step-b:w": [
+          320,
+          1520,
+          80,
+          80
+        ],
+        "inspector:step-b:sw": [
+          400,
+          1520,
+          80,
+          80
+        ],
+        "inspector:step-b:s": [
+          480,
+          1520,
+          80,
+          80
+        ],
+        "inspector:step-b:se": [
+          560,
+          1520,
+          80,
+          80
+        ],
+        "inspector:windup:e": [
+          0,
+          1600,
+          80,
+          80
+        ],
+        "inspector:windup:ne": [
+          80,
+          1600,
+          80,
+          80
+        ],
+        "inspector:windup:n": [
+          160,
+          1600,
+          80,
+          80
+        ],
+        "inspector:windup:nw": [
+          240,
+          1600,
+          80,
+          80
+        ],
+        "inspector:windup:w": [
+          320,
+          1600,
+          80,
+          80
+        ],
+        "inspector:windup:sw": [
+          400,
+          1600,
+          80,
+          80
+        ],
+        "inspector:windup:s": [
+          480,
+          1600,
+          80,
+          80
+        ],
+        "inspector:windup:se": [
+          560,
+          1600,
+          80,
+          80
+        ],
+        "inspector:strike:e": [
+          0,
+          1680,
+          80,
+          80
+        ],
+        "inspector:strike:ne": [
+          80,
+          1680,
+          80,
+          80
+        ],
+        "inspector:strike:n": [
+          160,
+          1680,
+          80,
+          80
+        ],
+        "inspector:strike:nw": [
+          240,
+          1680,
+          80,
+          80
+        ],
+        "inspector:strike:w": [
+          320,
+          1680,
+          80,
+          80
+        ],
+        "inspector:strike:sw": [
+          400,
+          1680,
+          80,
+          80
+        ],
+        "inspector:strike:s": [
+          480,
+          1680,
+          80,
+          80
+        ],
+        "inspector:strike:se": [
+          560,
+          1680,
+          80,
+          80
+        ],
+        "inspector:recover:e": [
+          0,
+          1760,
+          80,
+          80
+        ],
+        "inspector:recover:ne": [
+          80,
+          1760,
+          80,
+          80
+        ],
+        "inspector:recover:n": [
+          160,
+          1760,
+          80,
+          80
+        ],
+        "inspector:recover:nw": [
+          240,
+          1760,
+          80,
+          80
+        ],
+        "inspector:recover:w": [
+          320,
+          1760,
+          80,
+          80
+        ],
+        "inspector:recover:sw": [
+          400,
+          1760,
+          80,
+          80
+        ],
+        "inspector:recover:s": [
+          480,
+          1760,
+          80,
+          80
+        ],
+        "inspector:recover:se": [
+          560,
+          1760,
+          80,
+          80
+        ]
+      }
+    },
+    {
+      "texture": "actors-2",
+      "frames": {
+        "supervisor:idle:e": [
+          0,
+          0,
+          80,
+          80
+        ],
+        "supervisor:idle:ne": [
+          80,
+          0,
+          80,
+          80
+        ],
+        "supervisor:idle:n": [
+          160,
+          0,
+          80,
+          80
+        ],
+        "supervisor:idle:nw": [
+          240,
+          0,
+          80,
+          80
+        ],
+        "supervisor:idle:w": [
+          320,
+          0,
+          80,
+          80
+        ],
+        "supervisor:idle:sw": [
+          400,
+          0,
+          80,
+          80
+        ],
+        "supervisor:idle:s": [
+          480,
+          0,
+          80,
+          80
+        ],
+        "supervisor:idle:se": [
+          560,
+          0,
+          80,
+          80
+        ],
+        "supervisor:step-a:e": [
+          0,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-a:ne": [
+          80,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-a:n": [
+          160,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-a:nw": [
+          240,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-a:w": [
+          320,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-a:sw": [
+          400,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-a:s": [
+          480,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-a:se": [
+          560,
+          80,
+          80,
+          80
+        ],
+        "supervisor:step-b:e": [
+          0,
+          160,
+          80,
+          80
+        ],
+        "supervisor:step-b:ne": [
+          80,
+          160,
+          80,
+          80
+        ],
+        "supervisor:step-b:n": [
+          160,
+          160,
+          80,
+          80
+        ],
+        "supervisor:step-b:nw": [
+          240,
+          160,
+          80,
+          80
+        ],
+        "supervisor:step-b:w": [
+          320,
+          160,
+          80,
+          80
+        ],
+        "supervisor:step-b:sw": [
+          400,
+          160,
+          80,
+          80
+        ],
+        "supervisor:step-b:s": [
+          480,
+          160,
+          80,
+          80
+        ],
+        "supervisor:step-b:se": [
+          560,
+          160,
+          80,
+          80
+        ],
+        "supervisor:windup:e": [
+          0,
+          240,
+          80,
+          80
+        ],
+        "supervisor:windup:ne": [
+          80,
+          240,
+          80,
+          80
+        ],
+        "supervisor:windup:n": [
+          160,
+          240,
+          80,
+          80
+        ],
+        "supervisor:windup:nw": [
+          240,
+          240,
+          80,
+          80
+        ],
+        "supervisor:windup:w": [
+          320,
+          240,
+          80,
+          80
+        ],
+        "supervisor:windup:sw": [
+          400,
+          240,
+          80,
+          80
+        ],
+        "supervisor:windup:s": [
+          480,
+          240,
+          80,
+          80
+        ],
+        "supervisor:windup:se": [
+          560,
+          240,
+          80,
+          80
+        ],
+        "supervisor:strike:e": [
+          0,
+          320,
+          80,
+          80
+        ],
+        "supervisor:strike:ne": [
+          80,
+          320,
+          80,
+          80
+        ],
+        "supervisor:strike:n": [
+          160,
+          320,
+          80,
+          80
+        ],
+        "supervisor:strike:nw": [
+          240,
+          320,
+          80,
+          80
+        ],
+        "supervisor:strike:w": [
+          320,
+          320,
+          80,
+          80
+        ],
+        "supervisor:strike:sw": [
+          400,
+          320,
+          80,
+          80
+        ],
+        "supervisor:strike:s": [
+          480,
+          320,
+          80,
+          80
+        ],
+        "supervisor:strike:se": [
+          560,
+          320,
+          80,
+          80
+        ],
+        "supervisor:recover:e": [
+          0,
+          400,
+          80,
+          80
+        ],
+        "supervisor:recover:ne": [
+          80,
+          400,
+          80,
+          80
+        ],
+        "supervisor:recover:n": [
+          160,
+          400,
+          80,
+          80
+        ],
+        "supervisor:recover:nw": [
+          240,
+          400,
+          80,
+          80
+        ],
+        "supervisor:recover:w": [
+          320,
+          400,
+          80,
+          80
+        ],
+        "supervisor:recover:sw": [
+          400,
+          400,
+          80,
+          80
+        ],
+        "supervisor:recover:s": [
+          480,
+          400,
+          80,
+          80
+        ],
+        "supervisor:recover:se": [
+          560,
+          400,
+          80,
+          80
+        ],
+        "armored:idle:e": [
+          0,
+          480,
+          80,
+          80
+        ],
+        "armored:idle:ne": [
+          80,
+          480,
+          80,
+          80
+        ],
+        "armored:idle:n": [
+          160,
+          480,
+          80,
+          80
+        ],
+        "armored:idle:nw": [
+          240,
+          480,
+          80,
+          80
+        ],
+        "armored:idle:w": [
+          320,
+          480,
+          80,
+          80
+        ],
+        "armored:idle:sw": [
+          400,
+          480,
+          80,
+          80
+        ],
+        "armored:idle:s": [
+          480,
+          480,
+          80,
+          80
+        ],
+        "armored:idle:se": [
+          560,
+          480,
+          80,
+          80
+        ],
+        "armored:step-a:e": [
+          0,
+          560,
+          80,
+          80
+        ],
+        "armored:step-a:ne": [
+          80,
+          560,
+          80,
+          80
+        ],
+        "armored:step-a:n": [
+          160,
+          560,
+          80,
+          80
+        ],
+        "armored:step-a:nw": [
+          240,
+          560,
+          80,
+          80
+        ],
+        "armored:step-a:w": [
+          320,
+          560,
+          80,
+          80
+        ],
+        "armored:step-a:sw": [
+          400,
+          560,
+          80,
+          80
+        ],
+        "armored:step-a:s": [
+          480,
+          560,
+          80,
+          80
+        ],
+        "armored:step-a:se": [
+          560,
+          560,
+          80,
+          80
+        ],
+        "armored:step-b:e": [
+          0,
+          640,
+          80,
+          80
+        ],
+        "armored:step-b:ne": [
+          80,
+          640,
+          80,
+          80
+        ],
+        "armored:step-b:n": [
+          160,
+          640,
+          80,
+          80
+        ],
+        "armored:step-b:nw": [
+          240,
+          640,
+          80,
+          80
+        ],
+        "armored:step-b:w": [
+          320,
+          640,
+          80,
+          80
+        ],
+        "armored:step-b:sw": [
+          400,
+          640,
+          80,
+          80
+        ],
+        "armored:step-b:s": [
+          480,
+          640,
+          80,
+          80
+        ],
+        "armored:step-b:se": [
+          560,
+          640,
+          80,
+          80
+        ],
+        "armored:strike:e": [
+          0,
+          720,
+          80,
+          80
+        ],
+        "armored:strike:ne": [
+          80,
+          720,
+          80,
+          80
+        ],
+        "armored:strike:n": [
+          160,
+          720,
+          80,
+          80
+        ],
+        "armored:strike:nw": [
+          240,
+          720,
+          80,
+          80
+        ],
+        "armored:strike:w": [
+          320,
+          720,
+          80,
+          80
+        ],
+        "armored:strike:sw": [
+          400,
+          720,
+          80,
+          80
+        ],
+        "armored:strike:s": [
+          480,
+          720,
+          80,
+          80
+        ],
+        "armored:strike:se": [
+          560,
+          720,
+          80,
+          80
+        ],
+        "armored:recover:e": [
+          0,
+          800,
+          80,
+          80
+        ],
+        "armored:recover:ne": [
+          80,
+          800,
+          80,
+          80
+        ],
+        "armored:recover:n": [
+          160,
+          800,
+          80,
+          80
+        ],
+        "armored:recover:nw": [
+          240,
+          800,
+          80,
+          80
+        ],
+        "armored:recover:w": [
+          320,
+          800,
+          80,
+          80
+        ],
+        "armored:recover:sw": [
+          400,
+          800,
+          80,
+          80
+        ],
+        "armored:recover:s": [
+          480,
+          800,
+          80,
+          80
+        ],
+        "armored:recover:se": [
+          560,
+          800,
+          80,
+          80
+        ],
+        "pursuer:idle:e": [
+          0,
+          880,
+          80,
+          80
+        ],
+        "pursuer:idle:ne": [
+          80,
+          880,
+          80,
+          80
+        ],
+        "pursuer:idle:n": [
+          160,
+          880,
+          80,
+          80
+        ],
+        "pursuer:idle:nw": [
+          240,
+          880,
+          80,
+          80
+        ],
+        "pursuer:idle:w": [
+          320,
+          880,
+          80,
+          80
+        ],
+        "pursuer:idle:sw": [
+          400,
+          880,
+          80,
+          80
+        ],
+        "pursuer:idle:s": [
+          480,
+          880,
+          80,
+          80
+        ],
+        "pursuer:idle:se": [
+          560,
+          880,
+          80,
+          80
+        ],
+        "pursuer:step-a:e": [
+          0,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-a:ne": [
+          80,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-a:n": [
+          160,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-a:nw": [
+          240,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-a:w": [
+          320,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-a:sw": [
+          400,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-a:s": [
+          480,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-a:se": [
+          560,
+          960,
+          80,
+          80
+        ],
+        "pursuer:step-b:e": [
+          0,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:step-b:ne": [
+          80,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:step-b:n": [
+          160,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:step-b:nw": [
+          240,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:step-b:w": [
+          320,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:step-b:sw": [
+          400,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:step-b:s": [
+          480,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:step-b:se": [
+          560,
+          1040,
+          80,
+          80
+        ],
+        "pursuer:strike:e": [
+          0,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:strike:ne": [
+          80,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:strike:n": [
+          160,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:strike:nw": [
+          240,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:strike:w": [
+          320,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:strike:sw": [
+          400,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:strike:s": [
+          480,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:strike:se": [
+          560,
+          1120,
+          80,
+          80
+        ],
+        "pursuer:recover:e": [
+          0,
+          1200,
+          80,
+          80
+        ],
+        "pursuer:recover:ne": [
+          80,
+          1200,
+          80,
+          80
+        ],
+        "pursuer:recover:n": [
+          160,
+          1200,
+          80,
+          80
+        ],
+        "pursuer:recover:nw": [
+          240,
+          1200,
+          80,
+          80
+        ],
+        "pursuer:recover:w": [
+          320,
+          1200,
+          80,
+          80
+        ],
+        "pursuer:recover:sw": [
+          400,
+          1200,
+          80,
+          80
+        ],
+        "pursuer:recover:s": [
+          480,
+          1200,
+          80,
+          80
+        ],
+        "pursuer:recover:se": [
+          560,
+          1200,
+          80,
+          80
+        ],
+        "jammer:idle:e": [
+          0,
+          1280,
+          80,
+          80
+        ],
+        "jammer:idle:ne": [
+          80,
+          1280,
+          80,
+          80
+        ],
+        "jammer:idle:n": [
+          160,
+          1280,
+          80,
+          80
+        ],
+        "jammer:idle:nw": [
+          240,
+          1280,
+          80,
+          80
+        ],
+        "jammer:idle:w": [
+          320,
+          1280,
+          80,
+          80
+        ],
+        "jammer:idle:sw": [
+          400,
+          1280,
+          80,
+          80
+        ],
+        "jammer:idle:s": [
+          480,
+          1280,
+          80,
+          80
+        ],
+        "jammer:idle:se": [
+          560,
+          1280,
+          80,
+          80
+        ],
+        "jammer:step-a:e": [
+          0,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-a:ne": [
+          80,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-a:n": [
+          160,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-a:nw": [
+          240,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-a:w": [
+          320,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-a:sw": [
+          400,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-a:s": [
+          480,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-a:se": [
+          560,
+          1360,
+          80,
+          80
+        ],
+        "jammer:step-b:e": [
+          0,
+          1440,
+          80,
+          80
+        ],
+        "jammer:step-b:ne": [
+          80,
+          1440,
+          80,
+          80
+        ],
+        "jammer:step-b:n": [
+          160,
+          1440,
+          80,
+          80
+        ],
+        "jammer:step-b:nw": [
+          240,
+          1440,
+          80,
+          80
+        ],
+        "jammer:step-b:w": [
+          320,
+          1440,
+          80,
+          80
+        ],
+        "jammer:step-b:sw": [
+          400,
+          1440,
+          80,
+          80
+        ],
+        "jammer:step-b:s": [
+          480,
+          1440,
+          80,
+          80
+        ],
+        "jammer:step-b:se": [
+          560,
+          1440,
+          80,
+          80
+        ],
+        "jammer:windup:e": [
+          0,
+          1520,
+          80,
+          80
+        ],
+        "jammer:windup:ne": [
+          80,
+          1520,
+          80,
+          80
+        ],
+        "jammer:windup:n": [
+          160,
+          1520,
+          80,
+          80
+        ],
+        "jammer:windup:nw": [
+          240,
+          1520,
+          80,
+          80
+        ],
+        "jammer:windup:w": [
+          320,
+          1520,
+          80,
+          80
+        ],
+        "jammer:windup:sw": [
+          400,
+          1520,
+          80,
+          80
+        ],
+        "jammer:windup:s": [
+          480,
+          1520,
+          80,
+          80
+        ],
+        "jammer:windup:se": [
+          560,
+          1520,
+          80,
+          80
+        ],
+        "jammer:strike:e": [
+          0,
+          1600,
+          80,
+          80
+        ],
+        "jammer:strike:ne": [
+          80,
+          1600,
+          80,
+          80
+        ],
+        "jammer:strike:n": [
+          160,
+          1600,
+          80,
+          80
+        ],
+        "jammer:strike:nw": [
+          240,
+          1600,
+          80,
+          80
+        ],
+        "jammer:strike:w": [
+          320,
+          1600,
+          80,
+          80
+        ],
+        "jammer:strike:sw": [
+          400,
+          1600,
+          80,
+          80
+        ],
+        "jammer:strike:s": [
+          480,
+          1600,
+          80,
+          80
+        ],
+        "jammer:strike:se": [
+          560,
+          1600,
+          80,
+          80
+        ],
+        "jammer:recover:e": [
+          0,
+          1680,
+          80,
+          80
+        ],
+        "jammer:recover:ne": [
+          80,
+          1680,
+          80,
+          80
+        ],
+        "jammer:recover:n": [
+          160,
+          1680,
+          80,
+          80
+        ],
+        "jammer:recover:nw": [
+          240,
+          1680,
+          80,
+          80
+        ],
+        "jammer:recover:w": [
+          320,
+          1680,
+          80,
+          80
+        ],
+        "jammer:recover:sw": [
+          400,
+          1680,
+          80,
+          80
+        ],
+        "jammer:recover:s": [
+          480,
+          1680,
+          80,
+          80
+        ],
+        "jammer:recover:se": [
+          560,
+          1680,
+          80,
+          80
+        ]
+      }
+    },
+    {
+      "texture": "actors-3",
+      "frames": {
+        "ambusher:idle:e": [
+          0,
+          0,
+          80,
+          80
+        ],
+        "ambusher:idle:ne": [
+          80,
+          0,
+          80,
+          80
+        ],
+        "ambusher:idle:n": [
+          160,
+          0,
+          80,
+          80
+        ],
+        "ambusher:idle:nw": [
+          240,
+          0,
+          80,
+          80
+        ],
+        "ambusher:idle:w": [
+          320,
+          0,
+          80,
+          80
+        ],
+        "ambusher:idle:sw": [
+          400,
+          0,
+          80,
+          80
+        ],
+        "ambusher:idle:s": [
+          480,
+          0,
+          80,
+          80
+        ],
+        "ambusher:idle:se": [
+          560,
+          0,
+          80,
+          80
+        ],
+        "ambusher:step-a:e": [
+          0,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-a:ne": [
+          80,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-a:n": [
+          160,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-a:nw": [
+          240,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-a:w": [
+          320,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-a:sw": [
+          400,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-a:s": [
+          480,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-a:se": [
+          560,
+          80,
+          80,
+          80
+        ],
+        "ambusher:step-b:e": [
+          0,
+          160,
+          80,
+          80
+        ],
+        "ambusher:step-b:ne": [
+          80,
+          160,
+          80,
+          80
+        ],
+        "ambusher:step-b:n": [
+          160,
+          160,
+          80,
+          80
+        ],
+        "ambusher:step-b:nw": [
+          240,
+          160,
+          80,
+          80
+        ],
+        "ambusher:step-b:w": [
+          320,
+          160,
+          80,
+          80
+        ],
+        "ambusher:step-b:sw": [
+          400,
+          160,
+          80,
+          80
+        ],
+        "ambusher:step-b:s": [
+          480,
+          160,
+          80,
+          80
+        ],
+        "ambusher:step-b:se": [
+          560,
+          160,
+          80,
+          80
+        ],
+        "ambusher:windup:e": [
+          0,
+          240,
+          80,
+          80
+        ],
+        "ambusher:windup:ne": [
+          80,
+          240,
+          80,
+          80
+        ],
+        "ambusher:windup:n": [
+          160,
+          240,
+          80,
+          80
+        ],
+        "ambusher:windup:nw": [
+          240,
+          240,
+          80,
+          80
+        ],
+        "ambusher:windup:w": [
+          320,
+          240,
+          80,
+          80
+        ],
+        "ambusher:windup:sw": [
+          400,
+          240,
+          80,
+          80
+        ],
+        "ambusher:windup:s": [
+          480,
+          240,
+          80,
+          80
+        ],
+        "ambusher:windup:se": [
+          560,
+          240,
+          80,
+          80
+        ],
+        "ambusher:strike:e": [
+          0,
+          320,
+          80,
+          80
+        ],
+        "ambusher:strike:ne": [
+          80,
+          320,
+          80,
+          80
+        ],
+        "ambusher:strike:n": [
+          160,
+          320,
+          80,
+          80
+        ],
+        "ambusher:strike:nw": [
+          240,
+          320,
+          80,
+          80
+        ],
+        "ambusher:strike:w": [
+          320,
+          320,
+          80,
+          80
+        ],
+        "ambusher:strike:sw": [
+          400,
+          320,
+          80,
+          80
+        ],
+        "ambusher:strike:s": [
+          480,
+          320,
+          80,
+          80
+        ],
+        "ambusher:strike:se": [
+          560,
+          320,
+          80,
+          80
+        ],
+        "ambusher:recover:e": [
+          0,
+          400,
+          80,
+          80
+        ],
+        "ambusher:recover:ne": [
+          80,
+          400,
+          80,
+          80
+        ],
+        "ambusher:recover:n": [
+          160,
+          400,
+          80,
+          80
+        ],
+        "ambusher:recover:nw": [
+          240,
+          400,
+          80,
+          80
+        ],
+        "ambusher:recover:w": [
+          320,
+          400,
+          80,
+          80
+        ],
+        "ambusher:recover:sw": [
+          400,
+          400,
+          80,
+          80
+        ],
+        "ambusher:recover:s": [
+          480,
+          400,
+          80,
+          80
+        ],
+        "ambusher:recover:se": [
+          560,
+          400,
+          80,
+          80
+        ],
+        "gatekeeper:idle:e": [
+          0,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:idle:ne": [
+          80,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:idle:n": [
+          160,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:idle:nw": [
+          240,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:idle:w": [
+          320,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:idle:sw": [
+          400,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:idle:s": [
+          480,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:idle:se": [
+          560,
+          480,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:e": [
+          0,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:ne": [
+          80,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:n": [
+          160,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:nw": [
+          240,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:w": [
+          320,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:sw": [
+          400,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:s": [
+          480,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-a:se": [
+          560,
+          560,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:e": [
+          0,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:ne": [
+          80,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:n": [
+          160,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:nw": [
+          240,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:w": [
+          320,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:sw": [
+          400,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:s": [
+          480,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:step-b:se": [
+          560,
+          640,
+          80,
+          80
+        ],
+        "gatekeeper:windup:e": [
+          0,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:windup:ne": [
+          80,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:windup:n": [
+          160,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:windup:nw": [
+          240,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:windup:w": [
+          320,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:windup:sw": [
+          400,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:windup:s": [
+          480,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:windup:se": [
+          560,
+          720,
+          80,
+          80
+        ],
+        "gatekeeper:strike:e": [
+          0,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:strike:ne": [
+          80,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:strike:n": [
+          160,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:strike:nw": [
+          240,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:strike:w": [
+          320,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:strike:sw": [
+          400,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:strike:s": [
+          480,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:strike:se": [
+          560,
+          800,
+          80,
+          80
+        ],
+        "gatekeeper:recover:e": [
+          0,
+          880,
+          80,
+          80
+        ],
+        "gatekeeper:recover:ne": [
+          80,
+          880,
+          80,
+          80
+        ],
+        "gatekeeper:recover:n": [
+          160,
+          880,
+          80,
+          80
+        ],
+        "gatekeeper:recover:nw": [
+          240,
+          880,
+          80,
+          80
+        ],
+        "gatekeeper:recover:w": [
+          320,
+          880,
+          80,
+          80
+        ],
+        "gatekeeper:recover:sw": [
+          400,
+          880,
+          80,
+          80
+        ],
+        "gatekeeper:recover:s": [
+          480,
+          880,
+          80,
+          80
+        ],
+        "gatekeeper:recover:se": [
+          560,
+          880,
+          80,
+          80
+        ],
+        "silence:idle:e": [
+          0,
+          960,
+          80,
+          80
+        ],
+        "silence:idle:ne": [
+          80,
+          960,
+          80,
+          80
+        ],
+        "silence:idle:n": [
+          160,
+          960,
+          80,
+          80
+        ],
+        "silence:idle:nw": [
+          240,
+          960,
+          80,
+          80
+        ],
+        "silence:idle:w": [
+          320,
+          960,
+          80,
+          80
+        ],
+        "silence:idle:sw": [
+          400,
+          960,
+          80,
+          80
+        ],
+        "silence:idle:s": [
+          480,
+          960,
+          80,
+          80
+        ],
+        "silence:idle:se": [
+          560,
+          960,
+          80,
+          80
+        ],
+        "silence:step-a:e": [
+          0,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-a:ne": [
+          80,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-a:n": [
+          160,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-a:nw": [
+          240,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-a:w": [
+          320,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-a:sw": [
+          400,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-a:s": [
+          480,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-a:se": [
+          560,
+          1040,
+          80,
+          80
+        ],
+        "silence:step-b:e": [
+          0,
+          1120,
+          80,
+          80
+        ],
+        "silence:step-b:ne": [
+          80,
+          1120,
+          80,
+          80
+        ],
+        "silence:step-b:n": [
+          160,
+          1120,
+          80,
+          80
+        ],
+        "silence:step-b:nw": [
+          240,
+          1120,
+          80,
+          80
+        ],
+        "silence:step-b:w": [
+          320,
+          1120,
+          80,
+          80
+        ],
+        "silence:step-b:sw": [
+          400,
+          1120,
+          80,
+          80
+        ],
+        "silence:step-b:s": [
+          480,
+          1120,
+          80,
+          80
+        ],
+        "silence:step-b:se": [
+          560,
+          1120,
+          80,
+          80
+        ],
+        "silence:windup:e": [
+          0,
+          1200,
+          80,
+          80
+        ],
+        "silence:windup:ne": [
+          80,
+          1200,
+          80,
+          80
+        ],
+        "silence:windup:n": [
+          160,
+          1200,
+          80,
+          80
+        ],
+        "silence:windup:nw": [
+          240,
+          1200,
+          80,
+          80
+        ],
+        "silence:windup:w": [
+          320,
+          1200,
+          80,
+          80
+        ],
+        "silence:windup:sw": [
+          400,
+          1200,
+          80,
+          80
+        ],
+        "silence:windup:s": [
+          480,
+          1200,
+          80,
+          80
+        ],
+        "silence:windup:se": [
+          560,
+          1200,
+          80,
+          80
+        ],
+        "silence:strike:e": [
+          0,
+          1280,
+          80,
+          80
+        ],
+        "silence:strike:ne": [
+          80,
+          1280,
+          80,
+          80
+        ],
+        "silence:strike:n": [
+          160,
+          1280,
+          80,
+          80
+        ],
+        "silence:strike:nw": [
+          240,
+          1280,
+          80,
+          80
+        ],
+        "silence:strike:w": [
+          320,
+          1280,
+          80,
+          80
+        ],
+        "silence:strike:sw": [
+          400,
+          1280,
+          80,
+          80
+        ],
+        "silence:strike:s": [
+          480,
+          1280,
+          80,
+          80
+        ],
+        "silence:strike:se": [
+          560,
+          1280,
+          80,
+          80
+        ],
+        "silence:recover:e": [
+          0,
+          1360,
+          80,
+          80
+        ],
+        "silence:recover:ne": [
+          80,
+          1360,
+          80,
+          80
+        ],
+        "silence:recover:n": [
+          160,
+          1360,
+          80,
+          80
+        ],
+        "silence:recover:nw": [
+          240,
+          1360,
+          80,
+          80
+        ],
+        "silence:recover:w": [
+          320,
+          1360,
+          80,
+          80
+        ],
+        "silence:recover:sw": [
+          400,
+          1360,
+          80,
+          80
+        ],
+        "silence:recover:s": [
+          480,
+          1360,
+          80,
+          80
+        ],
+        "silence:recover:se": [
+          560,
+          1360,
+          80,
+          80
+        ],
+        "core:idle:e": [
+          0,
+          1440,
+          80,
+          80
+        ],
+        "core:idle:ne": [
+          80,
+          1440,
+          80,
+          80
+        ],
+        "core:idle:n": [
+          160,
+          1440,
+          80,
+          80
+        ],
+        "core:idle:nw": [
+          240,
+          1440,
+          80,
+          80
+        ],
+        "core:idle:w": [
+          320,
+          1440,
+          80,
+          80
+        ],
+        "core:idle:sw": [
+          400,
+          1440,
+          80,
+          80
+        ],
+        "core:idle:s": [
+          480,
+          1440,
+          80,
+          80
+        ],
+        "core:idle:se": [
+          560,
+          1440,
+          80,
+          80
+        ],
+        "core:step-a:e": [
+          0,
+          1520,
+          80,
+          80
+        ],
+        "core:step-a:ne": [
+          80,
+          1520,
+          80,
+          80
+        ],
+        "core:step-a:n": [
+          160,
+          1520,
+          80,
+          80
+        ],
+        "core:step-a:nw": [
+          240,
+          1520,
+          80,
+          80
+        ],
+        "core:step-a:w": [
+          320,
+          1520,
+          80,
+          80
+        ],
+        "core:step-a:sw": [
+          400,
+          1520,
+          80,
+          80
+        ],
+        "core:step-a:s": [
+          480,
+          1520,
+          80,
+          80
+        ],
+        "core:step-a:se": [
+          560,
+          1520,
+          80,
+          80
+        ],
+        "core:step-b:e": [
+          0,
+          1600,
+          80,
+          80
+        ],
+        "core:step-b:ne": [
+          80,
+          1600,
+          80,
+          80
+        ],
+        "core:step-b:n": [
+          160,
+          1600,
+          80,
+          80
+        ],
+        "core:step-b:nw": [
+          240,
+          1600,
+          80,
+          80
+        ],
+        "core:step-b:w": [
+          320,
+          1600,
+          80,
+          80
+        ],
+        "core:step-b:sw": [
+          400,
+          1600,
+          80,
+          80
+        ],
+        "core:step-b:s": [
+          480,
+          1600,
+          80,
+          80
+        ],
+        "core:step-b:se": [
+          560,
+          1600,
+          80,
+          80
+        ],
+        "core:windup:e": [
+          0,
+          1680,
+          80,
+          80
+        ],
+        "core:windup:ne": [
+          80,
+          1680,
+          80,
+          80
+        ],
+        "core:windup:n": [
+          160,
+          1680,
+          80,
+          80
+        ],
+        "core:windup:nw": [
+          240,
+          1680,
+          80,
+          80
+        ],
+        "core:windup:w": [
+          320,
+          1680,
+          80,
+          80
+        ],
+        "core:windup:sw": [
+          400,
+          1680,
+          80,
+          80
+        ],
+        "core:windup:s": [
+          480,
+          1680,
+          80,
+          80
+        ],
+        "core:windup:se": [
+          560,
+          1680,
+          80,
+          80
+        ],
+        "core:strike:e": [
+          0,
+          1760,
+          80,
+          80
+        ],
+        "core:strike:ne": [
+          80,
+          1760,
+          80,
+          80
+        ],
+        "core:strike:n": [
+          160,
+          1760,
+          80,
+          80
+        ],
+        "core:strike:nw": [
+          240,
+          1760,
+          80,
+          80
+        ],
+        "core:strike:w": [
+          320,
+          1760,
+          80,
+          80
+        ],
+        "core:strike:sw": [
+          400,
+          1760,
+          80,
+          80
+        ],
+        "core:strike:s": [
+          480,
+          1760,
+          80,
+          80
+        ],
+        "core:strike:se": [
+          560,
+          1760,
+          80,
+          80
+        ],
+        "core:recover:e": [
+          0,
+          1840,
+          80,
+          80
+        ],
+        "core:recover:ne": [
+          80,
+          1840,
+          80,
+          80
+        ],
+        "core:recover:n": [
+          160,
+          1840,
+          80,
+          80
+        ],
+        "core:recover:nw": [
+          240,
+          1840,
+          80,
+          80
+        ],
+        "core:recover:w": [
+          320,
+          1840,
+          80,
+          80
+        ],
+        "core:recover:sw": [
+          400,
+          1840,
+          80,
+          80
+        ],
+        "core:recover:s": [
+          480,
+          1840,
+          80,
+          80
+        ],
+        "core:recover:se": [
+          560,
+          1840,
+          80,
+          80
+        ]
+      }
+    },
+    {
+      "texture": "actors-4",
+      "frames": {
+        "reclaimer:idle:e": [
+          0,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:idle:ne": [
+          80,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:idle:n": [
+          160,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:idle:nw": [
+          240,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:idle:w": [
+          320,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:idle:sw": [
+          400,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:idle:s": [
+          480,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:idle:se": [
+          560,
+          0,
+          80,
+          80
+        ],
+        "reclaimer:step-a:e": [
+          0,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-a:ne": [
+          80,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-a:n": [
+          160,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-a:nw": [
+          240,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-a:w": [
+          320,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-a:sw": [
+          400,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-a:s": [
+          480,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-a:se": [
+          560,
+          80,
+          80,
+          80
+        ],
+        "reclaimer:step-b:e": [
+          0,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:step-b:ne": [
+          80,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:step-b:n": [
+          160,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:step-b:nw": [
+          240,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:step-b:w": [
+          320,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:step-b:sw": [
+          400,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:step-b:s": [
+          480,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:step-b:se": [
+          560,
+          160,
+          80,
+          80
+        ],
+        "reclaimer:windup:e": [
+          0,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:windup:ne": [
+          80,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:windup:n": [
+          160,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:windup:nw": [
+          240,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:windup:w": [
+          320,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:windup:sw": [
+          400,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:windup:s": [
+          480,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:windup:se": [
+          560,
+          240,
+          80,
+          80
+        ],
+        "reclaimer:strike:e": [
+          0,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:strike:ne": [
+          80,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:strike:n": [
+          160,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:strike:nw": [
+          240,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:strike:w": [
+          320,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:strike:sw": [
+          400,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:strike:s": [
+          480,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:strike:se": [
+          560,
+          320,
+          80,
+          80
+        ],
+        "reclaimer:recover:e": [
+          0,
+          400,
+          80,
+          80
+        ],
+        "reclaimer:recover:ne": [
+          80,
+          400,
+          80,
+          80
+        ],
+        "reclaimer:recover:n": [
+          160,
+          400,
+          80,
+          80
+        ],
+        "reclaimer:recover:nw": [
+          240,
+          400,
+          80,
+          80
+        ],
+        "reclaimer:recover:w": [
+          320,
+          400,
+          80,
+          80
+        ],
+        "reclaimer:recover:sw": [
+          400,
+          400,
+          80,
+          80
+        ],
+        "reclaimer:recover:s": [
+          480,
+          400,
+          80,
+          80
+        ],
+        "reclaimer:recover:se": [
+          560,
+          400,
+          80,
+          80
+        ],
+        "elite:idle:e": [
+          0,
+          480,
+          80,
+          80
+        ],
+        "elite:idle:ne": [
+          80,
+          480,
+          80,
+          80
+        ],
+        "elite:idle:n": [
+          160,
+          480,
+          80,
+          80
+        ],
+        "elite:idle:nw": [
+          240,
+          480,
+          80,
+          80
+        ],
+        "elite:idle:w": [
+          320,
+          480,
+          80,
+          80
+        ],
+        "elite:idle:sw": [
+          400,
+          480,
+          80,
+          80
+        ],
+        "elite:idle:s": [
+          480,
+          480,
+          80,
+          80
+        ],
+        "elite:idle:se": [
+          560,
+          480,
+          80,
+          80
+        ],
+        "elite:step-a:e": [
+          0,
+          560,
+          80,
+          80
+        ],
+        "elite:step-a:ne": [
+          80,
+          560,
+          80,
+          80
+        ],
+        "elite:step-a:n": [
+          160,
+          560,
+          80,
+          80
+        ],
+        "elite:step-a:nw": [
+          240,
+          560,
+          80,
+          80
+        ],
+        "elite:step-a:w": [
+          320,
+          560,
+          80,
+          80
+        ],
+        "elite:step-a:sw": [
+          400,
+          560,
+          80,
+          80
+        ],
+        "elite:step-a:s": [
+          480,
+          560,
+          80,
+          80
+        ],
+        "elite:step-a:se": [
+          560,
+          560,
+          80,
+          80
+        ],
+        "elite:step-b:e": [
+          0,
+          640,
+          80,
+          80
+        ],
+        "elite:step-b:ne": [
+          80,
+          640,
+          80,
+          80
+        ],
+        "elite:step-b:n": [
+          160,
+          640,
+          80,
+          80
+        ],
+        "elite:step-b:nw": [
+          240,
+          640,
+          80,
+          80
+        ],
+        "elite:step-b:w": [
+          320,
+          640,
+          80,
+          80
+        ],
+        "elite:step-b:sw": [
+          400,
+          640,
+          80,
+          80
+        ],
+        "elite:step-b:s": [
+          480,
+          640,
+          80,
+          80
+        ],
+        "elite:step-b:se": [
+          560,
+          640,
+          80,
+          80
+        ],
+        "elite:windup:e": [
+          0,
+          720,
+          80,
+          80
+        ],
+        "elite:windup:ne": [
+          80,
+          720,
+          80,
+          80
+        ],
+        "elite:windup:n": [
+          160,
+          720,
+          80,
+          80
+        ],
+        "elite:windup:nw": [
+          240,
+          720,
+          80,
+          80
+        ],
+        "elite:windup:w": [
+          320,
+          720,
+          80,
+          80
+        ],
+        "elite:windup:sw": [
+          400,
+          720,
+          80,
+          80
+        ],
+        "elite:windup:s": [
+          480,
+          720,
+          80,
+          80
+        ],
+        "elite:windup:se": [
+          560,
+          720,
+          80,
+          80
+        ],
+        "elite:strike:e": [
+          0,
+          800,
+          80,
+          80
+        ],
+        "elite:strike:ne": [
+          80,
+          800,
+          80,
+          80
+        ],
+        "elite:strike:n": [
+          160,
+          800,
+          80,
+          80
+        ],
+        "elite:strike:nw": [
+          240,
+          800,
+          80,
+          80
+        ],
+        "elite:strike:w": [
+          320,
+          800,
+          80,
+          80
+        ],
+        "elite:strike:sw": [
+          400,
+          800,
+          80,
+          80
+        ],
+        "elite:strike:s": [
+          480,
+          800,
+          80,
+          80
+        ],
+        "elite:strike:se": [
+          560,
+          800,
+          80,
+          80
+        ],
+        "elite:recover:e": [
+          0,
+          880,
+          80,
+          80
+        ],
+        "elite:recover:ne": [
+          80,
+          880,
+          80,
+          80
+        ],
+        "elite:recover:n": [
+          160,
+          880,
+          80,
+          80
+        ],
+        "elite:recover:nw": [
+          240,
+          880,
+          80,
+          80
+        ],
+        "elite:recover:w": [
+          320,
+          880,
+          80,
+          80
+        ],
+        "elite:recover:sw": [
+          400,
+          880,
+          80,
+          80
+        ],
+        "elite:recover:s": [
+          480,
+          880,
+          80,
+          80
+        ],
+        "elite:recover:se": [
+          560,
+          880,
+          80,
+          80
+        ],
+        "tow:idle:e": [
+          0,
+          960,
+          80,
+          80
+        ],
+        "tow:idle:ne": [
+          80,
+          960,
+          80,
+          80
+        ],
+        "tow:idle:n": [
+          160,
+          960,
+          80,
+          80
+        ],
+        "tow:idle:nw": [
+          240,
+          960,
+          80,
+          80
+        ],
+        "tow:idle:w": [
+          320,
+          960,
+          80,
+          80
+        ],
+        "tow:idle:sw": [
+          400,
+          960,
+          80,
+          80
+        ],
+        "tow:idle:s": [
+          480,
+          960,
+          80,
+          80
+        ],
+        "tow:idle:se": [
+          560,
+          960,
+          80,
+          80
+        ],
+        "tow:step-a:e": [
+          0,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-a:ne": [
+          80,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-a:n": [
+          160,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-a:nw": [
+          240,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-a:w": [
+          320,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-a:sw": [
+          400,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-a:s": [
+          480,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-a:se": [
+          560,
+          1040,
+          80,
+          80
+        ],
+        "tow:step-b:e": [
+          0,
+          1120,
+          80,
+          80
+        ],
+        "tow:step-b:ne": [
+          80,
+          1120,
+          80,
+          80
+        ],
+        "tow:step-b:n": [
+          160,
+          1120,
+          80,
+          80
+        ],
+        "tow:step-b:nw": [
+          240,
+          1120,
+          80,
+          80
+        ],
+        "tow:step-b:w": [
+          320,
+          1120,
+          80,
+          80
+        ],
+        "tow:step-b:sw": [
+          400,
+          1120,
+          80,
+          80
+        ],
+        "tow:step-b:s": [
+          480,
+          1120,
+          80,
+          80
+        ],
+        "tow:step-b:se": [
+          560,
+          1120,
+          80,
+          80
+        ],
+        "tow:windup:e": [
+          0,
+          1200,
+          80,
+          80
+        ],
+        "tow:windup:ne": [
+          80,
+          1200,
+          80,
+          80
+        ],
+        "tow:windup:n": [
+          160,
+          1200,
+          80,
+          80
+        ],
+        "tow:windup:nw": [
+          240,
+          1200,
+          80,
+          80
+        ],
+        "tow:windup:w": [
+          320,
+          1200,
+          80,
+          80
+        ],
+        "tow:windup:sw": [
+          400,
+          1200,
+          80,
+          80
+        ],
+        "tow:windup:s": [
+          480,
+          1200,
+          80,
+          80
+        ],
+        "tow:windup:se": [
+          560,
+          1200,
+          80,
+          80
+        ],
+        "tow:strike:e": [
+          0,
+          1280,
+          80,
+          80
+        ],
+        "tow:strike:ne": [
+          80,
+          1280,
+          80,
+          80
+        ],
+        "tow:strike:n": [
+          160,
+          1280,
+          80,
+          80
+        ],
+        "tow:strike:nw": [
+          240,
+          1280,
+          80,
+          80
+        ],
+        "tow:strike:w": [
+          320,
+          1280,
+          80,
+          80
+        ],
+        "tow:strike:sw": [
+          400,
+          1280,
+          80,
+          80
+        ],
+        "tow:strike:s": [
+          480,
+          1280,
+          80,
+          80
+        ],
+        "tow:strike:se": [
+          560,
+          1280,
+          80,
+          80
+        ],
+        "tow:recover:e": [
+          0,
+          1360,
+          80,
+          80
+        ],
+        "tow:recover:ne": [
+          80,
+          1360,
+          80,
+          80
+        ],
+        "tow:recover:n": [
+          160,
+          1360,
+          80,
+          80
+        ],
+        "tow:recover:nw": [
+          240,
+          1360,
+          80,
+          80
+        ],
+        "tow:recover:w": [
+          320,
+          1360,
+          80,
+          80
+        ],
+        "tow:recover:sw": [
+          400,
+          1360,
+          80,
+          80
+        ],
+        "tow:recover:s": [
+          480,
+          1360,
+          80,
+          80
+        ],
+        "tow:recover:se": [
+          560,
+          1360,
+          80,
+          80
+        ]
+      }
+    }
+  ]
+}

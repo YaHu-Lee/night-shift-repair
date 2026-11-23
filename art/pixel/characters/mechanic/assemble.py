@@ -11,8 +11,8 @@ from PIL import Image, ImageDraw
 SIZE, FOOT, MAX_BODY = 64, (32, 59), 50
 DIRECTIONS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
 MIRROR = {"SW": "SE", "W": "E", "NW": "NE"}
-ACTIONS = {"idle": 1, "walk": 4, "attack": 4, "hit": 1}
-FPS = {"idle": 1, "walk": 8, "attack": 10, "hit": 8}
+ACTIONS = {"idle": 1, "walk": 4, "attack": 4, "hit": 1, "run-strike": 4}
+FPS = {"idle": 1, "walk": 8, "attack": 10, "hit": 8, "run-strike": 8}
 
 
 def extract(source, definition):

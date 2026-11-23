@@ -1,7 +1,91 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Battle } from '../.m0-build/m1/Battle.js';
-import { TOOLS } from '../.m0-build/m1/content.js';
+import { M1_RULES, TOOLS } from '../.m0-build/m1/content.js';
+import { circleContact, sampleMeleeHead, weaponDock, WEAPON_ORBIT_HEIGHT } from '../.m0-build/m1/WeaponMotion.js';
+
+function meleeBattle(tool = 'wrench') {
+    return new Battle(0, 105, [{ id: tool, mods: [] }], { ...M1_RULES, sweptMelee: true,
+        waves: [{ seconds: 30, spawnEvery: 0, enemies: [] }] });
+}
+
+function addTarget(battle, x, y) {
+    const unit = { x, y, id: battle.enemies.length + 1, hp: 20, kind: 'turret', state: 'walk',
+        next: 100, vx: 0, vy: 0, marked: false };
+    battle.enemies.push(unit);
+    return unit;
+}
+
+test('six idle weapons share the orbit and move slowly clockwise', () => {
+    function angle(slot, tick) {
+        const dock = weaponDock(slot, 6, tick);
+        return Math.atan2((dock.y - WEAPON_ORBIT_HEIGHT) / 34, dock.x / 37);
+    }
+    const angles = Array.from({ length: 6 }, (_, slot) => angle(slot, 0));
+    for (let index = 1; index < angles.length; index++) {
+        const gap = angles[index] - angles[index - 1];
+        assert.ok(Math.abs(Math.atan2(Math.sin(gap), Math.cos(gap)) - Math.PI / 3) < 1e-9);
+    }
+    const drift = angle(2, 30) - angle(2, 0);
+    assert.ok(drift < 0 && drift > -0.6);
+});
+
+test('melee selects from the player radius using distance to the weapon', () => {
+    const battle = meleeBattle();
+    const { x, y } = battle.player;
+    addTarget(battle, x + 21, y);
+    const outside = addTarget(battle, x - 56, y + 14);
+    battle.step(0, 0);
+    assert.equal(battle.weaponCasts[0].ux, 1, 'out-of-range enemy beside the weapon stays ineligible');
+    outside.x = x - 43;
+    for (let age = 0; age < 14; age++) battle.step(0, 0);
+    assert.ok(battle.weaponCasts[1].ux < 0, 'weapon prefers its side even if another enemy is closer to the player');
+});
+
+test('each melee attacks with two distinct paths, hits along the sweep once, and stops at the player radius', () => {
+    for (const [tool, names] of [['wrench', ['横扫', '直刺']], ['bypass_wrench', ['反手钩扫', '压击']]]) {
+        const battle = meleeBattle(tool);
+        const { x, y } = battle.player;
+        const aim = addTarget(battle, x - 46, y);
+        battle.step(0, 0);
+        const cast = battle.weaponCasts[0];
+        assert.equal(cast.melee.action, names[0]);
+        assert.equal(aim.hp, 20);
+        const middle = sampleMeleeHead(cast.melee, cast.melee.first + 1.5);
+        const late = cast.melee.points[cast.melee.last - 1];
+        const first = addTarget(battle, middle.x, middle.y);
+        const second = addTarget(battle, late.x, late.y);
+        const miss = addTarget(battle, x + 20, y);
+        const outside = addTarget(battle, x - cast.melee.range - 0.05, y);
+        for (let age = 0; age < cast.melee.last; age++) battle.step(0, 0);
+        assert.deepEqual([aim.hp, first.hp, second.hp, miss.hp, outside.hp], [18, 18, 18, 20, 20]);
+        assert.equal(battle.effects.filter(effect => effect.sourceCast === cast).length, 3);
+        while (battle.weaponAttackSerial < 2) battle.step(0, 0);
+        const next = battle.weaponCasts.at(-1);
+        assert.equal(next.melee.action, names[1]);
+        assert.notDeepEqual(next.melee.points, cast.melee.points);
+    }
+});
+
+test('continuous melee contact detects a crossing even when neither endpoint overlaps', () => {
+    assert.deepEqual(circleContact(-20, 0, 40, 0, 8), [0.3, 0.7]);
+    assert.equal(circleContact(-20, 9, 40, 0, 8), undefined);
+});
+
+test('a moving player carries the active sweep and its range limit', () => {
+    const battle = meleeBattle();
+    const { x, y } = battle.player;
+    addTarget(battle, x - 44, y);
+    const ahead = addTarget(battle, x - 68, y);
+    battle.step(0, 0);
+    const [cast] = battle.weaponCasts;
+    const start = cast.melee.points[0];
+    const middle = cast.melee.points[cast.melee.first + 2];
+    for (let age = 0; age < cast.melee.last; age++) battle.step(-1, 0);
+    assert.deepEqual(cast.melee.points[0], start);
+    assert.ok(cast.melee.points[cast.melee.first + 2].x < middle.x - 15);
+    assert.equal(ahead.hp, 18, 'the weapon reaches an enemy that started outside the original circle');
+});
 
 // Turrets stay still within 195 units. Use the normal simulation step so hit and
 // render events are sampled after movement and expiration, as in Creator.

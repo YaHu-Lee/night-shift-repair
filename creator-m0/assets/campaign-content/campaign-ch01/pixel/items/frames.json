@@ -1,0 +1,416 @@
+{
+  "scrap": [
+    0,
+    0,
+    32,
+    32
+  ],
+  "gear/pulse": [
+    32,
+    0,
+    32,
+    32
+  ],
+  "gear/padding": [
+    64,
+    0,
+    32,
+    32
+  ],
+  "gear/runner": [
+    96,
+    0,
+    32,
+    32
+  ],
+  "gear/pickup": [
+    0,
+    32,
+    32,
+    32
+  ],
+  "gear/guard": [
+    32,
+    32,
+    32,
+    32
+  ],
+  "gear/sorter": [
+    64,
+    32,
+    32,
+    32
+  ],
+  "gear/harness": [
+    96,
+    32,
+    32,
+    32
+  ],
+  "part/link": [
+    0,
+    64,
+    32,
+    32
+  ],
+  "part/handling": [
+    32,
+    64,
+    32,
+    32
+  ],
+  "part/alternate": [
+    64,
+    64,
+    32,
+    32
+  ],
+  "part/finisher": [
+    96,
+    64,
+    32,
+    32
+  ],
+  "part/signature": [
+    0,
+    96,
+    32,
+    32
+  ],
+  "magnetic_pickup_arm": [
+    32,
+    96,
+    32,
+    32
+  ],
+  "narrow_beam_clamp": [
+    64,
+    96,
+    32,
+    32
+  ],
+  "quick_release_heatsink": [
+    96,
+    96,
+    32,
+    32
+  ],
+  "conductiveMark": [
+    0,
+    128,
+    32,
+    32
+  ],
+  "ui/receipt": [
+    32,
+    128,
+    32,
+    32
+  ],
+  "ui/radio": [
+    64,
+    128,
+    32,
+    32
+  ],
+  "ui/clue": [
+    96,
+    128,
+    32,
+    32
+  ],
+  "ui/medal": [
+    0,
+    160,
+    32,
+    32
+  ],
+  "ui/settings": [
+    32,
+    160,
+    32,
+    32
+  ],
+  "ui/tier": [
+    64,
+    160,
+    32,
+    32
+  ],
+  "prop/terminal": [
+    96,
+    160,
+    32,
+    32
+  ],
+  "prop/battery": [
+    0,
+    192,
+    32,
+    32
+  ],
+  "prop/lift": [
+    32,
+    192,
+    32,
+    32
+  ],
+  "prop/relay": [
+    64,
+    192,
+    32,
+    32
+  ],
+  "prop/valve": [
+    96,
+    192,
+    32,
+    32
+  ],
+  "prop/barrier": [
+    0,
+    224,
+    32,
+    32
+  ],
+  "wrench/handling": [
+    32,
+    224,
+    32,
+    32
+  ],
+  "wrench/alternate": [
+    64,
+    224,
+    32,
+    32
+  ],
+  "wrench/finisher": [
+    96,
+    224,
+    32,
+    32
+  ],
+  "wrench/signature": [
+    0,
+    256,
+    32,
+    32
+  ],
+  "arc_gun/handling": [
+    32,
+    256,
+    32,
+    32
+  ],
+  "arc_gun/signature": [
+    64,
+    256,
+    32,
+    32
+  ],
+  "hydraulic_nailer/handling": [
+    96,
+    256,
+    32,
+    32
+  ],
+  "hydraulic_nailer/alternate": [
+    0,
+    288,
+    32,
+    32
+  ],
+  "hydraulic_nailer/finisher": [
+    32,
+    288,
+    32,
+    32
+  ],
+  "hydraulic_nailer/signature": [
+    64,
+    288,
+    32,
+    32
+  ],
+  "torch/handling": [
+    96,
+    288,
+    32,
+    32
+  ],
+  "torch/alternate": [
+    0,
+    320,
+    32,
+    32
+  ],
+  "torch/finisher": [
+    32,
+    320,
+    32,
+    32
+  ],
+  "torch/signature": [
+    64,
+    320,
+    32,
+    32
+  ],
+  "induction/handling": [
+    96,
+    320,
+    32,
+    32
+  ],
+  "induction/alternate": [
+    0,
+    352,
+    32,
+    32
+  ],
+  "induction/finisher": [
+    32,
+    352,
+    32,
+    32
+  ],
+  "induction/signature": [
+    64,
+    352,
+    32,
+    32
+  ],
+  "pulse_nozzle/handling": [
+    96,
+    352,
+    32,
+    32
+  ],
+  "pulse_nozzle/alternate": [
+    0,
+    384,
+    32,
+    32
+  ],
+  "pulse_nozzle/finisher": [
+    32,
+    384,
+    32,
+    32
+  ],
+  "pulse_nozzle/signature": [
+    64,
+    384,
+    32,
+    32
+  ],
+  "traction_coil/handling": [
+    96,
+    384,
+    32,
+    32
+  ],
+  "traction_coil/alternate": [
+    0,
+    416,
+    32,
+    32
+  ],
+  "traction_coil/finisher": [
+    32,
+    416,
+    32,
+    32
+  ],
+  "traction_coil/signature": [
+    64,
+    416,
+    32,
+    32
+  ],
+  "split_probe/handling": [
+    96,
+    416,
+    32,
+    32
+  ],
+  "split_probe/alternate": [
+    0,
+    448,
+    32,
+    32
+  ],
+  "split_probe/finisher": [
+    32,
+    448,
+    32,
+    32
+  ],
+  "split_probe/signature": [
+    64,
+    448,
+    32,
+    32
+  ],
+  "bypass_wrench/handling": [
+    96,
+    448,
+    32,
+    32
+  ],
+  "bypass_wrench/alternate": [
+    0,
+    480,
+    32,
+    32
+  ],
+  "bypass_wrench/finisher": [
+    32,
+    480,
+    32,
+    32
+  ],
+  "bypass_wrench/signature": [
+    64,
+    480,
+    32,
+    32
+  ],
+  "arc_gun/alternate": [
+    96,
+    480,
+    32,
+    32
+  ],
+  "arc_gun/finisher": [
+    0,
+    512,
+    32,
+    32
+  ],
+  "riveter/handling": [
+    32,
+    512,
+    32,
+    32
+  ],
+  "riveter/alternate": [
+    64,
+    512,
+    32,
+    32
+  ],
+  "riveter/finisher": [
+    96,
+    512,
+    32,
+    32
+  ],
+  "riveter/signature": [
+    0,
+    544,
+    32,
+    32
+  ]
+}

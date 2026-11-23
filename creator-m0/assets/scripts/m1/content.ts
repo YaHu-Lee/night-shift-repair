@@ -1,5 +1,6 @@
 import type { CampaignEncounter, WaveDirective } from './Encounter';
 import type { AttachmentId } from './Equipment';
+import { isMeleeTool, MELEE_TOOL_STATS } from './WeaponMotion';
 
 export const CONTENT_VERSION = 1;
 export const TICK_RATE = 30;
@@ -29,7 +30,7 @@ export const WAVES = [
     { seconds: 35, spawnEvery: 21, enemies: ['crawler', 'charger', 'turret', 'crawler'] },
 ] as const;
 export const TOOLS = {
-    wrench: { name: '电弧扳手', reach: 104, cooldown: 14, damage: 2, price: 5, detail: '打中近处敌机，电弧还能跳 1 次' },
+    wrench: { name: '电弧扳手', reach: 104, cooldown: 14, damage: 2, price: 5, detail: '交替横扫和直刺，命中武器扫过的近处敌机' },
     arc_gun: { name: '电弧枪', reach: 123, cooldown: 20, damage: 2, price: 6, detail: '电弧最多连跳 2 次' },
     riveter: { name: '铆钉枪', reach: 185, cooldown: 19, damage: 2, price: 5, detail: '一发最多穿过 3 台敌机' },
     torch: { name: '喷火管', reach: 82, cooldown: 10, damage: 1, price: 5, detail: '向前喷火，扫过近处一片敌机' },
@@ -38,7 +39,7 @@ export const TOOLS = {
     pulse_nozzle: { name: '脉冲喷管', reach: 78, cooldown: 23, damage: 2, price: 5, detail: '推开前方的普通敌机' },
     traction_coil: { name: '牵引线圈', reach: 98, cooldown: 28, damage: 2, price: 5, detail: '最多拉近 2 台普通敌机' },
     split_probe: { name: '分束探针', reach: 140, cooldown: 22, damage: 2, price: 5, detail: '可同时攻击 2 台敌机' },
-    bypass_wrench: { name: '旁路扳手', reach: 78, cooldown: 15, damage: 2, price: 5, detail: '连中 4 次，第 4 击伤害 +3' },
+    bypass_wrench: { name: '旁路扳手', reach: 78, cooldown: 15, damage: 2, price: 5, detail: '钩扫或压击近敌，连中第 4 次伤害 +3' },
 } as const;
 export const MODS = {
     contact: { name: '导电触点', tag: 'arc', price: 4, detail: '攻击时给目标上标记' },
@@ -67,6 +68,9 @@ export const ENEMIES = {
 } as const;
 
 export type ToolId = keyof typeof TOOLS;
+export function attackReach(tool: ToolId, reach: number, sweptMelee = false): number {
+    return sweptMelee && isMeleeTool(tool) ? Math.max(24, MELEE_TOOL_STATS[tool].reach + reach - TOOLS[tool].reach) : reach;
+}
 export type ModId = keyof typeof MODS;
 export type EnemyId = keyof typeof ENEMIES;
 export type RegularEnemyId = Exclude<EnemyId, 'inspector'>;
@@ -157,6 +161,8 @@ export interface RunRules {
     readonly encounter?: CampaignEncounter;
     readonly campaign?: boolean;
     readonly campaignPressure?: boolean;
+    readonly sweptMelee?: boolean;
+    readonly weaponLimit?: number;
 }
 
 export const M1_RULES: RunRules = {

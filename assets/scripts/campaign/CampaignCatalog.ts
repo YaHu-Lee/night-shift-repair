@@ -1,6 +1,7 @@
 import { CAMPAIGN_01_RULES, CAMPAIGN_02_RULES, CAMPAIGN_FIELD, TOOLS } from '../m1/content';
 import type { RunRules, ToolId } from '../m1/content';
 import { campaignPressureRules } from './CampaignPressure';
+import { FLOATING_WEAPON_LIMIT } from '../m1/WeaponMotion';
 import { CAMPAIGN_STARTERS, CAMPAIGN_WAVE_PLANS, campaignRules } from './CampaignWaves';
 import type { AuthoredStageId } from './CampaignWaves';
 
@@ -279,7 +280,7 @@ export const CAMPAIGN_CATALOG: readonly CampaignStage[] = dispatches.map((dispat
             startingTools: CAMPAIGN_STARTERS, field: CAMPAIGN_FIELD,
             encounter: { enemyCap: 36, revive: true, overtime: index === 0, combatOnly: true } }
         : campaignRules(authored, heldWeapons);
-    rules = campaignPressureRules(id, rules);
+    rules = { ...campaignPressureRules(id, rules), sweptMelee: true, weaponLimit: FLOATING_WEAPON_LIMIT };
     const { title, brief, goal, clear, failure, reward, bossTitle, radio, archiveClue } = dispatch;
     if (bossTitle && rules.encounter) rules = { ...rules, encounter: { ...rules.encounter, bossTitle } };
     if (reward) heldWeapons.push(reward);
