@@ -16,6 +16,9 @@ export interface CampaignEncounter {
     readonly boss?: ChapterBossKind;
     readonly bossTitle?: string;
     readonly bossHp?: number;
+    readonly legacyBossHp?: number;
+    readonly bossDuel?: { readonly opening: number; readonly rest: number; readonly volley?: BossVolley };
+    readonly inspectorOpener?: 'fan';
     readonly combatOnly?: boolean;
     readonly armorLine?: boolean;
     readonly revive?: boolean;
@@ -72,6 +75,8 @@ export type ChapterHazard = (
     | (Position & { readonly shape: 'tether'; readonly end: Readonly<Position>; readonly width: number })
 ) & { readonly state: 'warning' | 'active' };
 
+export type BossVolley = 'fan' | 'ring';
+
 export function gatekeeperLane(safe: keyof typeof GATEKEEPER_PORTS, field: CombatBounds = FIELD): Omit<Extract<ChapterHazard, { shape: 'rect' }>, 'state'> {
     const middle = (field.left + field.right) / 2;
     return { shape: 'rect', left: safe === 'a' ? middle + 1 : field.left, right: safe === 'a' ? field.right : middle - 1,
@@ -91,6 +96,7 @@ export interface ChapterBossView {
     readonly facing?: number;
     readonly instruction: string;
     readonly hazard?: ChapterHazard;
+    readonly volley?: { readonly pattern: BossVolley; readonly state: 'warning' | 'active' };
     readonly station?: Readonly<Position> & { readonly radius: number; readonly progress: number };
     readonly terminals?: readonly MissionPoint[];
 }

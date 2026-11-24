@@ -167,6 +167,7 @@ test('running campaign pixel art preserves eight authored or mirrored views and 
         ...['link', 'handling', 'alternate', 'finisher', 'signature'].map(variant => 'part/' + variant),
         ...['receipt', 'radio', 'clue', 'medal', 'settings', 'tier'].map(icon => 'ui/' + icon),
         ...['terminal', 'battery', 'lift', 'relay', 'valve', 'barrier'].map(prop => 'prop/' + prop)].sort());
+    for (const [alias, target] of Object.entries(spec.items.aliases ?? {})) assert.deepEqual(items[alias], items[target]);
     assert.deepEqual(await asset(chapter + 'items/workshop.png'), await asset(shipping + 'items/workshop.png'));
     const menu = { ...PIXEL_MENU_ART, 'radio-portraits': 'campaign-ch01' };
     for (const [key, bundle] of Object.entries(menu)) {

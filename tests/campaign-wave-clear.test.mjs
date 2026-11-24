@@ -25,6 +25,22 @@ function waveBattle(spec, enemyCap = 5) {
     return battle;
 }
 
+test('lift reserves can advance after a quiet interval and keep their ordinary cadence after damage', () => {
+    const wave = campaignStage('09').rules.waves[3];
+    assert.equal(wave.clear.reserveRestTicks, 18);
+    function secondWarning(injured) {
+        const size = wave.escalation.groupSize;
+        const battle = waveBattle({ ...wave, clear: { ...wave.clear, opening: 0, reserves: 2 * size } }, 2 * size);
+        if (injured) battle.player.hp--;
+        battle.step(0, 0);
+        assert.equal(battle.reserveCursor, size);
+        until(() => battle.reserveCursor === 2 * size, () => { wipe(battle); battle.step(0, 0); });
+        return battle.tick;
+    }
+    assert.equal(secondWarning(true), 1 + wave.escalation.spawnEvery);
+    assert.ok(secondWarning(false) < secondWarning(true));
+});
+
 test('a finite combat wave must defeat its last enemy even after the former time limit', () => {
     const battle = waveBattle({ ...regular, clear: { opening: 2, reserves: 0 } });
     assert.deepEqual(battle.clearProgress, { kills: 0, total: 2 });
@@ -75,6 +91,37 @@ test('a full field delays opening enemies and reserve enemies without dropping e
     assert.ok(battle.waveCleared);
 });
 
+test('the starting station sends groups from alternating sides and retries members delayed by the cap', () => {
+    const stage = campaignStage('01');
+    const regular = campaignPressureRules(stage.id, stage.rules, 'normal');
+    const overtime = campaignPressureRules(stage.id, stage.rules, 'overtime_1');
+    const wave = regular.waves[1];
+    assert.equal(wave.clear.opening, 54);
+    assert.ok(overtime.waves[1].clear.openingGroup.every < wave.clear.openingGroup.every);
+    assert.equal(overtime.waves[1].clear.opening, wave.clear.opening);
+
+    const open = waveBattle(wave, 6);
+    open.step(0, 0);
+    assert.deepEqual(open.warnings.map(({ y, kind }) => [y, kind]), [
+        [open.spawnBounds.top - 10, 'crawler'], [open.spawnBounds.top - 10, 'crawler'], [open.spawnBounds.top - 10, 'charger'],
+        ...Array(2).fill([open.spawnBounds.top - 10, 'crawler']), [open.spawnBounds.top - 25, 'crawler'],
+    ]);
+    until(() => open.tick === 105, () => { wipe(open); open.step(0, 0); });
+    assert.equal(open.warnings.length, 6);
+    assert.ok(open.warnings.every(warning => warning.y <= open.spawnBounds.bottom + 25));
+
+    const capped = waveBattle(wave, 2);
+    capped.step(0, 0);
+    assert.equal(capped.warnings.length, 2);
+    until(() => capped.finished, () => {
+        assert.ok(capped.enemies.length + capped.warnings.length <= 2);
+        wipe(capped);
+        capped.step(0, 0);
+    });
+    assert.deepEqual(capped.clearProgress, { kills: 54, total: 54 });
+    assert.equal(capped.parts.length + capped.collected, wave.clear.partBudget);
+});
+
 test('all 20 campaign entries supply five positive kill quotas and one isolated boss by default', () => {
     for (const { id, rules, finalWave } of CAMPAIGN_CATALOG) {
         assert.equal(finalWave, 5, id);
@@ -95,6 +142,36 @@ test('all 20 campaign entries supply five positive kill quotas and one isolated 
     }
 });
 
+test('a shop saved before drone escorts keeps its purchases and starts the new full quota on the next wave', () => {
+    const slots = new Map();
+    const platform = makePlatform({ localStorage: { getItem: k => slots.get(k) ?? null,
+        setItem: (k, v) => slots.set(k, v) } }, 'escort-migration');
+    const rules = campaignStage('01').rules;
+    const previous = { ...rules, waves: rules.twoToolWaves };
+    const old = new Run(platform, previous, { clearByKills: true });
+    old.start('arc', 42, 'wrench', 'migrate', undefined, 'normal', 0, {});
+    until(() => old.data.phase === 'shop', () => { wipe(old.battle); old.advance(step); });
+    const saved = structuredClone(old.data);
+    old.dispose();
+    const restored = new Run(platform, rules, { clearByKills: true });
+    assert.deepEqual(restored.data, saved);
+    assert.ok(restored.nextWave(saved.revision));
+    assert.equal(restored.battle.clearProgress.total, rules.waves[1].clear.opening);
+    assert.ok(restored.battle.clearProgress.total > previous.waves[1].clear.opening);
+    restored.dispose();
+});
+
+test('the freight elevator sends half a group through each of the two marked entrances', () => {
+    const stage = campaignStage('09');
+    const battle = new Battle(3, 42, [], stage.rules);
+    battle.step(0, 0);
+    const edges = battle.warnings.map(warning => warning.y);
+    assert.deepEqual(edges, [...Array(5).fill(battle.spawnBounds.top - 10), battle.spawnBounds.top - 25,
+        ...Array(5).fill(battle.spawnBounds.bottom + 10), battle.spawnBounds.bottom + 25]);
+    assert.equal(new Set(battle.warnings.map(warning => warning.at)).size, 1);
+    assert.equal(battle.clearProgress.total, battle.spec.clear.opening + battle.spec.clear.reserves);
+});
+
 test('08 and 09 open immediately with enemy warnings and no map introduction delay', () => {
     for (const id of ['08', '09']) {
         const stage = campaignStage(id);
@@ -102,7 +179,7 @@ test('08 and 09 open immediately with enemy warnings and no map introduction del
         const battle = new Battle(0, 42, [], rules);
         assert.equal(battle.spec.clear.reserveAfterTick, undefined);
         battle.step(0, 0);
-        assert.equal(battle.warnings.length, 1, id);
+        assert.equal(battle.warnings.length, 3, id);
     }
 });
 

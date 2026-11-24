@@ -5,9 +5,9 @@ import type { TrainingProgress } from './CampaignTraining';
 export const CHALLENGE_BONUS = 4;
 
 export const BLUEPRINTS: Readonly<Record<BlueprintId, { title: string; detail: string }>> = {
-    magnetic_pickup_arm: { title: '磁力拾取臂', detail: '拾取半径 +25%。波末基础回收率从 50% 降到 35%。' },
-    narrow_beam_clamp: { title: '窄束导电夹', detail: '强化电弧每跳多 20 像素，基础跳数由 3 减为 2。' },
-    quick_release_heatsink: { title: '快拆散热罩', detail: '过热前少打一发，停火从 1.6 秒缩短到 1.2 秒。' },
+    magnetic_pickup_arm: { title: '磁力拾取臂', detail: '拾取范围扩大 25%，每波结束默认回收 35%（原 50%）。' },
+    narrow_beam_clamp: { title: '窄束导电夹', detail: '强化电弧每跳多传 20 像素，但会少跳 1 次。' },
+    quick_release_heatsink: { title: '快拆散热罩', detail: '少打 1 发就会过热，冷却时间从 1.6 秒缩到 1.2 秒。' },
 };
 
 export const WORKSHOP_TIERS: readonly { title: string; stage: string | null; supplies: number }[] = [

@@ -16,7 +16,7 @@ import type { Platform } from '../platform/platform';
 const CHECKPOINT_VERSION = 1;
 const STEP = 1 / TICK_RATE;
 type Phase = 'battle' | 'shop' | 'won' | 'lost' | 'revive';
-interface Shop { offers: OfferId[]; refreshed: boolean; equipmentOffers?: EquipmentOfferId[] }
+interface Shop { offers: OfferId[]; refreshed: boolean; equipmentOffers?: EquipmentOfferId[]; benchChoiceUsed?: true }
 export interface TuningOffer {
     readonly step: TuningStep;
     readonly cost: number;
@@ -40,6 +40,7 @@ export interface WaveReport {
     hits: number;
     maxHp?: number;
     triggers: { arc: number; magnet: number; heat: number };
+    wideSweeps?: number;
     defeatedBy: HitSource | null;
     heatRecovered?: boolean;
     failureDetail?: FailureDetail;
@@ -73,7 +74,8 @@ function integer(value: unknown, minimum: number, maximum: number): value is num
 }
 
 function equipmentSource(data: Checkpoint, rules: RunRules): EquipmentSource | undefined {
-    return data.equipment ? { ...data, equipment: data.equipment, weaponLimit: rules.weaponLimit } : undefined;
+    return data.equipment ? { ...data, equipment: data.equipment, weaponLimit: rules.weaponLimit,
+        secondShopPart: rules.secondShopPart, benchChoiceUsed: data.shop?.benchChoiceUsed } : undefined;
 }
 
 function validReports(data: Checkpoint, rules: RunRules, previousCombat: boolean): boolean {
@@ -89,7 +91,7 @@ function validReports(data: Checkpoint, rules: RunRules, previousCombat: boolean
         const cleared = report?.wave < data.wave || data.phase === 'shop' || data.phase === 'won';
         if (!report || !integer(report.wave, previous + 1, lastWave)
             || !wave || !integer(report.ticks, 0, tickLimit)
-            || (target !== undefined && (report.kills > target || (cleared && report.kills !== target)))
+            || (target !== undefined && (report.kills > target || (cleared && report.kills !== target && report.kills !== wave.clear?.previousTarget)))
             || (data.equipment ? !integer(report.maxHp, rules.maxHp + data.equipment.role.hpBonus,
                 rules.maxHp + data.equipment.role.hpBonus + (report.wave >= 2 ? MAX_EQUIPMENT_HP_BONUS : 0)) : report.maxHp !== undefined)
             || !integer(report.hits, 0, report.maxHp ?? rules.maxHp)
@@ -98,6 +100,7 @@ function validReports(data: Checkpoint, rules: RunRules, previousCombat: boolean
             || !integer(report.shopCredit, 0, 6)
             || !integer(report.triggers?.arc, 0, 10000) || !integer(report.triggers?.magnet, 0, 10000)
             || !integer(report.triggers?.heat, 0, 10000)
+            || (report.wideSweeps !== undefined && !integer(report.wideSweeps, 0, report.ticks))
             || (report.heatRecovered !== undefined && typeof report.heatRecovered !== 'boolean')
             || (report.failureDetail !== undefined && (
                 report.wave !== data.wave || data.phase !== 'lost' || data.finishReason === undefined
@@ -161,7 +164,7 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
     }
     const completed = data.wave + Number(data.phase === 'shop');
     if (data.equipment !== undefined) {
-        if (!rules.campaign || !validEquipment(data.equipment, data.tools, completed, rules.weaponLimit)) return false;
+        if (!rules.campaign || !validEquipment(data.equipment, data.tools, completed, rules.weaponLimit, rules.secondShopPart)) return false;
     } else if (!installed.has(STARTER[data.route])) return false;
     const reason = data.finishReason;
     if (data.phase === 'revive' && (reason !== 'defeated' || !reviveEligible(rules, data) ||
@@ -178,6 +181,8 @@ function validCheckpoint(value: unknown, rules: RunRules): value is Checkpoint {
     if (data.phase !== 'shop') return data.shop === null && (data.phase !== 'won' || data.wave === rules.waves.length - 1);
     const shop = data.shop;
     if (data.wave >= rules.waves.length - 1 || !shop || typeof shop.refreshed !== 'boolean' || !Array.isArray(shop.offers)) return false;
+    if (shop.benchChoiceUsed !== undefined && (shop.benchChoiceUsed !== true || data.wave !== 1
+        || rules.secondShopPart !== 'wrench/flywheel' || !data.equipment)) return false;
     const equipment = equipmentSource(data, rules);
     if (equipment) return shop.offers.length === 0 && validEquipmentOffers(shop.equipmentOffers, equipment, rules.tools);
     return shop.equipmentOffers === undefined && shop.offers.length <= 3
@@ -251,8 +256,25 @@ export class Run {
             readonly rulesForEquipment?: (mode: ChallengeMode, clearByKills: boolean) => RunRules;
             readonly shopWeapons?: () => readonly ToolId[] } = {}) {
         this.platform = platform ?? makePlatform(undefined, baseRules.stage === 'M2' ? 'night-shift.m2' : 'night-shift.m1');
-        this.data = this.platform.readCheckpoint<Checkpoint>(CHECKPOINT_VERSION,
+        const saved = this.platform.readCheckpoint<Checkpoint & { dispatchChoice?: 'open' | 'rental' | 'upgrade' }>(CHECKPOINT_VERSION,
             (value) => validCheckpoint(value, this.rulesFor(value as Checkpoint)));
+        this.data = saved;
+        if (saved?.dispatchChoice && this.rules.secondShopPart === 'wrench/dispatch') {
+            const { dispatchChoice, ...data } = saved;
+            const removed = dispatchChoice === 'rental' ? data.tools.find((tool, index) => index > 0 && tool.id === 'riveter') : undefined;
+            if (removed) {
+                const refund = offer(removed.id).price + (removed.attachments ?? []).reduce((total, id) =>
+                    total + (id ? getEquipmentOffer(id)?.price ?? 0 : 0), 0);
+                data.tools = data.tools.filter(tool => tool !== removed);
+                data.parts = Math.min(10000, data.parts + refund);
+            }
+            const source = equipmentSource(data, this.rules);
+            if (source && data.shop) {
+                data.shop = { ...data.shop,
+                    equipmentOffers: rollEquipmentOffers(source, this.shopWeaponPool, data.seed, data.shop.refreshed, data.shop.equipmentOffers) };
+            }
+            this.data = data;
+        }
         this.restoreBattle();
         this.paused = this.battle !== null;
         this.disposeEvents = [
@@ -273,8 +295,9 @@ export class Run {
     }
 
     get shop(): Shop | null {
-        const shop = this.data?.shop;
-        if (!shop) return null;
+        const data = this.data;
+        const shop = data?.shop;
+        if (!data || !shop) return null;
         if (!this.rules.campaign || !this.options.shopWeapons) return shop;
         // Validate saved stock against the catalog, then apply account unlocks to the live storefront.
         const pool = this.shopWeaponPool;
@@ -284,6 +307,15 @@ export class Run {
     }
 
     private rulesFor(data: { equipment?: EquipmentState; mode?: ChallengeMode; clearByKills?: true } | null): RunRules {
+        if (data && !data.equipment && this.baseRules.twoToolWaves && this.baseRules.encounter && (!data.mode || data.mode === 'normal')) {
+            let legacy = this.equipmentRules.get('two-tools');
+            if (!legacy) {
+                legacy = { ...this.baseRules, waves: this.baseRules.twoToolWaves, encounter: {
+                    ...this.baseRules.encounter, bossHp: this.baseRules.encounter.legacyBossHp } };
+                this.equipmentRules.set('two-tools', legacy);
+            }
+            return legacy;
+        }
         if (!data || !this.baseRules.campaign || !this.options.rulesForEquipment) return this.baseRules;
         const mode = data.mode && CHALLENGE_MODES.includes(data.mode) ? data.mode : 'normal';
         if (!data.equipment && (!this.baseRules.encounter?.combatOnly || mode === 'normal')) return this.baseRules;
@@ -377,7 +409,7 @@ export class Run {
         const data = this.data;
         const source = data && equipmentSource(data, this.rules);
         const shop = this.shop;
-        return source && shop?.equipmentOffers ? equipmentShopView(source, shop.equipmentOffers, shop.refreshed) : null;
+        return source && shop?.equipmentOffers ? equipmentShopView(source, shop.equipmentOffers, shop.refreshed, this.shopWeaponPool) : null;
     }
 
     previewEquipment(id: string, target: EquipmentTarget): EquipmentPreview | null {
@@ -394,10 +426,13 @@ export class Run {
         const preview = this.previewEquipment(id, target);
         if (!preview?.next) return false;
         const next = preview.next;
+        const used = shop.benchChoiceUsed || (shop.equipmentOffers.includes('wrench/flywheel') && shop.equipmentOffers.some(isTool)
+            && (id === 'wrench/flywheel' || isTool(id)));
         const remaining = shop.equipmentOffers.filter(candidate => candidate !== id
+            && !(used && (candidate === 'wrench/flywheel' || isTool(candidate)))
             && (!isTool(candidate) || next.tools.length < (this.rules.weaponLimit ?? 2)));
         return this.commit({ ...data, ...next, revision: revision + 1, parts: data.parts - preview.price,
-            shop: { ...shop, equipmentOffers: remaining } });
+            shop: { ...shop, equipmentOffers: remaining, ...(used ? { benchChoiceUsed: true } : {}) } });
     }
 
     get tuning(): TuningOffer | null {
@@ -445,7 +480,7 @@ export class Run {
         if (!data || !before || before.refreshed || data.revision !== revision || data.parts < REFRESH_COST || this.background) return false;
         const equipment = equipmentSource(data, this.rules);
         const shop: Shop = equipment
-            ? { offers: [], equipmentOffers: rollEquipmentOffers(equipment, this.shopWeaponPool, data.seed, true, before.equipmentOffers), refreshed: true }
+            ? { ...before, equipmentOffers: rollEquipmentOffers(equipment, this.shopWeaponPool, data.seed, true, before.equipmentOffers), refreshed: true }
             : { offers: nextOffers({ ...data, shop: before }, true, this.rules, this.shopWeaponPool), refreshed: true };
         return this.commit({ ...data, revision: revision + 1, parts: data.parts - REFRESH_COST,
             shop });
@@ -469,7 +504,12 @@ export class Run {
 
     private restoreBattle(): void {
         const data = this.data;
-        this.battle = data?.phase === 'battle' ? new Battle(data.wave, data.seed, data.tools, this.rules,
+        let rules = this.rules;
+        if (data && !data.equipment && rules.waves[data.wave].boss && rules.encounter?.legacyBossHp) {
+            // Older sorties used the two-tool shop. Complete their duel with its original power budget.
+            rules = { ...rules, campaignPressure: false, encounter: { ...rules.encounter, bossHp: rules.encounter.legacyBossHp } };
+        }
+        this.battle = data?.phase === 'battle' ? new Battle(data.wave, data.seed, data.tools, rules,
             { blueprint: data.blueprint, mode: data.mode, mission: data.mission, equipment: data.equipment, route: data.route }) : null;
         this.elapsed = 0;
     }
@@ -497,6 +537,7 @@ export class Run {
             hits: battle.maxHp - battle.player.hp, triggers: { ...battle.triggers },
             ...(equipment ? { maxHp: battle.maxHp } : {}),
             defeatedBy: survived ? null : battle.lastHit,
+            ...(battle.wideSweeps ? { wideSweeps: battle.wideSweeps } : {}),
             ...(battle.heatRecovered ? { heatRecovered: true } : {}),
             ...(failureDetail ? { failureDetail } : {}),
         };

@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Battle } from '../.m0-build/m1/Battle.js';
+import { createEquipment } from '../.m0-build/m1/Equipment.js';
 import { M1_RULES, TOOLS } from '../.m0-build/m1/content.js';
-import { circleContact, sampleMeleeHead, weaponDock, WEAPON_ORBIT_HEIGHT } from '../.m0-build/m1/WeaponMotion.js';
+import { circleContact, createMeleeMotion, sampleMeleeHead, weaponDock, WEAPON_ORBIT_HEIGHT } from '../.m0-build/m1/WeaponMotion.js';
 
 function meleeBattle(tool = 'wrench') {
     return new Battle(0, 105, [{ id: tool, mods: [] }], { ...M1_RULES, sweptMelee: true,
@@ -15,6 +16,34 @@ function addTarget(battle, x, y) {
     battle.enemies.push(unit);
     return unit;
 }
+
+test('two distinct hits arm one flywheel sweep, with damage only along its wider path', () => {
+    const { tools, equipment } = createEquipment('wrench', {});
+    tools[0].attachments[0] = 'wrench/flywheel';
+    const battle = new Battle(0, 42, tools, { ...M1_RULES, sweptMelee: true,
+        waves: [{ seconds: 30, spawnEvery: 0, enemies: [] }] }, { equipment });
+    const { x, y } = battle.player;
+    const aim = addTarget(battle, x + 44, y);
+    const other = addTarget(battle, x + 44, y);
+    function stepUntil(predicate) {
+        for (let i = 0; i < 40 && !predicate(); i++) battle.step(0, 0);
+        assert.ok(predicate());
+    }
+    stepUntil(() => other.hp < 20);
+    assert.equal(aim.hp, 18);
+    battle.enemies.splice(battle.enemies.indexOf(other), 1);
+    stepUntil(() => battle.wideSweeps === 1);
+    const swing = battle.weaponCasts.at(-1).melee;
+    assert.equal(swing.action, '大回扫');
+    const edge = swing.points[swing.first];
+    assert.ok(edge.x < x, 'this sample is beyond the normal forward arc');
+    const flank = addTarget(battle, edge.x, edge.y);
+    stepUntil(() => flank.hp < 20);
+    assert.equal(flank.hp, 16);
+    battle.enemies.splice(battle.enemies.indexOf(aim), 1);
+    stepUntil(() => battle.weaponAttackSerial >= 3);
+    assert.equal(battle.wideSweeps, 1, 'one victim cannot renew the charge through repeated contact');
+});
 
 test('six idle weapons share the orbit and move slowly clockwise', () => {
     function angle(slot, tick) {
@@ -43,7 +72,7 @@ test('melee selects from the player radius using distance to the weapon', () => 
 });
 
 test('each melee attacks with two distinct paths, hits along the sweep once, and stops at the player radius', () => {
-    for (const [tool, names] of [['wrench', ['横扫', '直刺']], ['bypass_wrench', ['反手钩扫', '压击']]]) {
+    for (const [tool, names] of [['wrench', ['横扫', '反手扫']], ['bypass_wrench', ['反手钩扫', '压击']]]) {
         const battle = meleeBattle(tool);
         const { x, y } = battle.player;
         const aim = addTarget(battle, x - 46, y);
@@ -57,14 +86,82 @@ test('each melee attacks with two distinct paths, hits along the sweep once, and
         const second = addTarget(battle, late.x, late.y);
         const miss = addTarget(battle, x + 20, y);
         const outside = addTarget(battle, x - cast.melee.range - 0.05, y);
-        for (let age = 0; age < cast.melee.last; age++) battle.step(0, 0);
+        const impacts = new Set();
+        for (let age = 0; age < cast.melee.last; age++) {
+            battle.step(0, 0);
+            for (const fx of battle.effects) if (fx.sourceCast === cast) impacts.add(fx);
+        }
         assert.deepEqual([aim.hp, first.hp, second.hp, miss.hp, outside.hp], [18, 18, 18, 20, 20]);
-        assert.equal(battle.effects.filter(effect => effect.sourceCast === cast).length, 3);
+        assert.equal(impacts.size, 3);
         while (battle.weaponAttackSerial < 2) battle.step(0, 0);
         const next = battle.weaponCasts.at(-1);
         assert.equal(next.melee.action, names[1]);
         assert.notDeepEqual(next.melee.points, cast.melee.points);
     }
+});
+
+test('the arc wrench swings in opposite directions and can hit at point-blank range', () => {
+    const battle = meleeBattle();
+    const dock = weaponDock(0, 1, 0);
+    for (const [sequence, sign] of [[0, 1], [1, -1]]) {
+        const motion = createMeleeMotion('wrench', sequence, dock, battle.player, 1, 0, 57, battle.field, 42);
+        const angles = motion.offsets.slice(motion.first).map(({ x, y }) => Math.atan2(y, x));
+        assert.ok(angles.every((angle, index) => !index || (angle - angles[index - 1]) * sign > 0));
+        assert.ok((angles.at(-1) - angles[0]) * sign > Math.PI / 2);
+    }
+    const close = addTarget(battle, battle.player.x, battle.player.y);
+    for (let step = 0; step < 9; step++) battle.step(0, 0);
+    assert.equal(close.hp, 18);
+});
+
+test('each weapon cast records the installed attachment count when it fires', () => {
+    const tool = { id: 'wrench', mods: [], attachments: ['wrench/handling', null, 'wrench/alternate'] };
+    const battle = new Battle(0, 105, [tool], { ...M1_RULES, sweptMelee: true,
+        waves: [{ seconds: 20, spawnEvery: 0, enemies: [] }] });
+    addTarget(battle, battle.player.x + 30, battle.player.y);
+    battle.step(0, 0);
+    assert.equal(battle.weaponCasts[0].effectBoost, 2);
+    tool.attachments[0] = null;
+    assert.equal(battle.weaponCasts[0].effectBoost, 2);
+});
+
+test('signature attacks snapshot the actual installed item and penetrating weapons acquire a populated lane', () => {
+    for (const id of ['hydraulic_nailer', 'riveter']) {
+        for (const part of ['handling', 'signature']) {
+            const { tools, equipment } = createEquipment(id, {});
+            tools[0].attachments[0] = id + '/' + part;
+            const battle = new Battle(0, 23, tools, { ...M1_RULES, sweptMelee: true,
+                waves: [{ seconds: 15, spawnEvery: 0, enemies: [] }] }, { equipment });
+            const { x, y } = battle.player;
+            addTarget(battle, x + 34, y + 25);
+            const front = addTarget(battle, x + 49, y);
+            const back = addTarget(battle, x + 75, y);
+            battle.step(0, 0);
+            const shot = battle.weaponCasts[0];
+            assert.ok(front.hp < 20 && back.hp < 20);
+            assert.equal(shot.uy, 0);
+            assert.equal(Boolean(shot.modified), part === 'signature');
+            tools[0].attachments[0] = null;
+            assert.equal(Boolean(shot.modified), part === 'signature');
+        }
+    }
+});
+
+test('the arc wrench reports a mark when it lands and a different effect when the mark adds damage', () => {
+    const { tools, equipment } = createEquipment('wrench', {});
+    tools[0].attachments[0] = 'wrench/link';
+    const battle = new Battle(0, 105, tools, { ...M1_RULES, sweptMelee: true,
+        waves: [{ seconds: 30, spawnEvery: 0, enemies: [] }] }, { route: 'arc', equipment });
+    const target = addTarget(battle, battle.player.x + 30, battle.player.y);
+    while (target.hp === 20 && battle.tick < 12) battle.step(0, 0);
+    assert.equal(target.hp, 18);
+    assert.equal(target.marked, true);
+    assert.equal(battle.effects.at(-1).mark, 'applied');
+    assert.equal(battle.triggers.arc, 0);
+    while (target.hp === 18 && battle.tick < 25) battle.step(0, 0);
+    assert.equal(target.hp, 15);
+    assert.equal(battle.effects.at(-1).mark, 'boosted');
+    assert.equal(battle.triggers.arc, 1);
 });
 
 test('continuous melee contact detects a crossing even when neither endpoint overlaps', () => {

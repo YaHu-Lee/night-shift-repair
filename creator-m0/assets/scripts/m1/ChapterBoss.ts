@@ -1,7 +1,7 @@
 import { FIELD, START, TICK_RATE } from './content';
 import type { CombatBounds } from './content';
 import { GATEKEEPER_PORTS, GATEKEEPER_WARNING_TICKS, clamp, distance, distanceToSegment, fieldRayEnd, gatekeeperLane } from './Encounter';
-import type { CampaignEncounter, ChapterBossKind, ChapterBossView, ChapterHazard, Mission, MissionCue, MissionPoint, Position } from './Encounter';
+import type { BossVolley, CampaignEncounter, ChapterBossKind, ChapterBossView, ChapterHazard, Mission, MissionCue, MissionPoint, Position } from './Encounter';
 
 const TITLES: Record<ChapterBossKind, string> = {
     supervisor: '分站主管', gatekeeper: '并联守门机', tow: '拖拽回收车',
@@ -44,6 +44,7 @@ export class ChapterBoss {
     private phase: 'idle' | 'warning' | 'active' | 'open' = 'idle';
     private phaseStartedAt = 0;
     private hazard?: Shape;
+    private volley?: BossVolley;
     private station?: Position;
     private charge = 0;
     private tick = 0;
@@ -56,6 +57,7 @@ export class ChapterBoss {
     private damaged = false;
     private facing = -Math.PI / 2;
     private readonly combatOnly: boolean;
+    private readonly duel?: CampaignEncounter['bossDuel'];
 
     constructor(encounter: CampaignEncounter, unit: Position & { hp: number }, private readonly mission?: Mission,
         private readonly field: CombatBounds = FIELD) {
@@ -64,6 +66,7 @@ export class ChapterBoss {
         this.maxHp = unit.hp = encounter.bossHp ?? HEALTH[this.kind];
         this.unit = unit;
         this.combatOnly = encounter.combatOnly === true;
+        this.duel = encounter.bossDuel;
     }
 
     get complete(): boolean { return this.unit.hp <= 0 && (this.combatOnly || this.kind !== 'core' || this.secured); }
@@ -119,10 +122,11 @@ export class ChapterBoss {
     }
 
     step(tick: number, player: Readonly<Position>, hurt: () => void, warn: () => void, reinforce: () => void,
-        cue?: (kind: MissionCue | 'cut') => void, attack?: () => void): void {
+        cue?: (kind: MissionCue | 'cut') => void, attack?: () => void,
+        fire?: (pattern: BossVolley, facing: number, second: boolean) => void): void {
         this.tick = tick;
         if (this.combatOnly) {
-            this.stepDuel(player, hurt, warn, attack);
+            this.stepDuel(player, hurt, warn, attack, fire);
             return;
         }
         if (this.unit.hp <= 0) {
@@ -251,25 +255,30 @@ export class ChapterBoss {
         const phase = this.phase;
         const hazard = !offline && this.hazard && (phase === 'warning' || phase === 'active')
             ? { ...this.hazard, state: phase } : undefined;
+        const volley = !offline && this.volley && (phase === 'warning' || phase === 'active')
+            ? { pattern: this.volley, state: phase } : undefined;
         let instruction = '';
         if (phase === 'open' && !offline) instruction = this.kind === 'elite' ? '趁它停下打' : '装甲开了，趁现在打';
         else if (hazard?.shape === 'tether') instruction = '离开钢缆的亮线';
         else if (hazard?.shape === 'sector') instruction = '走出扇形亮区';
         else if (hazard?.shape === 'rect') instruction = hazard.left === this.field.left && hazard.right === this.field.right
             ? '往上或往下，离开亮带' : '往左或往右，离开亮带';
+        else if (volley) instruction = volley.pattern === 'fan' ? '往旁边躲开炮弹' : '从弹缝穿过去';
         else if (!offline && this.kind === 'supervisor') instruction = '绕到主管背后打';
         return {
             kind: this.kind, title: this.title, hp: this.unit.hp, maxHp: this.maxHp, stage: this.stage,
             vulnerable: this.vulnerable, recovering: phase === 'open', phaseStartedAt: this.phaseStartedAt,
-            phaseEndsAt: this.next, instruction, facing: this.facing, ...(hazard ? { hazard } : {}),
+            phaseEndsAt: this.next, instruction, facing: this.facing, ...(hazard ? { hazard } : {}), ...(volley ? { volley } : {}),
         };
     }
 
-    private stepDuel(player: Readonly<Position>, hurt: () => void, warn: () => void, attack?: () => void): void {
+    private stepDuel(player: Readonly<Position>, hurt: () => void, warn: () => void, attack?: () => void,
+        fire?: (pattern: BossVolley, facing: number, second: boolean) => void): void {
         if (this.unit.hp <= 0) return;
         const timing = DUEL[this.kind];
         const health = this.unit.hp / this.maxHp;
-        this.stage = this.kind === 'core' ? (health <= 0.35 ? 3 : health <= 0.7 ? 2 : 1) : health <= 0.5 ? 2 : 1;
+        const stage = this.kind === 'core' ? (health <= 0.35 ? 3 : health <= 0.7 ? 2 : 1) : health <= 0.5 ? 2 : 1;
+        if (this.kind !== 'core') this.stage = stage;
         const tick = this.tick;
         if (this.phase === 'idle') {
             const gap = distance(player, this.unit);
@@ -281,7 +290,14 @@ export class ChapterBoss {
                 this.unit.y = clamp(this.unit.y + Math.sin(this.facing) * step, this.field.bottom + 21, this.field.top - 21);
             }
             if (tick >= this.next && gap <= 218) {
-                this.hazard = this.duelHazard(player, gap);
+                const cycle = this.cycle++;
+                const newCoreStage = this.kind === 'core' && stage > this.stage;
+                // A damage burst can cross both thresholds during recovery. Introduce each phase with its own attack.
+                if (newCoreStage) this.stage = cycle === 0 ? stage : this.stage + 1;
+                const volley = this.duel?.volley ?? (this.kind === 'tow' || this.kind === 'silence'
+                    || this.kind === 'core' && this.stage > 1 ? 'ring' : 'fan');
+                this.volley = cycle % 2 === 0 || newCoreStage ? undefined : volley;
+                this.hazard = this.volley ? undefined : this.duelHazard(player, gap, Math.floor(cycle / 2));
                 this.damaged = false;
                 this.enterPhase('warning', tick);
                 this.next = tick + timing.warning - 2 * (this.stage - 1);
@@ -291,26 +307,31 @@ export class ChapterBoss {
         }
         if (this.phase === 'warning' && tick >= this.next) {
             this.enterPhase('active', tick);
-            this.next = tick + timing.active;
-            attack?.();
+            this.next = tick + (this.volley ? 19 : timing.active);
+            if (this.volley) fire?.(this.volley, this.facing, false);
+            else attack?.();
         }
         if (this.phase === 'active') {
             if (tick >= this.next) {
+                // After a low-health volley, chain into the next signature move. Its full wind-up still plays.
+                const followUp = this.duel && this.volley && this.stage > 1;
                 this.hazard = undefined;
+                this.volley = undefined;
                 this.enterPhase('open', tick);
-                this.next = tick + timing.opening;
+                this.next = tick + (followUp ? 22 : this.duel?.opening ?? timing.opening);
+            } else if (this.volley && tick - this.phaseStartedAt === 10) {
+                fire?.(this.volley, this.facing, true);
             } else if (this.hazard && !this.damaged && hazardCovers(this.hazard, player)) {
                 this.damaged = true;
                 hurt();
             }
         } else if (this.phase === 'open' && tick >= this.next) {
             this.enterPhase('idle', tick);
-            this.next = tick + 21;
+            this.next = tick + (this.duel?.rest ?? 21);
         }
     }
 
-    private duelHazard(player: Readonly<Position>, gap: number): Shape {
-        const cycle = this.cycle++;
+    private duelHazard(player: Readonly<Position>, gap: number, cycle: number): Shape {
         if (this.kind === 'tow' || this.kind === 'core' && this.stage === 2) {
             const end = fieldRayEnd(this.unit, Math.cos(this.facing), Math.sin(this.facing), Math.min(250, gap + 54), this.field);
             return { shape: 'tether', x: this.unit.x, y: this.unit.y, end, width: 16 };

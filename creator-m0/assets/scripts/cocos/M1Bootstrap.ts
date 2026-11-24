@@ -21,18 +21,18 @@ import { makePlatform } from '../platform/platform';
 import type { Platform } from '../platform/platform';
 import { createRewardedRevive } from '../platform/rewardedRevive';
 import type { RewardedRevive } from '../platform/rewardedRevive';
-import { ENEMIES, FIELD, M2_RULES, MODS, REFRESH_COST, RUN_SEED, STARTER, TICK_RATE, TOOLS, TUNING_OPTIONS, attackReach, combatViewport, hasPair, isTool, offer } from '../m1/content';
+import { FIELD, M2_RULES, MODS, REFRESH_COST, RUN_SEED, STARTER, TICK_RATE, TOOLS, TUNING_OPTIONS, attackReach, combatViewport, hasPair, isTool, offer } from '../m1/content';
 import type { CombatBounds, EquippedTool, ModId, OfferId, Route, ToolId } from '../m1/content';
-import { getEquipmentOffer, resolveEquipment, weaponAttachmentCapacity } from '../m1/Equipment';
+import { createEquipment, getEquipmentOffer, resolveEquipment, weaponAttachmentCapacity } from '../m1/Equipment';
 import type { EquipmentOffer, EquipmentOfferId, EquipmentShop, EquipmentSlot, EquipmentStart, EquipmentTarget } from '../m1/Equipment';
 import { equipmentDetail } from '../m1/EquipmentDetails';
-import { BOSS_CHARGE_SPEED, BOSS_CHARGE_TICKS, BOSS_SWEEP_REACH, CHARGER_DASH_TRAVEL, ENEMY_FIELD_MARGIN, type Battle } from '../m1/Battle';
+import { BOSS_CHARGE_SPEED, BOSS_CHARGE_TICKS, CHARGER_DASH_TRAVEL, ENEMY_FIELD_MARGIN, type Battle } from '../m1/Battle';
 import { drawSkillEffects } from './SkillEffectsView';
 import { BattleSkinView } from './BattleSkinView';
 import { PrototypeActorView } from './PrototypeActorView';
 import { PrototypeDepotView } from './PrototypeDepotView';
 import { PrototypeRouteView } from './PrototypeRouteView';
-import { drawCampaignEncounter, drawModeledTerrainSignals, drawPixelEnemyAim, drawPixelEnemyShells, drawPixelSpawn } from './CampaignCombatView';
+import { drawBossVolleyCue, drawCampaignEncounter, drawModeledTerrainSignals, drawPixelEnemyAim, drawPixelEnemyShells, drawPixelSpawn, drawPlayerHit } from './CampaignCombatView';
 import { PIXEL_MENU_ART } from '../campaign/CampaignArt';
 import { loadCampaignPixelTexture, loadCampaignTexture } from './CampaignAssetLoader';
 import { drawDistrictProgress, drawRouteCable, drawRouteTerminal, ROUTE_STATION_EXTENT } from './CampaignMapView';
@@ -79,7 +79,8 @@ const HIT_LABEL: Readonly<Record<string, string>> = {
     'live-puddle': '带电积水', pursuer: '追击机', reclaimer: '回收爪', jammer: '干扰机', ambusher: '埋伏机',
     'chapter-hazard': '工单危险区',
 };
-const INSPECTOR_WARNING = { sweep: '离开亮线', charge: '往侧面躲', summon: '增援快到了' };
+const INSPECTOR_WARNING = { sweep: '绕到它身侧', charge: '往旁边躲', summon: '增援快到了',
+    fan: '往旁边躲开炮弹', ring: '从弹缝穿过去' };
 const PAIR_LABEL = { arc: '电弧连锁', magnet: '拾取震击', heat: '过热增伤' };
 function visibleReach(bounds: CombatBounds, x: number, y: number, dx: number, dy: number, reach: number, margin = 0): number {
     const edgeX = dx > 0 ? bounds.right - margin : bounds.left + margin;
@@ -97,6 +98,7 @@ const qaHost = globalThis as typeof globalThis & {
 const FIRST_STAGE = CAMPAIGN_CATALOG[0];
 
 const showcaseLoadouts = {
+    bench: Object.keys(TOOLS).filter(isTool),
     floating: ['wrench', 'arc_gun'],
     held: ['wrench', 'arc_gun'],
     armory: ['wrench', 'bypass_wrench', 'arc_gun', 'riveter', 'torch', 'induction'],
@@ -225,6 +227,7 @@ export class M1Bootstrap extends Component {
     private campaignError?: CampaignError;
     private readonly reconciledRuns = new Set<string>();
     private puddles?: Graphics;
+    private threats?: Graphics;
     private base!: Graphics;
     private surface!: UITransform;
     private art!: Graphics;
@@ -265,6 +268,8 @@ export class M1Bootstrap extends Component {
     private settingsError = false;
     private musicSuspended = false;
     private weaponShowcase?: keyof typeof showcaseLoadouts;
+    private benchTool: ToolId = 'wrench';
+    private benchModified = false;
     private previewBattle?: Battle;
     private weaponTick = 0;
 
@@ -275,8 +280,11 @@ export class M1Bootstrap extends Component {
         this.drawBackground();
         const previewQuery = DEBUG && sys.isBrowser ? new URLSearchParams(globalThis.location.search) : undefined;
         const showcase = previewQuery?.get('weaponShowcase');
-        if (this.campaignMode && (showcase === 'floating' || showcase === 'held' || showcase === 'armory' || showcase === 'utility')) {
+        if (this.campaignMode && (showcase === 'bench' || showcase === 'floating' || showcase === 'held' || showcase === 'armory' || showcase === 'utility')) {
             this.weaponShowcase = showcase;
+            const selected = previewQuery?.get('tool') ?? '';
+            if (isTool(selected)) this.benchTool = selected;
+            this.benchModified = previewQuery?.get('special') === '1';
         }
         const prototypeSetting = previewQuery?.get('prototype3d');
         const modelArt = !this.weaponShowcase && typeof MeshRenderer === 'function' && !!primitives?.sphere && prototypeSetting !== '0'
@@ -306,6 +314,9 @@ export class M1Bootstrap extends Component {
             effects.setPosition(-FIELD.left, -FIELD.bottom, 0);
         }
         this.skillEffects = effects.addComponent(Graphics);
+        if (this.campaignMode && !modelArt) {
+            this.threats = this.layer('ThreatEdges', world).addComponent(Graphics);
+        }
         this.art = this.layer('CombatSignals', world).addComponent(Graphics);
         this.art.node.setPosition(0, 0, 0);
         if (this.campaignMode) {
@@ -622,6 +633,15 @@ export class M1Bootstrap extends Component {
     private equipShowcaseTools(stage: CampaignStage, mode: ChallengeMode): void {
         const { data, platform } = this.run;
         if (!data?.equipment || this.run.storageFailed || !this.weaponShowcase) return;
+        if (this.weaponShowcase === 'bench') {
+            const weapon = this.benchTool;
+            const kit = createEquipment(weapon, this.benchModified ? {
+                starterAttachment: `${weapon}/signature`, unlockedAttachments: [`${weapon}/signature`],
+            } : {});
+            if (!kit || !platform.writeCheckpoint(data.schemaVersion, { ...data, ...kit, wave: 2 })) return;
+            this.loadCampaignStage(stage, mode, platform);
+            return;
+        }
         const tools = showcaseLoadouts[this.weaponShowcase].map((id): EquippedTool => ({
             id, mods: [], attachments: Array(weaponAttachmentCapacity(data.equipment!, id)).fill(null),
         }));
@@ -1050,7 +1070,8 @@ export class M1Bootstrap extends Component {
         const clearProgress = battle?.clearProgress;
         const seconds = battle && !clearProgress ? Math.ceil((battle.duration - battle.tick) / TICK_RATE) : 0;
         let waveCue: string | undefined;
-        if (battle && clearProgress && !battle.enemies.length) {
+        if (battle?.counterattackStarting) waveCue = '另一队赶来了';
+        else if (battle && clearProgress && !battle.enemies.length) {
             if (battle.warnings.length) waveCue = '敌机快到了';
             else if (!battle.mission && clearProgress.kills > 0 && clearProgress.kills < clearProgress.total) waveCue = '还有增援';
         }
@@ -1147,6 +1168,7 @@ export class M1Bootstrap extends Component {
         if (!this.flatFloor || !this.puddles) return;
         this.puddles.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
         this.skillEffects.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
+        this.threats?.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
         this.flatFloor.node.active = scrolling && !models && !pixelFloor;
         if (!this.flatFloor.node.active) return;
         this.flatFloor.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
@@ -1204,18 +1226,23 @@ export class M1Bootstrap extends Component {
             const unit = boss.unit;
             const x = unit.x - 180;
             const y = unit.y - 320;
-            const reach = boss.attack === 'sweep' ? BOSS_SWEEP_REACH : BOSS_CHARGE_SPEED * BOSS_CHARGE_TICKS;
-            art.strokeColor = boss.phase === 'warning' ? BOSS : PAPER;
-            art.lineWidth = boss.attack === 'sweep' && boss.phase !== 'warning' ? 10 : 2;
-            if (boss.attack === 'summon') {
+            const reach = boss.attack === 'sweep' ? battle.inspectorSweepReach : BOSS_CHARGE_SPEED * BOSS_CHARGE_TICKS;
+            const pixelBoss = this.campaignMode && !modelBattle;
+            const warning = boss.phase === 'warning';
+            art.strokeColor = warning && pixelBoss ? new Color(255, 163, 108, 138) : warning ? BOSS : PAPER;
+            art.lineWidth = pixelBoss ? warning ? 1.5 : 3 : boss.attack === 'sweep' && !warning ? 10 : 2;
+            if (boss.attack === 'fan' || boss.attack === 'ring' || boss.attack === 'summon' && pixelBoss) {
+                drawBossVolleyCue(art, x, y, Math.atan2(unit.vy, unit.vx), boss.attack !== 'fan', boss.next - battle.tick);
+            } else if (boss.attack === 'summon') {
                 art.circle(x, y, 38 + (boss.next - battle.tick) * 0.6);
                 art.circle(x, y, 50 + (boss.next - battle.tick) * 0.6);
             } else {
-                const edge = boss.attack === 'charge' ? 28 : 18;
+                const edge = warning && pixelBoss ? 9 : boss.attack === 'charge' ? 28 : 18;
                 for (const side of [-1, 1]) {
                     const offsetX = side * edge * unit.vy;
                     const offsetY = side * edge * -unit.vx;
-                    const remaining = boss.phase === 'charge' ? (boss.next - battle.tick) * BOSS_CHARGE_SPEED : reach;
+                    const remaining = warning && pixelBoss ? Math.min(30, reach)
+                        : boss.phase === 'charge' ? (boss.next - battle.tick) * BOSS_CHARGE_SPEED : reach;
                     const length = visibleReach(battle.field, unit.x + offsetX, unit.y + offsetY, unit.vx, unit.vy, remaining);
                     art.moveTo(x + offsetX, y + offsetY);
                     art.lineTo(x + unit.vx * length + offsetX, y + unit.vy * length + offsetY);
@@ -1312,6 +1339,9 @@ export class M1Bootstrap extends Component {
             art.fill();
         }
         if (this.campaignMode) this.drawOffscreenEnemies(battle);
+        if (this.campaignMode && !modelBattle && battle.player.hurtAt !== undefined) {
+            drawPlayerHit(art, battle.player.x - WIDTH / 2, battle.player.y - HEIGHT / 2, this.weaponTick - battle.player.hurtAt);
+        }
     }
 
     private drawOffscreenEnemies(battle: Readonly<Battle>): void {
@@ -1353,8 +1383,9 @@ export class M1Bootstrap extends Component {
         const art = this.puddles;
         if (!art) return;
         art.clear();
-        if (this.skin) this.skin.drawEncounter(art, battle, this.stage.id, modelProps);
-        else if (battle) drawCampaignEncounter(art, battle, this.stage.id, modelProps);
+        this.threats?.clear();
+        if (this.skin) this.skin.drawEncounter(art, battle, this.stage.id, modelProps, this.threats);
+        else if (battle) drawCampaignEncounter(art, battle, this.stage.id, modelProps, undefined, this.threats);
         for (const zone of battle?.livePuddles ?? []) {
             const { x, y, radius, phase } = zone;
             const active = phase === 'active';
@@ -1909,8 +1940,8 @@ export class M1Bootstrap extends Component {
         }, true, false, false, true);
         this.block(x - 79, y + 44, 158, 3, arc ? AMBER : MINT);
         this.skin?.uiIcon(arc ? 'contact' : 'ring', x - 49, y + 12, 36);
-        this.text(arc ? '导电触点' : '大拾取圈', x + 21, y + 12, { width: 87, size: 17, bold: true });
-        this.text(arc ? '给附近敌机上标记' : '隔远也能捡零件', x - 7, y - 25, { left: true, width: 114, size: 14, color: PAPER });
+        this.text(arc ? '导电触点' : '拾取磁环', x + 21, y + 12, { width: 87, size: 17, bold: true });
+        this.text(arc ? '打中就标记敌机' : '站远也能捡零件', x - 7, y - 25, { left: true, width: 114, size: 14, color: PAPER });
         this.text('›', x + 59, y - 24, { size: 24, color: arc ? AMBER : MINT });
     }
 
@@ -1935,13 +1966,13 @@ export class M1Bootstrap extends Component {
         const station = WORKSHOP_TIERS[campaign.workshopTier];
         const attachment = training.starterAttachment && getEquipmentOffer(training.starterAttachment)?.name;
         const interval = Math.round(training.intervalReduction * 1000 / TICK_RATE);
-        const loadoutSummary = [station.supplies ? `开局 ${station.supplies} 零件` : '',
+        const loadoutSummary = [station.supplies ? `开局有 ${station.supplies} 个零件` : '',
             training.reachBonus ? `射程 +${training.reachBonus}` : '',
             interval ? `攻击间隔 −${interval} 毫秒` : '', attachment ? `带${attachment}` : ''].filter(Boolean);
         if (loadoutSummary.length) this.text(loadoutSummary.join(' · '), 180, y - 396, { size: 12, width: 316, color: MINT });
         const base = this.footer + 62;
         const challenge = campaign.isModeUnlocked(stage.id, 'overtime_1');
-        this.text('选配件出勤', challenge ? 62 : 115, base + 66,
+        this.text('选个配件', challenge ? 62 : 115, base + 66,
             { left: true, width: challenge ? 92 : 198, size: 17, bold: true });
         if (challenge) this.button(MODE_LABEL[this.loadoutMode], 167, base + 66, 104, 38,
             () => { this.campaignPage = 'difficulty'; }, true, this.loadoutMode !== 'normal');
@@ -2019,7 +2050,7 @@ export class M1Bootstrap extends Component {
 
     private drawEquipment(): void {
         const y = this.growthHeader('装备');
-        const tabs = [['weapon', '武器训练'], ['blueprints', '开班蓝图'], ['station', '整备等级']] as const;
+        const tabs = [['weapon', '武器训练'], ['blueprints', '改装方案'], ['station', '整备等级']] as const;
         tabs.forEach(([tab, label], index) => {
             const x = 68 + 112 * index;
             const cy = y - 108;
@@ -2038,6 +2069,8 @@ export class M1Bootstrap extends Component {
         const campaign = this.campaign!;
         const profile = campaign.profile;
         const keys = Object.keys(BLUEPRINTS) as BlueprintId[];
+        this.text('出勤前最多选一项，下一局生效', 180, y - 136,
+            { width: 320, size: 12, color: BENCH.muted });
         keys.forEach((key, i) => {
             const cy = y - 200 - i * 118;
             const owned = profile.blueprints.includes(key);
@@ -2051,10 +2084,10 @@ export class M1Bootstrap extends Component {
             benchPlate(this.ui, 24, cy - 44, 75, 92, BENCH.recess, edge);
             this.skin?.uiIcon(key, 61, cy + 2, 64);
             this.text(blueprint.title, 222, cy + 37, { width: 220, left: true, size: 18, bold: true, color: BENCH.paper });
-            this.text(detail, 222, cy + 10,
+            this.text(detail, 222, cy + 12,
                 { width: 220, height: 36, left: true, size: 13, color: BENCH.muted });
-            this.benchButton(chosen ? '卸下' : owned ? '装备' : '兑换 ' + campaign.blueprintPrice,
-                274, cy - 27, 113, () => {
+            this.benchButton(chosen ? '取消选用' : owned ? '选用' : '兑换 ' + campaign.blueprintPrice,
+                274, cy - 29, 113, () => {
                     if (owned) campaign.selectBlueprint(chosen ? null : key);
                     else if (campaign.buyBlueprint(key)) {
                         campaign.selectBlueprint(key);
@@ -2074,9 +2107,9 @@ export class M1Bootstrap extends Component {
         benchScrew(this.ui, 334, y - 147);
         this.text(`整备 ${level + 1} 级 · ${current.title}`, 180, y - 162,
             { width: 288, left: true, size: 23, bold: true, color: BENCH.paper });
-        this.text(`开局带 ${current.supplies} 个零件`, 180, y - 195,
+        this.text(current.supplies ? `每次出勤带 ${current.supplies} 个零件` : '出勤时从 0 个零件开始', 180, y - 195,
             { width: 288, left: true, size: 16, color: BENCH.yellow });
-        this.text(next ? `首次通关 ${next.stage} 后扩建` : '已升满',
+        this.text(next ? `打完第 ${Number(next.stage)} 关就能扩建` : '维修站已升满',
             180, y - 217, { width: 288, left: true, size: 12, color: BENCH.muted });
         if (showGrowthShortcuts) {
             this.benchButton('装备 ›', 95, y - 261, 158, () => this.openGrowth('equipment', 'workshop'));
@@ -2254,7 +2287,7 @@ export class M1Bootstrap extends Component {
         this.cover();
         this.dispatchHeader('返回维修站', () => { this.campaignPage = 'workshop'; });
         this.text('抖音账号云档', 180, Math.min(484, this.dispatchHeaderY() - 44), { size: 26, bold: true });
-        this.text('备份通关记录、已解锁的武器和蓝图。凭证和正在打的这一局只存本机。',
+        this.text('备份通关记录、已解锁的武器和改装方案。凭证和正在打的这一局只存本机。',
             180, 405, { width: 296, height: 79, size: 17, color: STOCK });
         if (this.cloudMessage) this.text(this.cloudMessage, 180, 338, { width: 300, size: 14, color: MINT });
         if (this.cloud?.binding) {
@@ -2433,7 +2466,9 @@ export class M1Bootstrap extends Component {
         benchPlate(g, 16, statsBottom - 3, 328, 54, BENCH.shadow);
         benchPlate(g, 16, statsBottom, 328, 54, BENCH.recess, BENCH.edge);
         const kills = reports.reduce((sum, report) => sum + report.kills, 0);
-        const stats = [['波次', String(data.wave + 1)], ['击倒敌机', String(kills)], ['剩余零件', String(data.parts)]];
+        const wideSweeps = reports.reduce((sum, report) => sum + (report.wideSweeps ?? 0), 0);
+        const stats = [['波次', String(data.wave + 1)], ['击倒敌机', String(kills)],
+            wideSweeps ? ['扳手大回扫', wideSweeps + ' 次'] : ['剩余零件', String(data.parts)]];
         stats.forEach(([label, value], index) => {
             const x = 16 + (index + .5) * 328 / stats.length;
             if (index) this.block(x - 328 / 6, statsBottom + 11, 1, 32, BENCH.edge);
@@ -2649,11 +2684,25 @@ export class M1Bootstrap extends Component {
             active('heat') ? `过热 ${battle.triggers.heat}` : '',
         ].filter(Boolean);
         if (this.campaign) {
-            benchPlate(this.ui, 16, 114, 103, 29, BENCH.recess, BENCH.edge, 5);
-            this.skin?.uiIcon('scrap', 33, 129, 17);
-            this.text(`零件 ${data.parts + battle.collected}`, 77, 129,
-                { width: 69, size: 13, bold: true, color: BENCH.yellow });
-            if ((this.weaponShowcase === 'floating' || this.weaponShowcase === 'held') && !this.run.paused) {
+            if (this.weaponShowcase !== 'bench') {
+                benchPlate(this.ui, 16, 114, 103, 29, BENCH.recess, BENCH.edge, 5);
+                this.skin?.uiIcon('scrap', 33, 129, 17);
+                this.text(`零件 ${data.parts + battle.collected}`, 77, 129,
+                    { width: 69, size: 13, bold: true, color: BENCH.yellow });
+            }
+            if (this.weaponShowcase === 'bench' && !this.run.paused) {
+                const switchTool = (tool: ToolId, special: boolean) => {
+                    const url = new URL(globalThis.location.href);
+                    url.searchParams.set('tool', tool);
+                    url.searchParams.set('special', special ? '1' : '0');
+                    globalThis.location.assign(url.href);
+                };
+                const index = showcaseLoadouts.bench.indexOf(this.benchTool);
+                this.benchButton(`${TOOLS[this.benchTool].name} ›`, 85, 129, 140,
+                    () => switchTool(showcaseLoadouts.bench[(index + 1) % showcaseLoadouts.bench.length], this.benchModified), { height: 34 });
+                this.benchButton(this.benchModified ? '拆下专属件' : '装上专属件', 212, 129, 104,
+                    () => switchTool(this.benchTool, !this.benchModified), { height: 34 });
+            } else if ((this.weaponShowcase === 'floating' || this.weaponShowcase === 'held') && !this.run.paused) {
                 this.benchButton(this.weaponShowcase === 'floating' ? '悬浮 · 切换手持' : '手持 · 切换悬浮', 198, 129, 137, () => {
                     this.weaponShowcase = this.weaponShowcase === 'floating' ? 'held' : 'floating';
                     this.visibleUi = '';
@@ -2707,7 +2756,7 @@ export class M1Bootstrap extends Component {
         if (!this.learnedMove && !battle.boss && !mission && !radio) {
             const y = Math.max(this.footer + 22, 75);
             if (this.joystickMode) {
-                this.text('按住屏幕下方，拖动摇杆', infoX, y + 9, { width: infoWidth, size: 15, bold: true, color: BENCH.paper });
+                this.text('按住屏幕下方，拖动就能走', infoX, y + 9, { width: infoWidth, size: 15, bold: true, color: BENCH.paper });
                 this.text('武器自动攻击', infoX, y - 12, { width: infoWidth, size: 13, color: BENCH.muted });
             } else if (this.campaign) {
                 this.ui.strokeColor = BENCH.edge;
@@ -2727,7 +2776,7 @@ export class M1Bootstrap extends Component {
             const y = 102;
             const instruction = boss.phase === 'warning' ? INSPECTOR_WARNING[boss.attack]
                 : boss.phase === 'recover' ? '趁它停下打' : '';
-            const count = `${Math.ceil(health)}/${ENEMIES.inspector.hp}`;
+            const count = `${Math.ceil(health)}/${boss.maxHp}`;
             if (this.campaign) benchPlate(this.ui, infoX - infoWidth / 2, 78, infoWidth, 34, BENCH.recess, BENCH.edge, 5);
             this.text(`巡检机  ${count}${instruction ? ' · ' + instruction : ''}`, infoX, y,
                 { width: infoWidth - 8, color: this.campaign ? BENCH.paper : BOSS, size: 13 });
@@ -2736,7 +2785,7 @@ export class M1Bootstrap extends Component {
             this.ui.rect(infoX - width / 2, y - 17, width, 4);
             this.ui.fill();
             this.ui.fillColor = this.campaign ? BENCH.yellow : BOSS;
-            this.ui.rect(infoX - width / 2, y - 17, width * health / ENEMIES.inspector.hp, 4);
+            this.ui.rect(infoX - width / 2, y - 17, width * health / boss.maxHp, 4);
             this.ui.fill();
         }
         if (!this.run.paused) return;
@@ -2982,27 +3031,31 @@ export class M1Bootstrap extends Component {
             this.receipt = '';
             this.trace('refresh');
         });
-        this.text(shop.refreshed ? '本波已换货' : `换货  ·  ${REFRESH_COST} 零件 ↻`, 275, top - 104,
+        this.text(shop.refreshed ? '已换过一批' : `换一批 · ${REFRESH_COST} 零件`, 275, top - 104,
             { width: 132, size: 13, color: refresh ? BENCH.paper : canRefresh ? BENCH.yellow : BENCH.muted });
         if (!shop.offers.length) {
             benchPlate(g, 16, stockBottom, 328, stockTop - stockBottom, BENCH.steel, BENCH.edge);
             this.text('货架已空', 180, (stockBottom + stockTop) / 2, { size: 16, color: BENCH.muted });
         }
+        const chooseOne = shop.offers.some(item => item.id === 'wrench/flywheel') && shop.offers.some(item => item.kind === 'weapon');
         shop.offers.forEach((item, index) => {
             const x = 68 + index * 112;
             const height = stockTop - stockBottom;
             const style = BENCH[item.kind];
+            const recommended = item.id === shop.recommended;
+            const label = chooseOne && (item.id === 'wrench/flywheel' || item.kind === 'weapon') ? '二选一' : recommended ? '起手搭配' : style.label;
+            const detail = item.id === 'wrench/link' && this.run.rules.sweptMelee ? '再打同一台敌机，伤害 +1' : item.detail;
             const held = this.touchTarget(x, stockTop - height / 2, 104, height, () => this.selectEquipment(item, shop));
             benchPlate(g, x - 52, stockBottom - 3, 104, height, BENCH.shadow);
-            benchPlate(g, x - 52, stockBottom, 104, height, style.fill, held ? style.accent : BENCH.edge);
+            benchPlate(g, x - 52, stockBottom, 104, height, style.fill, held || recommended ? style.accent : BENCH.edge);
             this.block(x - 48, stockBottom + 5, 99, 2, BENCH.recess);
-            this.text(style.label, x - 16, stockTop - 14, { width: 62, size: 11, left: true, color: style.accent });
+            this.text(label, x - 16, stockTop - 14, { width: 62, size: 11, left: true, color: style.accent });
             benchPlate(g, x + 22, stockTop - 25, 26, 20, BENCH.recess, undefined, 4);
             this.text(String(item.price), x + 35, stockTop - 15,
                 { width: 24, size: 15, bold: true, color: data.parts >= item.price ? BENCH.yellow : BENCH.muted });
             this.skin?.uiIcon(item.id, x, (stockTop + stockBottom) / 2 + 11, 61, item.icon);
             this.text(item.name, x, stockBottom + 39, { width: 96, size: 15, bold: true, color: BENCH.paper });
-            this.text(item.detail, x, stockBottom + 19, { width: 92, height: 27, size: 11, color: BENCH.paper });
+            this.text(detail, x, stockBottom + 19, { width: 92, height: 27, size: 11, color: BENCH.paper });
         });
 
         const tabY = trayBottom + 113;
@@ -3062,9 +3115,9 @@ export class M1Bootstrap extends Component {
         this.drawBenchSlots('gear', gearBottom + 27, shop.gear, focus, fitting);
 
         if (fitting) {
-            this.text(`给${fitting.name}选个槽`, 180, footer + 47,
+            this.text('先选一个亮着的位置', 180, footer + 47,
                 { width: 316, size: 13, color: BENCH.yellow });
-            this.benchButton('取消选槽', 180, footer + 13, 328, () => this.clearEquipmentSelection(), { height: 46 });
+            this.benchButton('取消', 180, footer + 13, 328, () => this.clearEquipmentSelection(), { height: 46 });
         } else {
             const note = this.receipt || campaignWaveHint(this.run.rules, data.wave + 1, this.runMode);
             this.text(note, 88, footer + 14, { width: 144, height: 45, left: true, size: 12,
@@ -3100,7 +3153,7 @@ export class M1Bootstrap extends Component {
                 this.block(x - 6, y + 7, 12, 1, style.accent);
                 this.block(x, y + 2, 1, 11, style.accent);
             }
-            this.text(item?.name ?? (locked ? `第 ${slot * 2} 波后` : '空槽'), x, y - 13,
+            this.text(item?.name ?? (locked ? `第 ${slot * 2} 波后` : '空位'), x, y - 13,
                 { width: width - 8, height: 18, size: 12, color: item ? BENCH.paper : BENCH.muted });
         });
     }

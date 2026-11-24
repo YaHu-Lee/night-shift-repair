@@ -30,7 +30,7 @@ export const WAVES = [
     { seconds: 35, spawnEvery: 21, enemies: ['crawler', 'charger', 'turret', 'crawler'] },
 ] as const;
 export const TOOLS = {
-    wrench: { name: '电弧扳手', reach: 104, cooldown: 14, damage: 2, price: 5, detail: '交替横扫和直刺，命中武器扫过的近处敌机' },
+    wrench: { name: '电弧扳手', reach: 104, cooldown: 14, damage: 2, price: 5, detail: '来回挥扫，能一口气打中几台敌机' },
     arc_gun: { name: '电弧枪', reach: 123, cooldown: 20, damage: 2, price: 6, detail: '电弧最多连跳 2 次' },
     riveter: { name: '铆钉枪', reach: 185, cooldown: 19, damage: 2, price: 5, detail: '一发最多穿过 3 台敌机' },
     torch: { name: '喷火管', reach: 82, cooldown: 10, damage: 1, price: 5, detail: '向前喷火，扫过近处一片敌机' },
@@ -120,8 +120,15 @@ export type SpawnEdge = 'south' | 'north' | 'west' | 'east';
 
 export interface WaveClearSpec {
     readonly opening: number;
+    /** Completed reports from a save made before drone escorts were introduced. */
+    readonly previousTarget?: number;
+    readonly partBudget?: number;
+    readonly counterattack?: { readonly start: number; readonly size: number; readonly every: number; readonly edges: readonly SpawnEdge[] };
+    readonly openingGroup?: { readonly size: number; readonly every: number; readonly split?: true; readonly groupedLane?: true };
     readonly reserves: number;
     readonly reserveAfterTick?: number;
+    /** If the reserve line thins out, start the next warning after this breathing space. */
+    readonly reserveRestTicks?: number;
 }
 
 export interface WaveSpec {
@@ -135,6 +142,7 @@ export interface WaveSpec {
     readonly directive?: WaveDirective;
     readonly liftGroups?: readonly { readonly floor: number; readonly enemies: readonly RegularEnemyId[] }[];
     readonly escalation?: {
+        readonly groupSize?: number;
         readonly atTick: number;
         readonly requiredTicks?: number;
         readonly spawnEvery?: number;
@@ -161,8 +169,10 @@ export interface RunRules {
     readonly encounter?: CampaignEncounter;
     readonly campaign?: boolean;
     readonly campaignPressure?: boolean;
+    readonly twoToolWaves?: readonly WaveSpec[];
     readonly sweptMelee?: boolean;
     readonly weaponLimit?: number;
+    readonly secondShopPart?: AttachmentId;
 }
 
 export const M1_RULES: RunRules = {

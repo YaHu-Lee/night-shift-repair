@@ -2,11 +2,12 @@ import { BASE_PICKUP_RADIUS, MAGNET_PICKUP_RADIUS, MAGNET_PULSE, TICK_RATE, TOOL
 import type { EquippedTool, ModId, Route, ToolId } from './content';
 import type { BlueprintId } from './Encounter';
 
-type AttachmentKind = 'link' | 'handling' | 'alternate' | 'finisher' | 'signature';
+type AttachmentKind = 'link' | 'handling' | 'alternate' | 'finisher' | 'signature' | 'dispatch' | 'flywheel';
 export type AttachmentId = `${ToolId}/${AttachmentKind}`;
 export type GearId = `gear/${'pulse' | 'padding' | 'runner' | 'pickup' | 'guard' | 'sorter' | 'harness'}`;
 export type EquipmentOfferId = ToolId | AttachmentId | GearId;
 export type EquipmentTarget = { kind: 'weapon' } | { kind: 'attachment'; weapon: number; slot: number } | { kind: 'gear'; slot: number };
+const stationPart = (kind: AttachmentKind) => kind === 'dispatch' || kind === 'flywheel';
 
 export interface EquipmentOffer {
     readonly id: EquipmentOfferId;
@@ -54,6 +55,7 @@ interface WeaponChange {
     displacement?: number;
     combo?: number;
     heat?: boolean;
+    wideSweep?: boolean;
 }
 interface Attachment extends EquipmentOffer {
     id: AttachmentId;
@@ -143,15 +145,20 @@ const attachment = (weapon: ToolId, variant: AttachmentKind, name: string, detai
 });
 
 const toolIds = Object.keys(TOOLS) as ToolId[];
-export const ATTACHMENTS: Readonly<Record<string, Attachment>> = Object.fromEntries(toolIds.flatMap(weapon => [
-    attachment(weapon, 'link', '分流接头', '给敌机上标记，强化再命中', 0, 4, 'splitter', {}),
-    ...partSpecs.map(([variant, firstShop, price, icon], index) => {
-        const [name, detail, change] = weaponParts[weapon][index];
-        return attachment(weapon, variant, name, detail, firstShop, price, icon, change);
-    }),
-]).map(part => [part.id, part]));
+export const ATTACHMENTS: Readonly<Record<string, Attachment>> = Object.fromEntries([
+    ...toolIds.flatMap(weapon => [
+        attachment(weapon, 'link', '分流接头', '给敌机上标记，强化再命中', 0, 4, 'splitter', {}),
+        ...partSpecs.map(([variant, firstShop, price, icon], index) => {
+            const [name, detail, change] = weaponParts[weapon][index];
+            return attachment(weapon, variant, name, detail, firstShop, price, icon, change);
+        }),
+    ]),
+    attachment('wrench', 'dispatch', '加长柄套', '扫得更远，伤害 +1', 1, 5,
+        'relay', { reach: 15, damage: 1 }),
+    attachment('wrench', 'flywheel', '回扫飞轮', '一挥打中两台，下次大回扫伤害 +2', 1, 5, 'sweeper', { reach: 12, wideSweep: true }),
+].map(part => [part.id, part]));
 export function attachmentIdsForWeapon(tool: ToolId): AttachmentId[] {
-    return Object.values(ATTACHMENTS).filter(part => part.weapon === tool).map(part => part.id);
+    return Object.values(ATTACHMENTS).filter(part => part.weapon === tool && !stationPart(part.variant)).map(part => part.id);
 }
 
 function gear(id: GearId, name: string, detail: string, firstShop: number, price: number, icon: ModId, change: GearChange): Gear {
@@ -220,12 +227,14 @@ export function createEquipment(tool: ToolId, start: EquipmentStart): { equipmen
     return validEquipment(equipment, tools, 0) ? { equipment, tools } : null;
 }
 
-const partEligible = (part: Attachment, equipment: EquipmentState, shopWave: number) =>
-    shopWave >= part.firstShop && (part.variant !== 'signature' || equipment.unlockedAttachments.includes(part.id));
+const partEligible = (part: Attachment, equipment: EquipmentState, shopWave: number, special?: AttachmentId) =>
+    shopWave >= part.firstShop && (part.variant !== 'signature' || equipment.unlockedAttachments.includes(part.id))
+    && (!stationPart(part.variant) || part.id === special);
 const gearEligible = (item: Gear, equipment: EquipmentState, shopWave: number) =>
     shopWave >= item.firstShop && (item.id !== 'gear/harness' || equipment.unlockedGear.includes(item.id));
 
-export function validEquipment(data: EquipmentState, tools: readonly EquippedTool[], completed: number, weaponLimit = 2): boolean {
+export function validEquipment(data: EquipmentState, tools: readonly EquippedTool[], completed: number, weaponLimit = 2,
+    secondShopPart?: AttachmentId): boolean {
     if (!data || data.version !== 1 || !whole(data.attachmentSlots, 3) || !data.attachmentSlots || !validWeaponSlots(data.weaponSlots)
         || !distinct(data.unlockedAttachments, unlockedPart) || !distinct(data.unlockedGear, unlockedGear)
         || !validTraining(data.weapon, data.role) || (data.starterAttachment !== undefined
@@ -249,7 +258,7 @@ export function validEquipment(data: EquipmentState, tools: readonly EquippedToo
             if (id === null) continue;
             const activeStarter = weapon === 0 && slot === 0 && id === data.starterAttachment;
             if (!owns(ATTACHMENTS, id) || ATTACHMENTS[id].weapon !== tool.id || slot >= open || items.has(id)
-                || (!activeStarter && !partEligible(ATTACHMENTS[id], data, completed - 1))) return false;
+                || (!activeStarter && !partEligible(ATTACHMENTS[id], data, completed - 1, secondShopPart))) return false;
             items.add(ATTACHMENTS[id].id);
         }
     }
@@ -271,6 +280,7 @@ export interface WeaponEquipmentStats {
     displacement: number;
     combo: number;
     heat: boolean;
+    wideSweep: boolean;
     arcLink: boolean;
     marks: boolean;
 }
@@ -311,7 +321,7 @@ export function resolveEquipment(tools: readonly EquippedTool[], state: Equipmen
         const stats: WeaponEquipmentStats = {
             id: tool.id, reach: base.reach + training.reachBonus, interval: base.cooldown - training.intervalReduction,
             damage: base.damage + training.damageBonus, close: 0, far: 0, chainReach: 0, hops: 0,
-            pierce: 0, targets: 0, spread: 0, displacement: 0, combo: 0, heat: false, arcLink: false,
+            pierce: 0, targets: 0, spread: 0, displacement: 0, combo: 0, heat: false, wideSweep: false, arcLink: false,
             marks: index === 0 && route === 'arc',
         };
         for (const id of tool.attachments ?? []) {
@@ -319,6 +329,7 @@ export function resolveEquipment(tools: readonly EquippedTool[], state: Equipmen
             const part = ATTACHMENTS[id], effect = part.change;
             stats.arcLink ||= part.variant === 'link';
             stats.heat ||= !!effect.heat;
+            stats.wideSweep ||= !!effect.wideSweep;
             for (const key of ['reach', 'interval', 'damage', 'close', 'far', 'chainReach', 'hops',
                 'pierce', 'targets', 'spread', 'displacement', 'combo'] as const) stats[key] += effect[key] ?? 0;
         }
@@ -344,6 +355,7 @@ export interface EquipmentShop {
     gear: EquipmentSlot[];
     weaponCapacity: number;
     refreshed: boolean;
+    recommended?: EquipmentOfferId;
 }
 export interface EquipmentSource {
     tools: readonly EquippedTool[];
@@ -353,25 +365,33 @@ export interface EquipmentSource {
     wave: number;
     parts: number;
     blueprint?: BlueprintId;
+    secondShopPart?: AttachmentId;
+    benchChoiceUsed?: true;
 }
-export function equipmentShopView(source: EquipmentSource, offers: readonly EquipmentOfferId[], refreshed: boolean): EquipmentShop {
+
+export function equipmentShopView(source: EquipmentSource, offers: readonly EquipmentOfferId[], refreshed: boolean,
+    shopWeapons: readonly ToolId[]): EquipmentShop {
     const open = openEquipmentSlots(source.wave + 1);
+    const weaponCapacity = source.wave >= 1
+        ? Math.min(source.weaponLimit ?? 2, new Set([...shopWeapons, ...source.tools.map(tool => tool.id)]).size) : 1;
     const slots = (items: readonly (AttachmentId | GearId | null)[]): EquipmentSlot[] =>
         items.map((id, slot) => ({ slot, locked: slot >= open, item: id ? getEquipmentOffer(id)! : null }));
     return {
         offers: offers.map(id => getEquipmentOffer(id)!),
         weapons: source.tools.map(tool => ({ id: tool.id, name: TOOLS[tool.id].name, slots: slots(tool.attachments ?? []) })),
-        gear: slots(source.equipment.gear), weaponCapacity: source.wave >= 1 ? source.weaponLimit ?? 2 : 1, refreshed,
+        gear: slots(source.equipment.gear), weaponCapacity, refreshed,
+        recommended: source.wave === 0 ? firstEquipmentPair(source) : undefined,
     };
 }
 
 function availableEquipment(source: EquipmentSource, tools: readonly ToolId[]): EquipmentOfferId[] {
     const installed = new Set(source.tools.flatMap(tool => tool.attachments ?? []));
     return [
-        ...(source.wave >= 1 && source.tools.length < (source.weaponLimit ?? 2)
+        ...(!source.benchChoiceUsed && source.wave >= 1 && source.tools.length < (source.weaponLimit ?? 2)
             ? tools.filter(id => !source.tools.some(tool => tool.id === id)) : []),
         ...Object.values(ATTACHMENTS).filter(part => source.tools.some(tool => tool.id === part.weapon)
-            && !installed.has(part.id) && partEligible(part, source.equipment, source.wave)).map(part => part.id),
+            && !installed.has(part.id) && partEligible(part, source.equipment, source.wave,
+                source.wave === 1 && !source.benchChoiceUsed ? source.secondShopPart : undefined)).map(part => part.id),
         ...Object.values(GEAR).filter(item => !source.equipment.gear.includes(item.id)
             && gearEligible(item, source.equipment, source.wave)).map(item => item.id),
     ];
@@ -400,16 +420,33 @@ export function rollEquipmentOffers(source: EquipmentSource, tools: readonly Too
         const first = firstEquipmentPair(source);
         if (available.includes(first)) offers.push(first);
     }
+    if (source.secondShopPart && available.includes(source.secondShopPart)) offers.push(source.secondShopPart);
     const expanded = (source.weaponLimit ?? 2) > 2;
     if (source.wave >= 1 && (source.wave === 1 || expanded)) {
         const weapons = available.filter(isTool);
-        add(weapons);
-        if (source.wave === 1 && expanded) add(weapons);
+        if (offers.includes('wrench/flywheel')) {
+            add(weapons.includes('hydraulic_nailer') ? ['hydraulic_nailer'] : weapons.filter(id => id !== 'bypass_wrench' && id !== 'wrench'));
+        } else {
+            add(weapons);
+            if (source.wave === 1 && expanded) add(weapons);
+        }
     }
     if (source.wave === 2 || source.wave === 4) {
         const variants: AttachmentKind[] = source.wave === 2 ? ['handling', 'alternate'] : ['finisher', 'signature'];
-        for (const weapon of source.tools) add(available.filter(id =>
-            owns(ATTACHMENTS, id) && ATTACHMENTS[id].weapon === weapon.id && variants.includes(ATTACHMENTS[id].variant)));
+        const candidates = source.tools.map(weapon => available.filter(id =>
+            owns(ATTACHMENTS, id) && ATTACHMENTS[id].weapon === weapon.id && variants.includes(ATTACHMENTS[id].variant)))
+            .filter(parts => parts.length);
+        // When shelf space is scarce, sample weapons independently of the order they were equipped.
+        if (candidates.length > 3 - offers.length) {
+            candidates.sort((a, b) => a[0] < b[0] ? -1 : 1);
+            for (let i = candidates.length - 1; i > 0; i--) {
+                const j = Math.floor(random() * (i + 1));
+                [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+            }
+            if (refreshed) candidates.sort((a, b) => Number(b.some(id => !previous.includes(id)))
+                - Number(a.some(id => !previous.includes(id))));
+        }
+        for (const parts of candidates) add(parts);
         if (source.tools.length === 1) add(available.filter(id =>
             owns(ATTACHMENTS, id) && variants.includes(ATTACHMENTS[id].variant)));
     }
@@ -464,6 +501,7 @@ function effectSummary(before: ResolvedEquipment, after: ResolvedEquipment, targ
     describe('第 4 击伤害', first.combo, second.combo);
     toggle('电弧连锁', first.arcLink, second.arcLink);
     toggle('过热增伤', first.heat, second.heat);
+    toggle('连中两台后的宽扫', first.wideSweep, second.wideSweep);
     return changes;
 }
 

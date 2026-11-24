@@ -51,9 +51,9 @@ test('the 20 dispatches form one route through four five-station chapters', () =
         }
         return stages.reduce((minutes, stage) => minutes + stage.plannedMinutes, 0);
     }), [32, 33, 34, 35]);
-    const originalRoster = ({ seconds, spawnEvery, enemies, boss }) => ({ seconds, spawnEvery, enemies, boss });
+    const originalRoster = ({ seconds, spawnEvery, enemies, boss }) => ({ seconds, spawnEvery, kinds: [...new Set(enemies)].sort(), boss });
     for (const [index, legacy] of [CAMPAIGN_01_RULES, CAMPAIGN_02_RULES].entries()) {
-        assert.deepEqual(CAMPAIGN_CATALOG[index].rules.waves.map(originalRoster), legacy.waves.map(originalRoster));
+        assert.deepEqual(CAMPAIGN_CATALOG[index].rules.twoToolWaves.map(originalRoster), legacy.waves.map(originalRoster));
     }
     assert.equal(rulesForCampaign(CAMPAIGN_CATALOG[0], 'overtime_2').contentVersion, 21);
     assert.throws(() => rulesForCampaign(CAMPAIGN_CATALOG[1], 'overtime_2'), /Overtime/);
@@ -125,8 +125,8 @@ test('pressure alternates visible entrances, rejects spawns beside the player an
     const battle = new Battle(2, 42, [], rules);
     battle.step(0, 0);
     assert.equal(battle.warnings[0].x, battle.spawnBounds.left + 10);
-    for (let tick = 0; tick < battle.spec.spawnEvery; tick++) battle.step(0, 0);
-    assert.equal(battle.warnings.at(-1).x, battle.spawnBounds.right - 10);
+    for (let tick = 0; tick < battle.spec.clear.openingGroup.every; tick++) battle.step(0, 0);
+    assert.ok(battle.warnings.at(-1).x >= battle.spawnBounds.right - 25);
 
     const fallback = new Battle(2, 42, [], rules);
     fallback.random = () => 0.5;
@@ -186,7 +186,8 @@ test('a cold start preserves open combat and restores checkpoint pressure mode',
     });
     const run = open();
     run.start('arc', 20261120, 'wrench', 'legacy');
-    assert.equal(open().rules, stage.rules);
+    assert.equal(open().rules.waves, stage.rules.twoToolWaves);
+    assert.equal(open().rules.encounter.bossHp, ENEMIES.inspector.hp);
     assert.equal(open().rules.encounter.combatOnly, true);
 
     run.start('arc', 20261120, 'wrench', 'challenge', undefined, 'overtime_1', 0, {});

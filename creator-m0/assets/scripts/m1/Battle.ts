@@ -3,7 +3,7 @@ import type { CombatBounds, EnemyId, EquippedTool, ModId, RegularEnemyId, Route,
 import { resolveEquipment } from './Equipment';
 import type { EquipmentState, ResolvedEquipment, WeaponEquipmentStats } from './Equipment';
 import { CONVEYOR_STEP, GATEKEEPER_PORTS, GATEKEEPER_WARNING_TICKS, Mission, RECLAIMER_PULL_TICKS, clamp, clipTerrainReach, distance, distanceToSegment, fieldRayEnd, gatekeeperLane, insideRect, nearestOpen, routeAround, terrainAt } from './Encounter';
-import type { BlueprintId, ChapterBossView, ChapterHazard, ChallengeMode, MissionCue, MissionFailure, MissionState, MissionView, Position, TerrainRect } from './Encounter';
+import type { BlueprintId, BossVolley, ChapterBossView, ChapterHazard, ChallengeMode, MissionCue, MissionFailure, MissionState, MissionView, Position, TerrainRect } from './Encounter';
 import { ChapterBoss } from './ChapterBoss';
 import { MELEE_RETURN_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from './WeaponMotion';
 import type { MeleeMotion, MeleeTool } from './WeaponMotion';
@@ -30,7 +30,7 @@ interface Enemy extends Position {
     hitAt?: number;
     shotAt?: number;
 }
-interface Bullet extends Position { vx: number; vy: number; port?: Readonly<Position> }
+interface Bullet extends Position { vx: number; vy: number; port?: Readonly<Position>; boss?: true }
 interface Spawn extends Position { kind: RegularEnemyId; at: number }
 type SkillKind = 'arc' | 'shot' | 'heat' | 'magnet' | 'induction';
 const WEAPON_ATTACK_CUES: Record<ToolId, SkillKind> = {
@@ -43,7 +43,7 @@ type Area = Position & (
     { shape: 'sector'; kind: 'heat'; ux: number; uy: number; radius: number; slope: number }
 );
 export type Attack = { life: number; sourceCast?: WeaponCast } & (Area |
-    (Position & { shape: 'link'; kind: 'arc'; from: Position; fromWeapon?: true; melee?: true }) |
+    (Position & { shape: 'link'; kind: 'arc'; from: Position; fromWeapon?: true; melee?: true; mark?: 'applied' | 'boosted' }) |
     (Position & { shape: 'impact'; kind: Exclude<SkillKind, 'arc'>; pullFrom?: Position }));
 
 export interface WeaponCast extends Readonly<Position> {
@@ -53,6 +53,9 @@ export interface WeaponCast extends Readonly<Position> {
     readonly uy: number;
     readonly targetRange: number;
     readonly tick: number;
+    readonly effectBoost?: number;
+    readonly modified?: true;
+    readonly powered?: true;
     readonly melee?: MeleeMotion;
 }
 
@@ -82,6 +85,7 @@ interface ToolRuntime {
     reach: number;
     interval: number;
     swings: number;
+    wideSweepReady?: boolean;
     equipment?: WeaponEquipmentStats;
 }
 interface ActiveMelee {
@@ -91,9 +95,9 @@ interface ActiveMelee {
     marks: boolean;
     arcLink: boolean;
     struck: Set<Enemy>;
-    landed: boolean;
+    landed: number;
 }
-type BossAttack = 'sweep' | 'charge' | 'summon';
+type BossAttack = 'sweep' | 'charge' | 'summon' | BossVolley;
 export type HitSource = EnemyId | 'projectile' | 'boss-sweep' | 'boss-charge' | 'live-puddle' | 'chapter-hazard';
 export type TimeoutDetail = 'objective' | 'boss' | 'holdout' | 'takeover';
 export const HIT_SOURCES: readonly HitSource[] = [...Object.keys(ENEMIES) as EnemyId[],
@@ -104,7 +108,8 @@ export interface LivePuddle extends Position {
 }
 export interface BossState {
     unit: Enemy;
-    phase: 'patrol' | 'warning' | 'sweep' | 'charge' | 'recover';
+    maxHp: number;
+    phase: 'patrol' | 'warning' | 'sweep' | 'charge' | 'volley' | 'recover';
     attack: BossAttack;
     next: number;
     pattern: number;
@@ -141,6 +146,7 @@ export class Battle {
     readonly weaponCasts: WeaponCast[] = [];
     private readonly activeMelee: ActiveMelee[] = [];
     readonly triggers = { arc: 0, magnet: 0, heat: 0 };
+    wideSweeps = 0;
     readonly duration: number;
     readonly boss: BossState | null;
     private readonly encounterBoss?: ChapterBoss;
@@ -189,6 +195,9 @@ export class Battle {
     private escalationSince = 0;
     private nextEscalationSpawn = 0;
     private reserveCursor = 0;
+    private reserveRest = 0;
+    private groupLane = 0.5;
+    private counterattackAt = 0;
     private readonly random: () => number;
     private readonly runtime: ToolRuntime[];
     private readonly magnet: boolean;
@@ -237,14 +246,14 @@ export class Battle {
         this.salvageRate = actor?.salvageRate ?? ((this.blueprint === 'magnetic_pickup_arm' ? 0.35 : 0.5) + (this.mods.has('sorter') ? 0.25 : 0));
         if (this.spec.boss) {
             const unit: Enemy = {
-                x: START.x, y: this.spawnBounds.top - 43, id: this.nextEnemy++, kind: 'inspector', hp: ENEMIES.inspector.hp,
+                x: START.x, y: this.spawnBounds.top - 43, id: this.nextEnemy++, kind: 'inspector', hp: rules.encounter?.bossHp ?? ENEMIES.inspector.hp,
                 state: 'walk', next: 0, vx: 0, vy: -1, marked: false,
             };
             if (this.terrain.length) Object.assign(unit, nearestOpen(unit, this.terrain, 21, this.field));
             else this.keepInField(unit, 21);
             this.enemies.push(unit);
-            this.boss = { unit, phase: 'patrol', attack: 'sweep', next: 58, pattern: 0, attackNumber: 0, damagedPlayer: false };
             if (rules.encounter?.boss) this.encounterBoss = new ChapterBoss(rules.encounter, unit, this.task, this.field);
+            this.boss = { unit, maxHp: unit.hp, phase: 'patrol', attack: 'sweep', next: 58, pattern: 0, attackNumber: 0, damagedPlayer: false };
         } else this.boss = null;
     }
 
@@ -254,6 +263,7 @@ export class Battle {
     get clearProgress(): { kills: number; total: number } | undefined {
         return this.killTarget === undefined ? undefined : { kills: this.kills, total: this.killTarget };
     }
+    get counterattackStarting(): boolean { return this.counterattackAt > 0 && this.tick - this.counterattackAt < 54; }
     get unfinishedAtTimeout(): TimeoutDetail {
         const bossAlive = (this.boss?.unit.hp ?? 0) > 0;
         if (this.task && !this.task.complete && (this.task.ready || !bossAlive)) return 'objective';
@@ -290,6 +300,7 @@ export class Battle {
         return this.field === FIELD ? FIELD : combatViewport(this.field, this.player.x, this.player.y);
     }
     get chapterBoss(): ChapterBossView | null { return this.encounterBoss?.view ?? null; }
+    get inspectorSweepReach(): number { return this.rules.campaign ? 108 : BOSS_SWEEP_REACH; }
 
     /** Local pose cue for scheduled melee attacks with a valid target in reach. */
     meleeWindups(): readonly MeleeWindup[] {
@@ -425,7 +436,9 @@ export class Battle {
             }, cue => {
                 if (cue === 'cut') this.cutSerial++;
                 else this.emitMissionCue(cue);
-            }, () => this.signalEnemyAttack('area'));
+            }, () => this.signalEnemyAttack('area'), (pattern, facing, second) => {
+                this.fireBossVolley(this.encounterBoss!.unit, pattern, facing, second);
+            });
         for (let index = this.effects.length - 1; index >= 0; index--) {
             if (--this.effects[index].life === 0) this.effects.splice(index, 1);
         }
@@ -476,7 +489,35 @@ export class Battle {
     private spawnClearWave(clear: WaveClearSpec): void {
         const wave = this.spec;
         if (wave.liftGroups && this.task?.ready) this.spawnLiftGroup(wave.liftGroups);
-        if (this.spawnCursor < clear.opening && (this.tick - 1) % wave.spawnEvery === 0) {
+        if (clear.openingGroup && this.spawnCursor < clear.opening) {
+            const counter = clear.counterattack;
+            const attack = counter && this.spawnCursor >= counter.start ? counter : undefined;
+            const size = attack?.size ?? clear.openingGroup.size;
+            const groupStart = attack?.start ?? 0;
+            const group = Math.floor((this.spawnCursor - groupStart) / size);
+            const split = attack ? group % 3 === 2 : clear.openingGroup.split;
+            const groupedLane = clear.openingGroup.groupedLane;
+            const end = Math.min(clear.opening, attack ? clear.opening : counter?.start ?? clear.opening, groupStart + (group + 1) * size);
+            if (attack && !this.counterattackAt && this.enemies.length + this.warnings.length <= size) this.counterattackAt = this.tick;
+            // Two close pushes, then one longer opening to cross the field before the next flank arrives.
+            const arrival = attack ? this.counterattackAt + group * attack.every - (group % 3 === 1 ? 16 : 0)
+                : 1 + group * clear.openingGroup.every;
+            if ((!attack || this.counterattackAt) && this.tick >= arrival) {
+                while (this.spawnCursor < end) {
+                    const slot = (this.spawnCursor - groupStart) % size;
+                    const opposite = split && slot >= Math.ceil(size / 2);
+                    const edge = this.spawnEdge(attack?.edges ?? wave.spawnEdges, opposite ? (group ^ 1) : group);
+                    if (groupedLane && slot === 0) this.groupLane = 0.23 + this.random() * 0.54;
+                    const half = Math.ceil(size / 2);
+                    const local = opposite ? slot - half : slot;
+                    const columns = Math.min(5, split ? opposite ? size - half : half : size);
+                    const row = Math.floor(local / columns);
+                    const lane = groupedLane ? this.groupLane + (local % columns - (columns - 1) / 2 + (row % 2) * 0.45) * 0.075 : undefined;
+                    if (!this.queueSpawn(this.roster[this.spawnCursor % this.roster.length], edge, lane, groupedLane ? row * 15 : 0)) break;
+                    this.spawnCursor++;
+                }
+            }
+        } else if (this.spawnCursor < clear.opening && (this.tick - 1) % wave.spawnEvery === 0) {
             if (this.queueSpawn(this.roster[this.spawnCursor % this.roster.length], this.spawnEdge(wave.spawnEdges))) this.spawnCursor++;
         }
         const reserves = wave.escalation;
@@ -488,9 +529,18 @@ export class Battle {
             this.escalationSince = this.tick;
             this.signalWarning('warning');
         }
-        if (this.tick >= this.nextEscalationSpawn) {
-            if (this.queueSpawn(reserves.enemies[this.reserveCursor % reserves.enemies.length],
-                this.spawnEdge(reserves.spawnEdges, this.reserveCursor))) this.reserveCursor++;
+        if (clear.reserveRestTicks && this.player.hp === this.maxHp && !this.warnings.length && this.enemies.length <= 1 && !this.bullets.length) this.reserveRest++;
+        else this.reserveRest = 0;
+        if (this.tick >= this.nextEscalationSpawn || (clear.reserveRestTicks && this.reserveRest >= clear.reserveRestTicks)) {
+            const size = reserves.groupSize ?? 1;
+            const group = Math.floor(this.reserveCursor / size);
+            const edge = this.spawnEdge(reserves.spawnEdges, group);
+            const end = Math.min(clear.reserves, (group + 1) * size);
+            while (this.reserveCursor < end) {
+                if (!this.queueSpawn(reserves.enemies[this.reserveCursor % reserves.enemies.length], edge)) break;
+                this.reserveCursor++;
+            }
+            this.reserveRest = 0;
             this.nextEscalationSpawn = this.tick + (reserves.spawnEvery ?? wave.spawnEvery);
         }
     }
@@ -539,18 +589,18 @@ export class Battle {
         return edges?.length ? edges[cursor % edges.length] : undefined;
     }
 
-    private queueSpawn(kind: RegularEnemyId, preferredEdge?: SpawnEdge): boolean {
+    private queueSpawn(kind: RegularEnemyId, preferredEdge?: SpawnEdge, lane?: number, inset = 0): boolean {
         const cap = this.encounterBoss?.kind === 'core' && this.encounterBoss.view.stage === 3 ? 8 : this.enemyCap;
         if (this.enemies.length + this.warnings.length >= cap) return false;
         if (kind === 'ambusher' && this.warnings.filter(warning => warning.kind === kind).length +
             this.enemies.filter(enemy => enemy.kind === kind && enemy.state === 'warn').length >= 2) return false;
-        const roll = this.random();
+        const roll = lane ?? this.random();
         const { left, right, bottom, top } = this.spawnBounds;
         const x = left + 12 + roll * (right - left - 24);
         const y = bottom + 12 + roll * (top - bottom - 24);
         const spots = [
-            { x, y: bottom + 10, edge: 'south' }, { x, y: top - 10, edge: 'north' },
-            { x: left + 10, y, edge: 'west' }, { x: right - 10, y, edge: 'east' },
+            { x, y: bottom + 10 + inset, edge: 'south' }, { x, y: top - 10 - inset, edge: 'north' },
+            { x: left + 10 + inset, y, edge: 'west' }, { x: right - 10 - inset, y, edge: 'east' },
         ].filter((position) => distance(position, this.player) >= 115
             && !this.terrain.some(rect => rect.state === 'closed' && insideRect(position, rect, 7)));
         const randomSpot = spots[Math.floor(this.random() * spots.length)];
@@ -668,6 +718,7 @@ export class Battle {
                     else {
                         enemy.x += moveX * speed;
                         enemy.y += moveY * speed;
+                        if (enemy.kind === 'crawler' && this.spec.clear?.partBudget) this.spaceDrone(enemy);
                     }
                 }
             }
@@ -685,6 +736,24 @@ export class Battle {
             this.applyTerrain(enemy, ENEMY_FIELD_MARGIN);
             if (distance(enemy, this.player) < 15) this.enemyContact(enemy);
         }
+    }
+
+    private spaceDrone(enemy: Enemy): void {
+        // Only steer the escorts. A charging enemy or locked turret keeps its actual attack path.
+        let x = 0, y = 0;
+        for (const other of this.enemies) {
+            if (enemy === other) continue;
+            const dx = enemy.x - other.x, dy = enemy.y - other.y;
+            const squared = dx * dx + dy * dy;
+            if (squared >= 18 * 18) continue;
+            if (squared < 0.01) { x += enemy.id < other.id ? -1 : 1; continue; }
+            const weight = 1 / Math.sqrt(squared) - 1 / 18;
+            x += dx * weight;
+            y += dy * weight;
+        }
+        const scale = 1.25 / Math.max(1, Math.hypot(x, y));
+        enemy.x += x * scale;
+        enemy.y += y * scale;
     }
 
     private walkToward(enemy: Enemy, target: Readonly<Position>, speed: number): void {
@@ -833,8 +902,12 @@ export class Battle {
                 }
                 return;
             }
-            const pattern: readonly BossAttack[] = unit.hp <= ENEMIES.inspector.hp / 2
-                ? ['sweep', 'charge', 'summon'] : ['sweep', 'charge'];
+            const damaged = unit.hp <= boss.maxHp / 2;
+            const opening: readonly BossAttack[] = this.rules.encounter?.inspectorOpener === 'fan'
+                ? ['fan', 'charge', 'sweep'] : ['sweep', 'fan', 'charge'];
+            const pattern: readonly BossAttack[] = this.rules.campaign
+                ? damaged ? [...opening, 'ring', 'summon'] : opening
+                : damaged ? ['sweep', 'charge', 'summon'] : ['sweep', 'charge'];
             boss.attack = pattern[boss.pattern++ % pattern.length];
             boss.phase = 'warning';
             boss.attackNumber++;
@@ -849,12 +922,17 @@ export class Battle {
         }
         if (boss.phase === 'warning' && this.tick >= boss.next) {
             boss.attackAt = this.tick;
-            this.signalEnemyAttack(boss.attack === 'charge' ? 'melee' : 'area');
-            if (boss.attack === 'summon') {
+            if (boss.attack === 'fan' || boss.attack === 'ring') {
+                boss.phase = 'volley';
+                boss.next = this.tick + 19;
+                this.fireBossVolley(unit, boss.attack, Math.atan2(unit.vy, unit.vx), false);
+            } else if (boss.attack === 'summon') {
+                this.signalEnemyAttack('area');
                 for (const add of ['crawler', 'crawler', 'charger', 'crawler'] as const) this.queueSpawn(add);
                 boss.phase = 'recover';
                 boss.next = this.tick + 29;
             } else {
+                this.signalEnemyAttack(boss.attack === 'charge' ? 'melee' : 'area');
                 boss.phase = boss.attack;
                 boss.next = this.tick + (boss.attack === 'sweep' ? 12 : BOSS_CHARGE_TICKS);
             }
@@ -862,21 +940,39 @@ export class Battle {
         if (boss.phase === 'sweep') {
             const forward = dx * unit.vx + dy * unit.vy;
             const lateral = Math.abs(dx * unit.vy - dy * unit.vx);
-            if (forward > 0 && forward <= BOSS_SWEEP_REACH && lateral < 18) this.bossHit('boss-sweep');
+            if (forward > 0 && forward <= this.inspectorSweepReach && lateral < 18) this.bossHit('boss-sweep');
         } else if (boss.phase === 'charge') {
             unit.x += unit.vx * BOSS_CHARGE_SPEED;
             unit.y += unit.vy * BOSS_CHARGE_SPEED;
             this.keepInField(unit, 21);
             if (distance(unit, this.player) < 28) this.bossHit('boss-charge');
+        } else if (boss.phase === 'volley' && this.tick === boss.attackAt! + 10
+            && (boss.attack === 'fan' || boss.attack === 'ring')) {
+            this.fireBossVolley(unit, boss.attack, Math.atan2(unit.vy, unit.vx), true);
         }
         if (this.tick < boss.next) return;
-        if (boss.phase === 'sweep' || boss.phase === 'charge') {
+        if (boss.phase === 'sweep' || boss.phase === 'charge' || boss.phase === 'volley') {
             boss.phase = 'recover';
             boss.next = this.tick + 34;
         } else if (boss.phase === 'recover') {
             boss.phase = 'patrol';
-            boss.next = this.tick + 45;
+            boss.next = this.tick + (this.rules.campaignPressure ? unit.hp <= boss.maxHp / 2 ? 19 : 30 : 45);
         }
+    }
+
+    private fireBossVolley(origin: Readonly<Position>, pattern: BossVolley, heading: number, second: boolean): void {
+        const fan = pattern === 'fan';
+        const enraged = this.rules.campaignPressure && this.boss && this.boss.unit.hp <= this.boss.maxHp / 2;
+        const count = fan ? (enraged ? 7 : 5) : (enraged ? 12 : 8);
+        const separation = fan ? 0.25 : 2 * Math.PI / count;
+        const start = heading - (fan ? separation * (count - 1) / 2 : 0) + (second ? separation / 2 : 0);
+        for (let i = 0; i < count && this.bullets.length < MAX_BULLETS; i++) {
+            const angle = start + i * separation;
+            const dx = Math.cos(angle), dy = Math.sin(angle);
+            const speed = fan ? 4 : 3.1;
+            this.bullets.push({ x: origin.x + dx * 20, y: origin.y + dy * 20, vx: dx * speed, vy: dy * speed, boss: true });
+        }
+        this.signalEnemyAttack('projectile');
     }
 
     private bossHit(source: HitSource): void {
@@ -948,6 +1044,34 @@ export class Battle {
         return picked;
     }
 
+    private rangedTarget(tool: ToolId, reach: number, stats?: WeaponEquipmentStats): Enemy | undefined {
+        const near = this.nearest(this.player, reach);
+        if (!near || !this.rules.sweptMelee || (tool !== 'hydraulic_nailer' && tool !== 'riveter' && tool !== 'torch')) return near;
+        // Keep facing the nearest threat, but pick the better lane through that group.
+        const candidates = this.enemies.filter(e => this.canTarget(e) && distance(e, this.player) < reach);
+        const width = (tool === 'hydraulic_nailer' ? 9 : 11) + (stats?.spread ?? 0);
+        const limit = tool === 'torch' ? candidates.length : (tool === 'riveter' ? 3 : 2) + (stats?.pierce ?? 0);
+        const nx = near.x - this.player.x, ny = near.y - this.player.y;
+        const nearRange = Math.hypot(nx, ny);
+        let best = near, bestCount = 0, bestRange = Infinity;
+        for (const center of candidates) {
+            const dx = center.x - this.player.x, dy = center.y - this.player.y, range = Math.hypot(dx, dy);
+            if (range < .01 || dx * nx + dy * ny < .5 * nearRange * range) continue;
+            const ux = dx / range, uy = dy / range;
+            let count = 0;
+            for (const other of candidates) {
+                const x = other.x - this.player.x, y = other.y - this.player.y, along = x * ux + y * uy;
+                const lateral = Math.abs(x * uy - y * ux);
+                if (along >= 0 && lateral <= (tool === 'torch' ? along * (.7 + (stats?.spread ?? 0)) : width)) count++;
+                if (count === limit) break;
+            }
+            if (count > bestCount || count === bestCount && range < bestRange) {
+                best = center; bestCount = count; bestRange = range;
+            }
+        }
+        return best;
+    }
+
     private advanceMelee(priorEnemies: ReadonlyMap<Enemy, Position>, priorPlayer: Readonly<Position>): void {
         for (const active of this.activeMelee) {
             const { cast } = active;
@@ -983,11 +1107,15 @@ export class Battle {
                 active.struck.add(enemy);
                 const point = { x: from.x + (to.x - from.x) * time, y: from.y + (to.y - from.y) * time };
                 const markedBonus = active.arcLink && enemy.marked ? 1 : 0;
-                if (active.marks) enemy.marked = true;
+                const firstMark = active.marks && !enemy.marked;
                 if (!this.hit(enemy, active.damage(enemy, center) + active.bonus + markedBonus, point, 'arc', false, 'melee')) continue;
+                if (firstMark) enemy.marked = true;
+                const impact = this.effects[this.effects.length - 1];
+                if (impact?.shape === 'link' && (markedBonus || firstMark)) impact.mark = markedBonus ? 'boosted' : 'applied';
                 if (markedBonus) this.triggers.arc++;
-                if (active.landed) continue;
-                active.landed = true;
+                active.landed++;
+                if (active.landed === 2 && this.runtime[cast.slot].equipment?.wideSweep) this.runtime[cast.slot].wideSweepReady = true;
+                if (active.landed !== 1) continue;
                 if (cast.tool === 'bypass_wrench') {
                     const runtime = this.runtime[cast.slot];
                     runtime.combo = (runtime.combo + 1) % 4;
@@ -1010,7 +1138,7 @@ export class Battle {
         const spec = TOOLS[tool.id];
         const { reach, interval, equipment } = runtime;
         const meleeTool = this.rules.sweptMelee && isMeleeTool(tool.id) ? tool.id : undefined;
-        const target = meleeTool ? this.swingTarget(slot, reach) : this.nearest(this.player, reach);
+        const target = meleeTool ? this.swingTarget(slot, reach) : this.rangedTarget(tool.id, reach, equipment);
         if (trackingCombo) {
             if (target) runtime.lastInMelee = this.tick;
             else if (this.tick - runtime.lastInMelee >= 2 * TICK_RATE) runtime.combo = 0;
@@ -1025,14 +1153,21 @@ export class Battle {
         const ux = (target.x - this.player.x) / aim, uy = (target.y - this.player.y) / aim;
         this.playerAttack = { tick: this.tick, x: ux, y: uy };
         this.playerAttackTool = tool.id;
-        const cast = { tool: tool.id, slot, x: this.player.x, y: this.player.y, ux, uy, targetRange, tick: this.tick };
+        const parts = tool.attachments;
+        const effectBoost = parts?.filter(Boolean).length ?? 0;
+        const modified = parts?.includes(`${tool.id}/signature`) || parts?.includes('wrench/flywheel')
+            || parts?.includes('hydraulic_nailer/finisher') || parts?.includes('split_probe/handling');
+        const heatTool = equipment?.heat ?? (this.heat && tool.mods.some((id) => id === 'exchanger' || id === 'valve' || id === 'ceramic'));
+        const powered = tool.id === 'wrench' && runtime.wideSweepReady || tool.id === 'bypass_wrench' && runtime.combo === 3
+            || tool.id === 'torch' && heatTool && runtime.heat >= 3;
+        const cast: WeaponCast = { tool: tool.id, slot, x: this.player.x, y: this.player.y, ux, uy, targetRange, tick: this.tick,
+            ...(effectBoost ? { effectBoost } : {}), ...(modified ? { modified: true } : {}), ...(powered ? { powered: true } : {}) };
         this.weaponAttackCue = WEAPON_ATTACK_CUES[tool.id];
         this.weaponAttackSerial++;
         if (runtime.cooling) {
             this.heatRecovered = true;
             runtime.cooling = false;
         }
-        const heatTool = equipment?.heat ?? (this.heat && tool.mods.some((id) => id === 'exchanger' || id === 'valve' || id === 'ceramic'));
         const damage = (equipment?.damage ?? spec.damage) + (heatTool && runtime.heat >= 3 ? 1 : 0);
         const close = equipment?.close ?? Number(tool.tuning?.finisher === 'close');
         const far = equipment?.far ?? Number(tool.tuning?.finisher === 'edge');
@@ -1053,11 +1188,15 @@ export class Battle {
         const linked = equipment?.arcLink ?? this.arc;
         if (meleeTool) {
             const melee = createMeleeMotion(meleeTool, runtime.swings++, weaponDock(slot, this.tools.length, this.tick),
-                cast, ux, uy, reach, this.field);
-            const attack = { ...cast, tool: meleeTool, melee };
+                cast, ux, uy, reach, this.field, targetRange, runtime.wideSweepReady);
+            const swingBonus = runtime.wideSweepReady ? 2 : 0;
+            if (runtime.wideSweepReady) this.wideSweeps++;
+            runtime.wideSweepReady = false;
+            const attack = { ...cast, tool: meleeTool, melee,
+                ...(swingBonus ? { effectBoost: Math.min(3, effectBoost + 2) } : {}) };
             this.weaponCasts.push(attack);
-            this.activeMelee.push({ cast: attack, damage: damageAt, marks, arcLink: linked, landed: false, struck: new Set(),
-                bonus: meleeTool === 'bypass_wrench' && runtime.combo === 3 ? 3 + (equipment?.combo ?? 0) : 0 });
+            this.activeMelee.push({ cast: attack, damage: damageAt, marks, arcLink: linked, landed: 0, struck: new Set(),
+                bonus: meleeTool === 'bypass_wrench' && runtime.combo === 3 ? 3 + (equipment?.combo ?? 0) : swingBonus });
             runtime.next = Math.max(runtime.next, this.tick + melee.last + MELEE_RETURN_TICKS);
             return;
         }
@@ -1144,7 +1283,8 @@ export class Battle {
         if (enemy.hp <= 0 || enemy.kind === 'inspector' || enemy.nextShift && enemy.nextShift > this.tick) return;
         const range = distance(enemy, this.player);
         if (!range) return;
-        const displacement = amount < 0 ? Math.min(-amount, Math.max(0, range - 12)) : amount;
+        // Reel enemies into the melee arc while leaving clearance for the next walking step.
+        const displacement = amount < 0 ? Math.min(-amount, Math.max(0, range - 30)) : amount;
         const direction = amount < 0 ? -1 / range : 1 / range;
         const dx = (enemy.x - this.player.x) * direction, dy = (enemy.y - this.player.y) * direction;
         const travel = clipTerrainReach(enemy, dx, dy, displacement, this.terrain, 7);
@@ -1210,8 +1350,10 @@ export class Battle {
         if (enemy.kind === 'reclaimer' && enemy.state !== 'walk') this.cutSerial++;
         this.enemies.splice(this.enemies.indexOf(enemy), 1);
         if (!(enemy === this.boss?.unit && this.encounterBoss?.kind === 'core')) this.defeatedEnemies.push(enemy);
-        this.parts.push({ x: enemy.x, y: enemy.y });
         this.kills++;
+        const budget = this.spec.clear?.partBudget;
+        if (budget === undefined || !this.killTarget || Math.ceil(this.kills * budget / this.killTarget)
+            > Math.ceil((this.kills - 1) * budget / this.killTarget)) this.parts.push({ x: enemy.x, y: enemy.y });
         return true;
     }
 

@@ -135,6 +135,10 @@ def pack_items(root, spec, out):
         x, y = (index % columns) * cell, (index // columns) * cell
         atlas.alpha_composite(sprite, (x, y))
         frames[name] = [x, y, cell, cell]
+    for name, target in spec.get("aliases", {}).items():
+        if name in frames:
+            raise ValueError(f"Item alias {name} would overwrite a packed frame")
+        frames[name] = frames[target]
     atlas.save(out / "workshop.png", optimize=True)
     write_json(out / "frames.json", frames)
     return sources.keys()

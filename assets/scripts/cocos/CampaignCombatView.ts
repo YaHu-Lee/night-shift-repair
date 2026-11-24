@@ -25,6 +25,10 @@ const LIFT_BOLT = new Color(229, 176, 101);
 const SHELL_BODY = new Color(250, 149, 82);
 const SHELL_CORE = new Color(255, 232, 170);
 const SHELL_WAKE = new Color(243, 122, 91, 124);
+const THREAT_BORDER = new Color(27, 20, 25, 222);
+const PLAYER_HIT = new Color(255, 102, 91);
+const QUIET_WARNING = new Color(255, 178, 105, 120);
+const BOSS_SHELL = new Color(226, 133, 218);
 type Escort = NonNullable<MissionView['escort']>;
 type TerminalMark = 'medical' | 'broadcast' | 'dots' | 'stripes';
 type EncounterProp = 'terminal' | 'battery' | 'lift' | 'relay' | 'valve' | 'barrier';
@@ -33,26 +37,25 @@ type PropPainter = (key: EncounterProp, x: number, y: number, size: number) => b
 export function drawPixelEnemyAim(g: Graphics, x: number, y: number, dx: number, dy: number,
     reach: number, kind: 'charger' | 'turret', untilAttack: number): void {
     const charge = kind === 'charger';
-    const alpha = untilAttack <= 6 ? 232 : 160;
+    const alpha = untilAttack <= 6 ? 193 : 118;
+    const end = Math.min(reach, charge ? 40 : 32);
     g.fillColor = charge ? new Color(255, 137, 102, alpha) : new Color(255, 197, 108, alpha);
     const block = (forward: number, side: number) => {
-        g.rect(Math.round(x + dx * forward - dy * side) - 1, Math.round(y + dy * forward + dx * side) - 1, 2, 2);
+        g.rect(Math.round(x + dx * forward - dy * side) - 1,
+            Math.round(y + dy * forward + dx * side) - 1, 2, 2);
     };
-    if (charge) {
-        for (let i = 8; i + 4 <= reach; i += 12) {
-            block(i, -4);
-            block(i, 4);
-            block(i + 2, -2);
-            block(i + 2, 2);
-            block(i + 4, 0);
-        }
-    } else {
-        for (let i = 3; i + 2 <= reach; i += 8) {
+    for (let i = 13; i + 4 <= end; i += 10) {
+        if (charge) {
+            block(i, -3);
+            block(i, 3);
+            block(i + 2, -1);
+            block(i + 2, 1);
+        } else {
             block(i, 0);
             block(i + 2, 0);
         }
     }
-    block(reach, 0);
+    if (end >= 8) block(end, 0);
     g.fill();
 }
 
@@ -65,12 +68,45 @@ export function drawPixelEnemyShells(g: Graphics, bullets: Readonly<Battle['bull
         g.rect(Math.round(x - shell.vx) - 1, Math.round(y - shell.vy) - 1, 3, 3);
     }
     g.fill();
-    g.fillColor = SHELL_BODY;
-    for (const shell of bullets) g.rect(Math.round(shell.x - offsetX) - 2, Math.round(shell.y - offsetY) - 2, 5, 5);
+    g.fillColor = THREAT_BORDER;
+    for (const shell of bullets) g.rect(Math.round(shell.x - offsetX) - 3, Math.round(shell.y - offsetY) - 3, 7, 7);
     g.fill();
+    for (const [kind, color] of [[undefined, SHELL_BODY], [true, BOSS_SHELL]] as const) {
+        g.fillColor = color;
+        for (const shell of bullets) {
+            if (shell.boss === kind) g.rect(Math.round(shell.x - offsetX) - 2, Math.round(shell.y - offsetY) - 2, 5, 5);
+        }
+        g.fill();
+    }
     g.fillColor = SHELL_CORE;
     for (const shell of bullets) g.rect(Math.round(shell.x - offsetX) - 1, Math.round(shell.y - offsetY) - 1, 3, 3);
     g.fill();
+}
+
+export function drawBossVolleyCue(g: Graphics, x: number, y: number, facing: number, ring: boolean, until: number): void {
+    g.fillColor = new Color(226, 151, 218, until <= 6 ? 201 : 120);
+    for (const offset of ring ? [0, Math.PI / 2, Math.PI, -Math.PI / 2] : [-0.3, 0, 0.3]) {
+        const angle = facing + offset;
+        g.rect(Math.round(x + Math.cos(angle) * 19) - 1, Math.round(y + Math.sin(angle) * 19) - 1, 3, 3);
+    }
+    g.fill();
+}
+
+export function drawPlayerHit(g: Graphics, x: number, y: number, age: number): void {
+    if (age < 0 || age >= 6) return;
+    x = Math.round(x);
+    y = Math.round(y);
+    const extent = 11 + Math.floor(age);
+    for (const [size, color] of [[4, THREAT_BORDER], [2, PLAYER_HIT]] as const) {
+        g.fillColor = new Color(color.r, color.g, color.b, Math.round(color.a * (1 - age / 6)));
+        for (const side of [-1, 1]) {
+            const px = x + side * extent - size / 2;
+            g.rect(px, y - 2, size, 8);
+            g.rect(px - (side > 0 ? 3 : 0), y + 6, size + 3, size);
+            g.rect(px - (side > 0 ? 3 : 0), y - 2, size + 3, size);
+        }
+        g.fill();
+    }
 }
 
 export function drawPixelSpawn(g: Graphics, x: number, y: number, untilSpawn: number, color: Color): void {
@@ -87,7 +123,7 @@ export function drawPixelSpawn(g: Graphics, x: number, y: number, untilSpawn: nu
 }
 
 export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, stageId: string, modelProps = false,
-    paint?: PropPainter): void {
+    paint?: PropPainter, threat: Graphics = g): void {
     const { terrainRects: terrain, mission, chapterBoss: boss, tick, enemies, searchlight } = battle;
     if (boss?.kind === 'core' && boss.hp <= 0) drawDistrictFeeds(g, mission?.points ?? []);
     if (searchlight) {
@@ -124,12 +160,16 @@ export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, sta
     const practice = battle.practiceWarning;
     const hazard = boss?.hazard ?? practice;
     if (hazard) {
-        drawBossHazard(g, hazard, !modelProps);
+        drawBossHazard(g, hazard, !modelProps, threat);
         if (hazard.shape === 'rect' && (practice || boss?.kind === 'gatekeeper' && boss.facing === undefined)) {
             drawGatekeeperRail(g, hazard);
         }
     }
-    drawEnemyTelegraphs(g, enemies, mission, tick, !modelProps);
+    if (!modelProps && boss?.volley?.state === 'warning' && battle.boss) {
+        const { x, y } = battle.boss.unit;
+        drawBossVolleyCue(threat, x, y, boss.facing ?? 0, boss.volley.pattern === 'ring', boss.phaseEndsAt - tick);
+    }
+    drawEnemyTelegraphs(g, enemies, mission, tick, !modelProps, threat);
     if (mission?.thermal) drawThermalSignals(g, mission.thermal, mission.points, tick);
     const escort = mission?.escort;
     if (escort) {
@@ -352,28 +392,30 @@ function drawThermalSignals(g: Graphics, { previous, next, radius }: NonNullable
     g.stroke();
 }
 
-function drawBossHazard(g: Graphics, hazard: ChapterHazard, pixel: boolean): void {
+function drawBossHazard(g: Graphics, hazard: ChapterHazard, pixel: boolean, threat: Graphics): void {
     const hot = hazard.state === 'active';
     g.fillColor = hot ? new Color(247, 79, 59, 115) : new Color(255, 181, 61, 55);
     g.strokeColor = hot ? RED : GOLD; g.lineWidth = 2.5;
     switch (hazard.shape) {
         case 'rect':
-            g.rect(hazard.left, hazard.bottom, hazard.right - hazard.left, hazard.top - hazard.bottom);
-            g.fill();
-            if (pixel) drawPixelLaneEdges(g, hazard, hot);
+            if (hot || !pixel) {
+                g.rect(hazard.left, hazard.bottom, hazard.right - hazard.left, hazard.top - hazard.bottom);
+                g.fill();
+            }
+            if (pixel) drawPixelLaneEdges(threat, hazard, hot);
             else {
                 g.rect(hazard.left, hazard.bottom, hazard.right - hazard.left, hazard.top - hazard.bottom);
                 g.stroke();
             }
             break;
         case 'sector':
-            wedge(g, hazard.x, hazard.y, hazard.radius, hazard.from, hazard.sweep); g.fill();
+            if (hot || !pixel) { wedge(g, hazard.x, hazard.y, hazard.radius, hazard.from, hazard.sweep); g.fill(); }
             if (pixel) {
                 const { x, y, radius, from, sweep } = hazard;
-                const color = hot ? RED : GOLD;
-                drawPixelArcEdge(g, x, y, radius, from, sweep, color, hot ? 3 : 12);
+                const color = hot ? RED : QUIET_WARNING;
+                drawPixelArcEdge(threat, x, y, radius, from, sweep, color, hot ? 3 : 18);
                 for (const ray of [from + 0.018, from + sweep - 0.018]) {
-                    drawPixelCable(g, x, y, x + Math.cos(ray) * (radius - 3), y + Math.sin(ray) * (radius - 3), color, hot);
+                    drawPixelCable(threat, x, y, x + Math.cos(ray) * (radius - 3), y + Math.sin(ray) * (radius - 3), color, hot);
                 }
             } else {
                 wedge(g, hazard.x, hazard.y, hazard.radius, hazard.from, hazard.sweep); g.stroke();
@@ -388,7 +430,7 @@ function drawBossHazard(g: Graphics, hazard: ChapterHazard, pixel: boolean): voi
                 g.moveTo(hazard.x, hazard.y); g.lineTo(hazard.end.x, hazard.end.y); g.stroke();
                 g.lineCap = cap;
             }
-            if (pixel) drawPixelCable(g, hazard.x, hazard.y, hazard.end.x, hazard.end.y, GOLD, hot);
+            if (pixel) drawPixelCable(threat, hazard.x, hazard.y, hazard.end.x, hazard.end.y, hot ? RED : QUIET_WARNING, hot);
             else {
                 g.strokeColor = GOLD; g.lineWidth = hot ? 3.5 : 2.5;
                 g.moveTo(hazard.x, hazard.y); g.lineTo(hazard.end.x, hazard.end.y); g.stroke();
@@ -424,23 +466,27 @@ function drawPixelCable(g: Graphics, x: number, y: number, endX: number, endY: n
 function drawPixelLaneEdges(g: Graphics, lane: Extract<ChapterHazard, { shape: 'rect' }>, hot: boolean): void {
     const { left, right, bottom, top } = lane;
     const width = right - left, height = top - bottom;
-    const thickness = Math.min(2, width / 2, height / 2);
+    const thickness = Math.min(hot ? 4 : 2, width / 2, height / 2);
     if (thickness <= 0) return;
     const horizontal = width >= height;
     const length = horizontal ? width : height;
-    const step = hot ? length : 14;
-    g.fillColor = hot ? RED : GOLD;
-    for (let i = 0; i < length; i += step) {
-        const segment = Math.min(hot ? length : 8, length - i);
-        if (horizontal) {
-            g.rect(left + i, bottom, segment, thickness);
-            g.rect(left + i, top - thickness, segment, thickness);
-        } else {
-            g.rect(left, bottom + i, thickness, segment);
-            g.rect(right - thickness, bottom + i, thickness, segment);
+    const step = hot ? length : 20;
+    const strokes = hot ? [[thickness, THREAT_BORDER], [thickness / 2, RED]] as const : [[thickness, QUIET_WARNING]] as const;
+    for (const [size, color] of strokes) {
+        const inset = (thickness - size) / 2;
+        g.fillColor = color;
+        for (let i = 0; i < length; i += step) {
+            const segment = Math.min(hot ? length : 8, length - i);
+            if (horizontal) {
+                g.rect(left + i, bottom + inset, segment, size);
+                g.rect(left + i, top - inset - size, segment, size);
+            } else {
+                g.rect(left + inset, bottom + i, size, segment);
+                g.rect(right - inset - size, bottom + i, size, segment);
+            }
         }
+        g.fill();
     }
-    g.fill();
 }
 
 function drawGatekeeperRail(g: Graphics, hazard: Extract<ChapterHazard, { shape: 'rect' }>): void {
@@ -563,7 +609,7 @@ function drawMissionScan(g: Graphics, scan: NonNullable<MissionView['scan']>): v
 }
 
 function drawEnemyTelegraphs(g: Graphics, enemies: Battle['enemies'], mission: MissionView | null, tick: number,
-    pixel: boolean): void {
+    pixel: boolean, threat: Graphics): void {
     for (const enemy of enemies) {
         const { x, y, kind, state } = enemy;
         const tether = enemy.tether ?? mission?.escort;
@@ -584,12 +630,12 @@ function drawEnemyTelegraphs(g: Graphics, enemies: Battle['enemies'], mission: M
                 g.strokeColor = new Color(251, 216, 148, 90); g.lineWidth = 24;
                 g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
                 g.lineCap = cap;
-            } else {
+            } else if (!pixel) {
                 g.strokeColor = INK; g.lineWidth = 5;
                 g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
             }
             const color = pulling || tick % 7 < 4 ? GOLD : DIM;
-            if (pixel) drawPixelCable(g, x, y, target.x, target.y, color, pulling);
+            if (pixel) drawPixelCable(threat, x, y, target.x, target.y, pulling ? RED : QUIET_WARNING, pulling);
             else {
                 g.strokeColor = color; g.lineWidth = pulling ? 3 : 2;
                 g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
@@ -597,9 +643,9 @@ function drawEnemyTelegraphs(g: Graphics, enemies: Battle['enemies'], mission: M
         } else if (kind === 'jammer' && state !== 'walk') {
             const open = state === 'dash';
             g.fillColor = new Color(169, 105, 243, open ? 38 : 14);
-            g.circle(x, y, 52); g.fill();
+            if (open || !pixel) { g.circle(x, y, 52); g.fill(); }
             g.strokeColor = open ? JAMMED : GOLD; g.lineWidth = 1.5;
-            if (pixel) drawPixelArcEdge(g, x, y, 52, 0, 2 * Math.PI, g.strokeColor, open ? 3 : 9);
+            if (pixel) drawPixelArcEdge(threat, x, y, 52, 0, 2 * Math.PI, open ? JAMMED : QUIET_WARNING, open ? 3 : 14);
             else { g.circle(x, y, 52); g.stroke(); }
             g.lineWidth = 2;
             g.moveTo(x, y + 8); g.lineTo(x + 7, y - 4); g.lineTo(x - 7, y - 4); g.close(); g.stroke();

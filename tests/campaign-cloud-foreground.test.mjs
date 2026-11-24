@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { FIELD } from '../.m0-build/m1/content.js';
+import { FIELD, TOOLS, isTool } from '../.m0-build/m1/content.js';
 
 const guestPrefix = 'night-shift.campaign.run.';
 const stage = { id: '01', arena: 'yard', rules: {} };
@@ -20,7 +20,7 @@ function lifecycle() {
             ccclass: () => value => value, requireComponent: () => value => value, property() {},
         } },
         '../campaign/CampaignCatalog': { CAMPAIGN_CATALOG: [stage], rulesForCampaign: entry => entry.rules },
-        '../m1/content': { FIELD },
+        '../m1/content': { FIELD, TOOLS, isTool },
         '../m1/Run': { Run: class { constructor(platform) { this.platform = platform; } } },
         '../platform/platform': { makePlatform: (_host, namespace) => ({ namespace }) },
         './WorkshopBench': { BENCH: {}, benchPlate() {} },

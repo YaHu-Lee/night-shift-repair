@@ -191,7 +191,8 @@ export class PrototypeActorMotion {
             this.turn(motion, aim);
             const elapsed = Math.max(0, tick - phaseStartedAt);
             const duration = Math.max(1, phaseEndsAt - phaseStartedAt);
-            if (hazard) return this.result(motion, hazard.state === 'warning' ? 'windup' : 'strike', elapsed, duration, hit, true);
+            const attack = chapter.volley ?? hazard;
+            if (attack) return this.result(motion, attack.state === 'warning' ? 'windup' : 'strike', elapsed, duration, hit, true);
             if (hit < HIT_TICKS) return this.result(motion, 'hit', hit, HIT_TICKS, hit, false);
             if (chapter.recovering) return this.result(motion, 'recover', elapsed, duration, hit, false);
             return this.locomotion(motion, hit);
@@ -204,8 +205,8 @@ export class PrototypeActorMotion {
             return this.result(motion, 'windup', duration - (boss.next - tick), duration, hit, locked);
         }
         const attack = age(tick, boss.attackAt);
-        if (boss.phase === 'charge' || boss.phase === 'sweep' || boss.attack === 'summon' && attack < 7) {
-            const duration = boss.phase === 'charge' ? 23 : boss.phase === 'sweep' ? 12 : 7;
+        if (boss.phase === 'charge' || boss.phase === 'sweep' || boss.phase === 'volley' || boss.attack === 'summon' && attack < 7) {
+            const duration = boss.phase === 'charge' ? 23 : boss.phase === 'sweep' ? 12 : boss.phase === 'volley' ? 19 : 7;
             return this.result(motion, 'strike', attack, duration, hit, locked);
         }
         if (hit < HIT_TICKS) return this.result(motion, 'hit', hit, HIT_TICKS, hit, locked);

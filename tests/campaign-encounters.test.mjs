@@ -444,6 +444,71 @@ test('open-combat bosses chase, telegraph a lock, can be damaged from the front,
     }
 });
 
+test('the inspector alternates close attacks with locked fan bursts and uses radial bursts below half health', () => {
+    const { rules, finalWave } = CAMPAIGN_CATALOG[0];
+    const battle = new Battle(finalWave, 105, [], rules);
+    const boss = battle.boss;
+    const until = predicate => {
+        for (let step = 0; step < 360 && !predicate(); step++) battle.step(0, 0);
+        assert.ok(predicate(), `did not reach attack by tick ${battle.tick}`);
+    };
+    until(() => boss.phase === 'warning');
+    assert.equal(boss.attack, 'sweep');
+    until(() => boss.phase === 'warning' && boss.attack === 'fan');
+    const { vx, vy } = boss.unit;
+    battle.player.x += 56;
+    until(() => boss.phase === 'volley');
+    const first = battle.bullets.filter(shell => shell.boss);
+    assert.equal(first.length, 5);
+    assert.ok(Math.abs(first[2].vx / 4 - vx) < 1e-6 && Math.abs(first[2].vy / 4 - vy) < 1e-6);
+    tick(10, () => battle.step(0, 0));
+    assert.equal(battle.bullets.filter(shell => shell.boss && !first.includes(shell)).length, 5);
+
+    boss.unit.hp /= 2;
+    until(() => boss.phase === 'warning' && boss.attack === 'ring');
+    const previous = new Set(battle.bullets);
+    until(() => boss.phase === 'volley');
+    const ring = battle.bullets.filter(shell => shell.boss && !previous.has(shell));
+    assert.equal(ring.length, 12);
+    for (let index = 0; index < 6; index++) {
+        assert.ok(Math.hypot(ring[index].vx + ring[index + 6].vx, ring[index].vy + ring[index + 6].vy) < 1e-6);
+    }
+    const shell = ring[0], hp = battle.player.hp;
+    Object.assign(battle.player, { x: shell.x + shell.vx, y: shell.y + shell.vy, invulnerableUntil: 0 });
+    battle.step(0, 0);
+    assert.equal(battle.player.hp, hp - 1);
+    assert.equal(battle.lastHit, 'projectile');
+});
+
+test('chapter bosses alternate their skill with two staggered projectile bursts', () => {
+    for (const [stageId, expected] of [['03', 'fan'], ['04', 'fan'], ['05', 'ring'], ['07', 'ring'],
+        ['10', 'ring'], ['15', 'ring'], ['18', 'fan'], ['20', 'fan']]) {
+        const { rules, finalWave } = CAMPAIGN_CATALOG.find(stage => stage.id === stageId);
+        const battle = new Battle(finalWave, 105, [], rules);
+        const count = expected === 'fan' ? 5 : 8;
+        const until = predicate => {
+            for (let step = 0; step < 360 && !predicate(); step++) battle.step(0, 0);
+            assert.ok(predicate(), stageId);
+        };
+        until(() => battle.chapterBoss.hazard?.state === 'warning');
+        until(() => battle.chapterBoss.volley?.state === 'warning');
+        assert.equal(battle.chapterBoss.volley.pattern, expected, stageId);
+        assert.equal(battle.bullets.filter(shell => shell.boss).length, 0, stageId);
+        const facing = battle.chapterBoss.facing;
+        battle.player.x += 55;
+        until(() => battle.chapterBoss.volley?.state === 'active');
+        assert.equal(battle.chapterBoss.facing, facing, stageId);
+        const first = battle.bullets.filter(shell => shell.boss);
+        assert.equal(first.length, count, stageId);
+        tick(10, () => battle.step(0, 0));
+        const second = battle.bullets.filter(shell => shell.boss && !first.includes(shell));
+        assert.equal(second.length, count, stageId);
+        assert.notEqual(second[0].vx, first[0].vx, stageId);
+        until(() => battle.chapterBoss.recovering);
+        assert.equal(battle.chapterBoss.volley, undefined, stageId);
+    }
+});
+
 test('the open core changes attacks as health drops without requiring terminals', () => {
     const { rules, finalWave } = CAMPAIGN_CATALOG.at(-1);
     for (const [health, stage, shape] of [[0.71, 1, 'sector'], [0.7, 2, 'tether'], [0.35, 3, 'rect']]) {
@@ -459,6 +524,23 @@ test('the open core changes attacks as health drops without requiring terminals'
             assert.equal(battle.chapterBoss.hazard.right, CAMPAIGN_FIELD.right);
         }
     }
+});
+
+test('the core still introduces the tether and lane when a burst crosses both thresholds', () => {
+    const { rules, finalWave } = CAMPAIGN_CATALOG.at(-1);
+    const battle = new Battle(finalWave, 42, [], rules);
+    const advanceToWarning = (shape, maxTicks) => {
+        for (let step = 0; step < maxTicks && !(battle.chapterBoss.hazard?.state === 'warning'
+            && battle.chapterBoss.hazard.shape === shape); step++) battle.step(0, 0);
+        assert.equal(battle.chapterBoss.hazard?.state, 'warning');
+        assert.equal(battle.chapterBoss.hazard?.shape, shape);
+    };
+    advanceToWarning('sector', 100);
+    battle.boss.unit.hp = battle.chapterBoss.maxHp * 0.25;
+    advanceToWarning('tether', 240);
+    assert.equal(battle.chapterBoss.stage, 2);
+    advanceToWarning('rect', 240);
+    assert.equal(battle.chapterBoss.stage, 3);
 });
 
 test('legacy gatekeeper rehearsal delays only pending turrets and previews the live warning', () => {

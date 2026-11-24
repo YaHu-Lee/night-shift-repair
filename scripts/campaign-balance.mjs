@@ -47,7 +47,7 @@ function hazardDepth(hazard, position) {
     return Math.min(hazard.radius - distanceFromOrigin, distanceFromOrigin * Math.sin(edgeAngle));
 }
 
-function chooseDestination(battle, tool, equippedReach) {
+export function chooseDestination(battle, tool, equippedReach, groupEnemies = false) {
     const { player, tick, chapterBoss, boss, field } = battle;
     const hazard = chapterBoss?.hazard;
     let target;
@@ -83,6 +83,16 @@ function chooseDestination(battle, tool, equippedReach) {
     for (const candidate of candidates) {
         const point = towards(player, candidate, 39);
         let score = -urgency * Math.max(0, distance(point, target) - desiredRange);
+        if (groupEnemies && !boss && target) {
+            // Approach the outside of a pack so multiple targets are on the same side of the swing.
+            const dx = target.x - point.x, dy = target.y - point.y;
+            const length = Math.hypot(dx, dy) || 1;
+            for (const enemy of battle.enemies) {
+                const ex = enemy.x - point.x, ey = enemy.y - point.y, gap = Math.hypot(ex, ey);
+                if (gap > weaponReach || gap < 22) continue;
+                if (dx * ex + dy * ey > length * gap * 0.5) score += 9;
+            }
+        }
         const exposed = hazardDepth(hazard, point);
         if (exposed > 0) score -= (hazard.state === 'active' ? 110 : 55) + 2.6 * exposed;
         for (const bullet of battle.bullets) {
@@ -99,7 +109,7 @@ function chooseDestination(battle, tool, equippedReach) {
                 }
                 if (!chapterBoss && (boss.phase === 'warning' && boss.attack === 'sweep'
                     || boss.phase === 'sweep' || boss.phase === 'charge')) {
-                    const end = { x: enemy.x + 230 * enemy.vx, y: enemy.y + 230 * enemy.vy };
+                    const end = { x: enemy.x + battle.inspectorSweepReach * enemy.vx, y: enemy.y + battle.inspectorSweepReach * enemy.vy };
                     if (distanceToSegment(point, enemy, end) < 22) score -= 87;
                 }
                 continue;
@@ -146,7 +156,7 @@ function equipmentTargets(shop, item) {
         .map(({ slot }) => ({ kind: 'attachment', weapon: index, slot })));
 }
 
-function equipCampaignGear(run, firstPair) {
+export function equipCampaignGear(run, firstPair, limit = Infinity) {
     const shop = run.equipmentShop;
     const weaponPriority = ['induction', 'riveter', 'torch', 'arc_gun', 'split_probe'];
     const gearPriority = ['gear/padding', 'gear/runner', 'gear/guard', 'gear/pulse', 'gear/pickup', 'gear/sorter'];
@@ -159,6 +169,7 @@ function equipCampaignGear(run, firstPair) {
     };
     let purchases = 0;
     for (const item of [...shop.offers].sort((first, second) => priority(first) - priority(second))) {
+        if (purchases >= limit) break;
         const target = equipmentTargets(run.equipmentShop, item).find(slot => run.previewEquipment(item.id, slot)?.allowed);
         if (target && run.buyEquipment(item.id, target, run.data.revision)) purchases++;
     }

@@ -6930,6 +6930,10 @@
     "source": "sources/pickups-gear.png",
     "columns": 4,
     "longest": 25,
+    "aliases": {
+      "wrench/dispatch": "wrench/alternate",
+      "wrench/flywheel": "wrench/finisher"
+    },
     "items": {
       "scrap": {
         "crop": [

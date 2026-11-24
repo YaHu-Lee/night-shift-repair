@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Campaign, CAMPAIGN_STAGES } from '../.m0-build/campaign/Campaign.js';
 import { CAMPAIGN_CATALOG } from '../.m0-build/campaign/CampaignCatalog.js';
 import { Battle } from '../.m0-build/m1/Battle.js';
-import { ATTACHMENTS, GEAR, attachmentIdsForWeapon, createEquipment, equipmentBuilds, openEquipmentSlots, resolveEquipment } from '../.m0-build/m1/Equipment.js';
+import { ATTACHMENTS, GEAR, attachmentIdsForWeapon, createEquipment, equipmentBuilds, openEquipmentSlots, resolveEquipment, rollEquipmentOffers } from '../.m0-build/m1/Equipment.js';
 import { Run } from '../.m0-build/m1/Run.js';
 import { CAMPAIGN_01_RULES, M2_RULES, TOOLS, isTool } from '../.m0-build/m1/content.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
@@ -36,6 +36,48 @@ function settle(run, earned = 12) {
 function next(run) {
     assert.ok(run.nextWave(run.data.revision));
 }
+
+test('seeded finisher offers do not depend on which of six weapons was installed first', () => {
+    const { equipment } = createEquipment('wrench', {});
+    const ids = Object.keys(TOOLS).slice(0, 6);
+    const seen = new Set();
+    function shelf(order, seed) {
+        const tools = order.map(id => ({ id, mods: [], attachments: [null, null, null] }));
+        return rollEquipmentOffers({ tools, equipment, wave: 4, weaponLimit: 6, route: 'arc', parts: 50 }, ids, seed, false);
+    }
+    for (let seed = 0; seed < 80; seed++) {
+        const row = shelf(ids, seed);
+        assert.deepEqual(row, shelf([...ids].reverse(), seed));
+        assert.equal(new Set(row).size, 3);
+        row.forEach(id => seen.add(id));
+    }
+    assert.deepEqual([...seen].sort(), ids.map(id => id + '/finisher').sort());
+});
+
+test('depot workbench choice survives buying, refreshing and resuming, and only lasts one shop', () => {
+    for (const choosePart of [false, true]) {
+        const { platform } = storage();
+        const stage = CAMPAIGN_CATALOG[5];
+        const options = { clearByKills: true, shopWeapons: () => ['wrench', 'arc_gun', 'riveter'] };
+        let run = new Run(platform, stage.rules, options);
+        run.start('arc', 42, 'wrench', 'depot', undefined, 'normal', 50, {});
+        settle(run); next(run); settle(run);
+        const gun = run.equipmentShop.offers.find(item => item.kind === 'weapon').id;
+        assert.ok(run.equipmentShop.offers.some(item => item.id === 'wrench/flywheel'));
+        const partSlot = { kind: 'attachment', weapon: 0, slot: 0 };
+        assert.ok(run.buyEquipment(choosePart ? 'wrench/flywheel' : gun, choosePart ? partSlot : { kind: 'weapon' }, run.data.revision));
+        assert.ok(!run.buyEquipment(choosePart ? gun : 'wrench/flywheel', choosePart ? { kind: 'weapon' } : partSlot, run.data.revision));
+        run.dispose();
+        run = new Run(platform, stage.rules, options);
+        assert.ok(run.refresh(run.data.revision));
+        assert.ok(run.equipmentShop.offers.every(item => item.kind !== 'weapon' && item.id !== 'wrench/flywheel'));
+        next(run);
+        assert.equal(run.battle.equipment.weapons[0].wideSweep, choosePart);
+        settle(run);
+        assert.ok(run.equipmentShop.offers.some(item => item.kind === 'weapon'));
+        run.dispose();
+    }
+});
 
 test('late campaign shops sell up to six distinct weapons and reload the full loadout', () => {
     const { platform } = storage();
@@ -162,6 +204,81 @@ test('the campaign storefront stocks only account unlocks supported by the curre
     assert.deepEqual(following.equipmentShop.offers.filter(item => item.kind === 'weapon').map(item => item.id), ['arc_gun']);
     assert.ok(following.buyEquipment('arc_gun', { kind: 'weapon' }, following.data.revision));
     following.dispose();
+});
+
+test('the second station shop sells its sweep upgrade as an ordinary attachment', () => {
+    const { platform, refuse } = storage();
+    const stage = CAMPAIGN_CATALOG[0];
+    const options = { clearByKills: true, shopWeapons: () => ['wrench'] };
+    let run = new Run(platform, stage.rules, options);
+    run.start('arc', 42, 'wrench', 'sweep', undefined, 'normal', 0, {});
+    settle(run);
+    assert.equal(run.equipmentShop.recommended, 'wrench/link');
+    assert.ok(run.equipmentShop.offers.every(item => item.id !== 'wrench/dispatch'));
+    next(run);
+    settle(run);
+    assert.equal(run.equipmentShop.weaponCapacity, 1);
+    assert.ok(run.equipmentShop.offers.every(item => item.kind !== 'weapon'));
+    const { parts, revision } = run.data;
+    const target = { kind: 'attachment', weapon: 0, slot: 1 };
+    const preview = run.previewEquipment('wrench/dispatch', target);
+    assert.ok(preview.allowed);
+    assert.equal(preview.after.weapons[0].reach - preview.before.weapons[0].reach, 15);
+    assert.equal(preview.after.weapons[0].damage - preview.before.weapons[0].damage, 1);
+    refuse(true);
+    assert.equal(run.buyEquipment('wrench/dispatch', target, revision), false);
+    assert.deepEqual([run.data.parts, run.data.revision], [parts, revision]);
+    refuse(false);
+    assert.ok(run.buyEquipment('wrench/dispatch', target, revision));
+    assert.equal(run.data.parts, parts - 5);
+    assert.ok(run.refresh(run.data.revision));
+    assert.ok(run.equipmentShop.offers.every(item => item.kind !== 'weapon' && item.id !== 'wrench/dispatch'));
+    run.dispose();
+    run = new Run(platform, stage.rules, options);
+    next(run);
+    assert.deepEqual(run.battle.tools.map(tool => tool.id), ['wrench']);
+    assert.equal(run.battle.tools[0].attachments[1], 'wrench/dispatch');
+    run.dispose();
+});
+
+test('preview saves with the withdrawn gun recover parts and keep their campaign progress', () => {
+    const { platform } = storage();
+    const stage = CAMPAIGN_CATALOG[0];
+    const options = { clearByKills: true, shopWeapons: () => ['wrench'] };
+    const opening = new Run(platform, stage.rules, options);
+    opening.start('arc', 42, 'wrench', 'preview', undefined, 'normal', 0, {});
+    settle(opening);
+    next(opening);
+    settle(opening);
+    const checkpoint = opening.data;
+    opening.dispose();
+
+    assert.ok(platform.writeCheckpoint(1, { ...checkpoint, dispatchChoice: 'open',
+        shop: { ...checkpoint.shop, equipmentOffers: ['riveter', 'wrench/dispatch', 'gear/padding'] } }));
+    const unbought = new Run(platform, stage.rules, options);
+    assert.equal(unbought.data.runId, 'preview');
+    assert.equal(unbought.data.parts, checkpoint.parts);
+    assert.ok(unbought.equipmentShop.offers.every(item => item.kind !== 'weapon'));
+    unbought.dispose();
+
+    assert.ok(platform.writeCheckpoint(1, { ...checkpoint, dispatchChoice: 'rental', parts: 12,
+        tools: [...checkpoint.tools, { id: 'riveter', mods: [], attachments: ['riveter/link', null, null] }],
+        shop: { ...checkpoint.shop, equipmentOffers: ['riveter/handling', 'gear/padding'] } }));
+    const restored = new Run(platform, stage.rules, options);
+    assert.equal(restored.data.runId, 'preview');
+    assert.deepEqual(restored.data.reports, checkpoint.reports);
+    assert.deepEqual(restored.data.tools, checkpoint.tools);
+    assert.equal(restored.data.parts, 21);
+    assert.ok(restored.equipmentShop.offers.some(item => item.id === 'wrench/dispatch'));
+    assert.ok(restored.equipmentShop.offers.every(item => item.kind !== 'weapon' && !item.id.startsWith('riveter/')));
+    next(restored);
+    restored.dispose();
+
+    const replay = new Run(platform, stage.rules, options);
+    assert.equal(replay.data.parts, 21);
+    assert.equal(replay.data.dispatchChoice, undefined);
+    assert.deepEqual(replay.battle.tools.map(tool => tool.id), ['wrench']);
+    replay.dispose();
 });
 
 test('old store checkpoints hide and refuse locked weapon offers while keeping purchased weapons', () => {

@@ -272,8 +272,10 @@ export class PrototypeActorView {
         if (enemy.kind === 'inspector') {
             state = this.sample.sampleBoss(battle, enemy, chapter);
             if (chapter?.hazard) this.bossLastModes.set(enemy, chapter.hazard.shape);
-            skill = !chapter ? battle.boss?.attack : chapter.kind === 'core' && enemy.hp <= 0 ? 'offline'
-                : chapter.hazard?.shape ?? (state.pose === 'recover' ? this.bossLastModes.get(enemy) : undefined)
+            const attack = battle.boss?.attack;
+            skill = !chapter ? attack === 'fan' || attack === 'ring' ? 'sector' : attack
+                : chapter.kind === 'core' && enemy.hp <= 0 ? 'offline'
+                : (chapter.volley ? 'sector' : chapter.hazard?.shape) ?? (state.pose === 'recover' ? this.bossLastModes.get(enemy) : undefined)
                 ?? (chapter.stage > 1 ? 'critical' : undefined);
         } else state = enemy.kind === 'charger' ? this.sample.sampleCharger(battle, enemy) : this.sample.sampleRegular(battle, enemy);
         if (defeated) {

@@ -31,6 +31,7 @@ function weaponBonuses(rows: DetailRow[], id: ToolId, change: (typeof ATTACHMENT
         if (id === 'riveter' || id === 'hydraulic_nailer') rows.push({ label: '弹道宽度', value: signed(change.spread * 2, ' 像素') });
         else rows.push({ label: '喷射范围', value: '扇面加宽' });
     }
+    if (change.wideSweep) rows.push({ label: '宽扫', value: '一挥打中两台，下次扫得更宽，伤害 +2' });
     if (change.heat) rows.push({ label: '升温增伤', value: '第 4 次连发起 +1' }, { label: '过热', value: '暂停攻击，冷却后恢复' });
 }
 
@@ -58,16 +59,17 @@ export function equipmentDetail(item: EquipmentOffer, fitted?: WeaponEquipmentSt
         const { weapon, change, variant } = attachment;
         rows.push({ label: '适用武器', value: TOOLS[weapon].name });
         if (change.damage) rows.push({ label: '伤害', value: signed(change.damage) });
-        if (change.reach) rows.push({ label: rangeName(weapon), value: signed(change.reach, ' 像素') });
+        if (change.reach) rows.push({ label: sweptMelee && isMeleeTool(weapon) ? '挥扫范围' : rangeName(weapon),
+            value: signed(change.reach, ' 像素') });
         if (change.interval) rows.push({ label: '攻击间隔', value: signed(milliseconds(change.interval), ' 毫秒') });
         weaponBonuses(rows, weapon, change);
         if (variant === 'link') {
             rows.push({ label: '标记', value: '命中时给目标上标记' });
             rows.push(sweptMelee && isMeleeTool(weapon)
-                ? { label: '标记增伤', value: '再打标记目标，伤害 +1' }
+                ? { label: '标记增伤', value: '再打同一台敌机，伤害 +1' }
                 : { label: '强化连跳', value: '再打标记目标，跳得更远、伤害更高' });
         }
-        return { description: '', rows };
+        return { description: variant === 'dispatch' ? '扳手扫得更远，每次命中多打 1 点伤害。' : '', rows };
     }
     const gear = item.kind === 'gear' ? GEAR[item.id] : undefined;
     if (gear) {

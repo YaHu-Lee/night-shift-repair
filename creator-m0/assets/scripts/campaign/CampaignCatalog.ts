@@ -108,9 +108,9 @@ interface StageText {
 const dispatches: readonly StageText[] = [
     {
         title: '配电站', brief: '阿阮：二楼那户问我是不是跳闸。我一看，对面也黑了。',
-        goal: '清完 5 波，击败巡检机。',
+        goal: '先清掉五波敌机，再击败巡检机。',
         clear: '配电站 02:13 收到切电指令，故障栏空着。',
-        failure: '巡检机一冲过来就横着躲。等它停下再靠近。',
+        failure: '巡检机抬手就绕到侧面。看到炮弹，挑空档穿过去。',
         reward: 'arc_gun',
     },
     {

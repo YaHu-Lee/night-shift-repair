@@ -23,7 +23,11 @@ npm run preview
 
 用 `creator-m0/build-campaign-web.json` 构建像素战役试玩，运行 `node scripts/serve.mjs creator-m0/build/campaign-web-review`。主角、8 种小怪和 7 种 Boss 均使用固定斜俯视八向图。素材和更新步骤见[像素战役资产](art/pixel/README.md)。
 
-正式战役中，武器约每 13 秒顺时针绕行一圈。第 2 波后的整备台开放其余武器位，最多同时装备 6 把已解锁武器。电弧扳手交替横扫和直刺，旁路扳手交替钩扫和压击。近战先按角色周围的射程筛选，再优先瞄向距离该武器最近的敌机，挥击沿途每台敌机最多受击一次。
+正式战役中，武器约每 13 秒顺时针绕行一圈。第 2 波后的整备台开放其余武器位，最多同时装备 6 把已解锁武器。电弧扳手交替正手横扫和反手挥扫，旁路扳手交替钩扫和压击。近战先按角色周围的射程筛选，再优先瞄向距离该武器最近的敌机，挥击沿途每台敌机最多受击一次。
+
+武器组合的战力公式、20 站敌群与首领参数、数值复跑命令见[战役战力与难度校准](docs/CAMPAIGN-POWER-BALANCE.md)。
+
+本轮可评审版本的逐关密度、两条路线计时、十把武器的动作对照和启动方法见[战斗评审单](docs/CAMPAIGN-COMBAT-REVIEW.md)。浏览器调试包加 `?weaponShowcase=bench` 可单独试每把武器，点武器名换下一把，点“装上专属件”用同一波敌人比较。
 
 浏览器调试包用 `?weaponShowcase=armory` 或 `?weaponShowcase=utility` 跳到第 3 波的两组六武器样片，共覆盖 10 把武器。原双武器对照入口为 `?weaponShowcase=floating` 和 `?weaponShowcase=held`，3D 对照构建用 `?prototype3d=1`。样片进度仅存于当前页面内存。贴图及打包方式见[武器素材](art/pixel/weapons/README.md)。
 

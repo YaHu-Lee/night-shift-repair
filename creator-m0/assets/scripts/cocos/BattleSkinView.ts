@@ -5,7 +5,7 @@ import type { ChapterBossView, MissionView } from '../m1/Encounter';
 import type { CombatBounds, EnemyId, ToolId } from '../m1/content';
 import { FIELD, TICK_RATE } from '../m1/content';
 import { MELEE_RETURN_TICKS, WEAPON_ORBIT_HEIGHT, isMeleeTool, sampleMeleeHead, weaponDock } from '../m1/WeaponMotion';
-import { FLOATING_WEAPON_ART } from './FloatingWeaponArt';
+import { FLOATING_WEAPON_ART, sampleGunPose } from './FloatingWeaponArt';
 import { CAMPAIGN_MACHINE_ART, CAMPAIGN_TOOL_ART, PIXEL_ARENAS, PIXEL_DISPATCH_CHAPTERS, PIXEL_MENU_ART } from '../campaign/CampaignArt';
 import { CAMPAIGN_CATALOG } from '../campaign/CampaignCatalog';
 import { loadCampaignBundle, loadCampaignPixelTexture, loadCampaignTexture } from './CampaignAssetLoader';
@@ -110,10 +110,6 @@ function pixelHeading(index: number): PixelHeading {
 function ease(t: number): number {
     const f = Math.min(1, Math.max(0, t));
     return f * f * (3 - 2 * f);
-}
-
-function pulse(t: number, peak: number, end: number): number {
-    return t < peak ? ease(t / peak) : 1 - ease((t - peak) / (end - peak));
 }
 
 function toolAxis({ grip, tip }: PixelTool): number {
@@ -678,18 +674,19 @@ export class BattleSkinView {
             launched = { x: cast.x + launchDock.x + tip.x, y: cast.y + launchDock.y + tip.y };
             this.floatingCasts.set(cast, launched);
         }
-        const amount = pulse(elapsed, art.peak, art.settle);
-        const heading = blendAngle(aim, rest, ease((elapsed - 2) / (art.settle + 3)))
-            + (art.effect === 'fork' ? 0.19 : 0.1) * amount;
+        const pose = sampleGunPose(art.motion, elapsed);
+        const settle = art.motion[art.motion.length - 1][0];
+        const strength = cast?.modified ? 1.22 : 1;
+        const heading = blendAngle(aim, rest, ease((elapsed - 2) / settle)) + pose.turn;
         const sprite = this.frames.get('pixel-tool:' + tool);
-        const recoil = Math.min(1, 4 / count) * art.recoil * amount;
-        const x = player.x + dock.x - Math.cos(aim) * recoil, y = player.y + dock.y - Math.sin(aim) * recoil;
+        const x = player.x + dock.x + (Math.cos(aim) * pose.travel - Math.sin(aim) * pose.side) * strength;
+        const y = player.y + dock.y + (Math.sin(aim) * pose.travel + Math.cos(aim) * pose.side) * strength;
         if (!sprite || !view) {
             this.icon(this.world, tool, x, y, 18, 0, Color.WHITE);
             return;
         }
         const { width, height } = sprite.rect;
-        const scale = pixelWeaponScale * (art.effect === 'coil' ? 1 + 0.2 * amount : 1);
+        const scale = pixelWeaponScale * pose.scale;
         this.drawModelShadow(x, player.y - 2, 4, 1.3);
         this.world.put(sprite, x, y, width * scale, height * scale, (heading - toolAxis(view)) * 180 / Math.PI, Color.WHITE);
         if (cast && launched && elapsed < 3) this.drawFloatingFlash(tool, launched.x, launched.y, 1 - ease(elapsed / 3), cast);
@@ -727,13 +724,14 @@ export class BattleSkinView {
         const g = this.machineGround;
         const { ux, uy } = cast;
         const { effect, tint } = FLOATING_WEAPON_ART[tool];
-        g.strokeColor = new Color(...tint, Math.round(220 * strength));
-        g.lineWidth = effect === 'nail' ? 2.4 : 1.4;
+        const boost = cast.effectBoost ?? 0;
+        g.strokeColor = new Color(...tint, Math.round(245 * strength));
+        g.lineWidth = (effect === 'nail' ? 3 : 2) + boost * 0.8;
         if (effect === 'coil' || effect === 'pulse' || effect === 'pull') {
-            g.circle(x, y, 3 + (1 - strength) * (effect === 'pulse' ? 9 : 5));
+            g.circle(x, y, 4 + (1 - strength) * (effect === 'pulse' ? 10 : 6) + boost * 3);
         } else {
-            const spread = effect === 'jet' ? 4 : effect === 'fork' ? 3 : 1.4;
-            const length = effect === 'nail' ? 13 : effect === 'jet' ? 9 : 7;
+            const spread = (effect === 'jet' ? 4 : effect === 'fork' ? 3 : 2) + boost * 1.5;
+            const length = (effect === 'nail' ? 15 : effect === 'jet' ? 12 : 9) + boost * 3;
             for (const sign of [-1, 1]) {
                 g.moveTo(x + uy * sign, y - ux * sign);
                 g.lineTo(x + ux * length + uy * spread * sign, y + uy * length - ux * spread * sign);
@@ -845,10 +843,10 @@ export class BattleSkinView {
         const contactAge = age(tick, enemy.contactAt);
         const impactAge = age(tick, enemy.hitAt);
         const emergeAge = age(tick, enemy.revealedAt);
-        const warning = boss ? boss.hazard?.state === 'warning' : legacyBoss
+        const warning = boss ? (boss.volley ?? boss.hazard)?.state === 'warning' : legacyBoss
             ? legacyBoss.phase === 'warning' : state === 'warn';
-        const striking = boss ? boss.hazard?.state === 'active' : legacyBoss
-            ? legacyBoss.phase === 'sweep' || legacyBoss.phase === 'charge'
+        const striking = boss ? (boss.volley ?? boss.hazard)?.state === 'active' : legacyBoss
+            ? legacyBoss.phase === 'sweep' || legacyBoss.phase === 'charge' || legacyBoss.phase === 'volley'
                 || legacyBoss.phase === 'recover' && legacyBoss.attack === 'summon' && age(tick, legacyBoss.attackAt) < 5
             : state === 'dash' || shotAge < 5 || contactAge < 5 || kind === 'ambusher' && emergeAge >= 7 && emergeAge < 13;
         const recoveringPose = boss ? boss.recovering : legacyBoss ? legacyBoss.phase === 'recover'
@@ -1054,11 +1052,11 @@ export class BattleSkinView {
         this.world.finish();
     }
 
-    drawEncounter(g: Graphics, battle: Readonly<Battle> | null, stage: string, modelProps: boolean): void {
+    drawEncounter(g: Graphics, battle: Readonly<Battle> | null, stage: string, modelProps: boolean, threat?: Graphics): void {
         const props = this.encounterProps ??= new SpritePool(g.node);
         props.begin();
         if (battle) drawCampaignEncounter(g, battle, stage, modelProps, (key, x, y, size) =>
-            !modelProps && this.icon(props, 'pixel-item:prop/' + key, x, y, size));
+            !modelProps && this.icon(props, 'pixel-item:prop/' + key, x, y, size), threat);
         props.finish();
     }
 

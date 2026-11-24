@@ -21,15 +21,25 @@ export function weaponDock(slot: number, count: number, ticks: number): Readonly
 }
 
 const swings = {
-    wrench: [
-        { action: '横扫', track: [[9, -14], [29, -27], [44, -15], [45, 5], [32, 25], [12, 13]] },
-        { action: '直刺', track: [[8, -6], [23, -6], [36, -3], [46, 0], [42, 6]] },
-    ],
     bypass_wrench: [
-        { action: '反手钩扫', track: [[9, 15], [27, 27], [40, 16], [41, -7], [26, -27], [10, -12]] },
-        { action: '压击', track: [[13, 4], [24, 5], [36, 1], [42, -5], [35, -12]] },
+        { action: '反手钩扫', track: [[8, 18], [18, 28], [35, 25], [46, 8], [39, -12], [25, -20], [18, -12]] },
+        { action: '压击', track: [[10, 17], [14, 23], [20, 22], [33, 10], [47, -2], [48, -5], [38, -4]] },
     ],
-} as const satisfies Record<MeleeTool, readonly { action: string; track: Track }[]>;
+} as const satisfies Record<'bypass_wrench', readonly { action: string; track: Track }[]>;
+
+function wrenchSwing(reverse: boolean, targetRange: number, range: number, wide: boolean): { action: string; track: Track } {
+    const radius = Math.min(range * (reverse ? 0.88 : 0.9), Math.max(12, targetRange * 0.84 + 3));
+    const width = wide ? 2.05 : reverse ? 0.97 : 1.16;
+    const steps = wide ? 8 : reverse ? 5 : 6;
+    const track = Array.from({ length: steps + 1 }, (_, index): readonly [number, number] => {
+        const t = index / steps;
+        const release = t * t * (3 - 2 * t);
+        const angle = (reverse ? -1 : 1) * width * (2 * release - 1);
+        const reach = radius * (0.92 + 0.08 * Math.sin(Math.PI * t));
+        return [reach * Math.cos(angle), reach * Math.sin(angle)];
+    });
+    return { action: wide ? '大回扫' : reverse ? '反手扫' : '横扫', track };
+}
 
 export interface MeleeMotion {
     readonly action: string;
@@ -44,16 +54,20 @@ export interface MeleeMotion {
 }
 
 export function createMeleeMotion(tool: MeleeTool, sequence: number, dock: Readonly<Position>, origin: Position,
-    ux: number, uy: number, range: number, field: CombatBounds): MeleeMotion {
+    ux: number, uy: number, range: number, field: CombatBounds, targetRange = range, wide = false): MeleeMotion {
     const spec = MELEE_TOOL_STATS[tool];
-    const { action, track } = swings[tool][sequence % swings[tool].length];
-    const scale = range / spec.reach;
+    const { action, track } = tool === 'wrench' ? wrenchSwing(sequence % 2 === 1, targetRange, range, wide)
+        : swings.bypass_wrench[sequence % swings.bypass_wrench.length];
+    const scale = tool === 'wrench' ? 1 : range / spec.reach;
     if (ux === 0 && uy === 0) ux = 1;
     const path = track.map(([x, y]) => ({ x: (ux * x - uy * y) * scale, y: (uy * x + ux * y) * scale }));
     const entry = path[0];
-    const offsets = [dock, { x: (dock.x + entry.x) / 2, y: (dock.y + entry.y) / 2 }, ...path];
+    const restAngle = Math.atan2(dock.y, dock.x), entryAngle = Math.atan2(entry.y, entry.x);
+    const turn = Math.atan2(Math.sin(entryAngle - restAngle), Math.cos(entryAngle - restAngle)) / 2;
+    const shoulder = (Math.hypot(dock.x, dock.y) + Math.hypot(entry.x, entry.y)) / 2;
+    const offsets = [dock, { x: Math.cos(restAngle + turn) * shoulder, y: Math.sin(restAngle + turn) * shoulder }, ...path];
     const motion = {
-        action, radius: spec.radius, range,
+        action, radius: wide ? spec.radius + 5 : spec.radius, range,
         first: 2, last: path.length + 1,
         offsets, points: new Array<Readonly<Position>>(offsets.length),
     };
