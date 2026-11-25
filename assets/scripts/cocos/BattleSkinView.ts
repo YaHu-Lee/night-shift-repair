@@ -4,8 +4,9 @@ import type { Battle, MeleeWindup, WeaponCast } from '../m1/Battle';
 import type { ChapterBossView, MissionView } from '../m1/Encounter';
 import type { CombatBounds, EnemyId, ToolId } from '../m1/content';
 import { FIELD, TICK_RATE } from '../m1/content';
-import { MELEE_RETURN_TICKS, WEAPON_ORBIT_HEIGHT, isMeleeTool, sampleMeleeHead, weaponDock } from '../m1/WeaponMotion';
+import { MELEE_RETURN_TICKS, WEAPON_DOCK_HEIGHT, isMeleeTool, sampleMeleeHead, weaponDock } from '../m1/WeaponMotion';
 import { FLOATING_WEAPON_ART, sampleGunPose } from './FloatingWeaponArt';
+import type { WeaponMuzzle } from './FloatingWeaponArt';
 import { CAMPAIGN_MACHINE_ART, CAMPAIGN_TOOL_ART, PIXEL_ARENAS, PIXEL_DISPATCH_CHAPTERS, PIXEL_MENU_ART } from '../campaign/CampaignArt';
 import { CAMPAIGN_CATALOG } from '../campaign/CampaignCatalog';
 import { loadCampaignBundle, loadCampaignPixelTexture, loadCampaignTexture } from './CampaignAssetLoader';
@@ -121,10 +122,16 @@ function blendAngle(from: number, to: number, amount: number): number {
     return from + Math.atan2(Math.sin(turn), Math.cos(turn)) * amount;
 }
 
-function toolOffset(view: PixelTool, anchor: [number, number], angle: number, scale = pixelWeaponScale): Actor {
+function toolOffset(view: PixelTool, anchor: [number, number], angle: number, scale = pixelWeaponScale, flip = false): Actor {
     const [, , w, h] = view.rect;
-    const x = (anchor[0] - w / 2) * scale, y = (h / 2 - anchor[1]) * scale;
+    const x = (anchor[0] - w / 2) * scale * (flip ? -1 : 1), y = (h / 2 - anchor[1]) * scale;
     return { x: x * Math.cos(angle) - y * Math.sin(angle), y: x * Math.sin(angle) + y * Math.cos(angle) };
+}
+
+// The source artwork faces right. Mirror before pitching so a left-facing gun stays upright.
+function gunRotation(view: PixelTool, heading: number, flip: boolean): number {
+    const axis = toolAxis(view);
+    return heading - (flip ? Math.PI - axis : axis);
 }
 
 function enemyPose(battle: Readonly<Battle>, enemy: Enemy, chapterBoss: ChapterBossView | null): number {
@@ -154,7 +161,7 @@ class SpritePool {
 
     begin(): void { this.used = 0; }
 
-    put(frame: SpriteFrame, x: number, y: number, w: number, h: number, angle: number, color: Color, sliced = false, flip = false): void {
+    put(frame: SpriteFrame, x: number, y: number, w: number, h: number, angle: number, color: Color, sliced = false, flip = false, scaleY = 1): void {
         let item = this.items[this.used++];
         if (!item) {
             const node = new Node('SkinSprite');
@@ -171,9 +178,9 @@ class SpritePool {
         sprite.spriteFrame = frame;
         sprite.color = color;
         transform.setContentSize(w, h);
-        sprite.node.setPosition(x, y, 0);
+        sprite.node.setPosition(Math.round(x), Math.round(y), 0);
         sprite.node.angle = angle;
-        sprite.node.setScale(flip ? -1 : 1, 1, 1);
+        sprite.node.setScale(flip ? -1 : 1, scaleY, 1);
         sprite.node.active = true;
     }
 
@@ -214,9 +221,9 @@ export class BattleSkinView {
     private pixelMechanic?: PixelMechanicAtlas;
     private readonly pixelTools = new Map<ToolId, PixelTool>();
     private readonly weaponOrigins = new WeakMap<WeaponCast, Actor>();
-    private readonly floatingCasts = new WeakMap<WeaponCast, Actor>();
+    private readonly floatingCasts = new WeakMap<WeaponCast, WeaponMuzzle>();
     readonly weaponOrigin = (cast: WeaponCast): Actor | undefined => this.weaponOrigins.get(cast);
-    readonly floatingWeaponOrigin = (cast: WeaponCast): Actor | undefined => this.floatingCasts.get(cast);
+    readonly floatingWeaponOrigin = (cast: WeaponCast): WeaponMuzzle | undefined => this.floatingCasts.get(cast);
 
     constructor(private readonly root: string, floor: Node, actors: Node, private readonly uiRoot: Node,
         private readonly invalidate: () => void, private readonly campaign = false, private readonly modelArt = false) {
@@ -640,47 +647,70 @@ export class BattleSkinView {
         const frame = this.frames.get(pixelFrameKey(action, direction, index));
         if (!frame) return false;
         this.drawModelShadow(player.x, player.y, 9, 4);
-        this.putPixelBody(atlas, frame, player, tint);
+        // Subtle 1px breathing bob when standing still + squash recoil on injury!
+        const breathe = !walking && injuryAge >= 6 ? Math.round(Math.sin(motion.tick * 0.16) * 0.8) : 0;
+        const injuredSquash = injuryAge < 4 ? (injuryAge < 2 ? 0.86 : 1.08) : 1;
+        const { width, height } = frame.rect;
+        const scale = pixelMechanicScale;
+        const w = width * scale * (injuryAge < 2 ? 1.16 : 1);
+        const h = height * scale * injuredSquash;
+        this.world.put(frame, player.x + (width / 2 - atlas.pivot[0]) * scale,
+            player.y + (atlas.pivot[1] - height / 2) * scale + breathe, w, h, 0, tint);
         return true;
     }
 
     private drawFloatingTools(battle: Readonly<Battle>, time: number): void {
         const windups = battle.meleeWindups();
+        for (const cast of battle.weaponCasts) {
+            if (cast.melee) continue;
+            const previous = this.floatingCasts.get(cast);
+            if (previous) {
+                previous.flash = undefined;
+                continue;
+            }
+            const view = this.pixelTools.get(cast.tool);
+            if (!view) continue;
+            const dock = weaponDock(cast.slot);
+            const dx = cast.ux * cast.targetRange - dock.x, dy = cast.uy * cast.targetRange - dock.y;
+            const heading = (dx !== 0 || dy !== 0) ? Math.atan2(dy, dx) : Math.atan2(cast.uy, cast.ux);
+            const flip = Math.cos(heading) < -1e-9;
+            const tip = toolOffset(view, view.tip, gunRotation(view, heading, flip), pixelWeaponScale, flip);
+            this.floatingCasts.set(cast, { x: cast.x + dock.x + tip.x, y: cast.y + dock.y + tip.y, heading });
+        }
         for (let slot = 0; slot < battle.tools.length; slot++) {
             const tool = battle.tools[slot].id;
             const latest = battle.weaponCasts.reduce<WeaponCast | undefined>(
                 (previous, cast) => cast.slot === slot && cast.tool === tool ? cast : previous, undefined);
             const windup = windups.find(cue => cue.slot === slot && cue.tool === tool);
-            this.drawFloatingTool(battle.player, slot, battle.tools.length, tool, time, latest, windup);
+            this.drawFloatingTool(battle.player, slot, tool, time, latest, windup);
         }
     }
 
-    private drawFloatingTool(player: Actor, slot: number, count: number, tool: ToolId, time: number,
+    private drawFloatingTool(player: Actor, slot: number, tool: ToolId, time: number,
         cast?: WeaponCast, windup?: MeleeWindup): void {
         const art = FLOATING_WEAPON_ART[tool];
         const view = this.pixelTools.get(tool);
-        const dock = weaponDock(slot, count, time);
+        const dock = weaponDock(slot);
         const elapsed = cast ? Math.max(0, time - cast.tick) : Infinity;
         if (isMeleeTool(tool)) {
             this.drawSweptTool(player, tool, dock, view, elapsed, cast, windup);
             return;
         }
-        const rest = Math.atan2(dock.y - WEAPON_ORBIT_HEIGHT, dock.x);
-        const aim = cast ? Math.atan2(cast.uy, cast.ux) : rest;
-        let launched = cast && this.floatingCasts.get(cast);
-        if (cast && !launched && view) {
-            const tip = toolOffset(view, view.tip, aim - toolAxis(view));
-            const launchDock = weaponDock(slot, count, cast.tick);
-            launched = { x: cast.x + launchDock.x + tip.x, y: cast.y + launchDock.y + tip.y };
-            this.floatingCasts.set(cast, launched);
-        }
+        const rest = Math.atan2(dock.y - WEAPON_DOCK_HEIGHT, dock.x);
+        const launched = cast && this.floatingCasts.get(cast);
+        const aim = launched?.heading ?? (cast ? Math.atan2(cast.uy, cast.ux) : rest);
         const pose = sampleGunPose(art.motion, elapsed);
         const settle = art.motion[art.motion.length - 1][0];
         const strength = cast?.modified ? 1.22 : 1;
-        const heading = blendAngle(aim, rest, ease((elapsed - 2) / settle)) + pose.turn;
+        const hold = art.effect === 'jet' || art.effect === 'pull' || art.effect === 'arc' ? 6 : 2;
+        const bearing = blendAngle(aim, rest, ease((elapsed - hold) / settle));
+        const flip = Math.cos(bearing) < -1e-9;
+        const heading = bearing + (flip ? -pose.turn : pose.turn);
         const sprite = this.frames.get('pixel-tool:' + tool);
+        // Gentle out-of-phase magnetic hover bob so idle floating tools feel alive!
+        const hover = elapsed > settle ? Math.round(Math.sin(time * 0.14 + slot * 1.15) * 1.5) : 0;
         const x = player.x + dock.x + (Math.cos(aim) * pose.travel - Math.sin(aim) * pose.side) * strength;
-        const y = player.y + dock.y + (Math.sin(aim) * pose.travel + Math.cos(aim) * pose.side) * strength;
+        const y = player.y + dock.y + hover + (Math.sin(aim) * pose.travel + Math.cos(aim) * pose.side) * strength;
         if (!sprite || !view) {
             this.icon(this.world, tool, x, y, 18, 0, Color.WHITE);
             return;
@@ -688,15 +718,19 @@ export class BattleSkinView {
         const { width, height } = sprite.rect;
         const scale = pixelWeaponScale * pose.scale;
         this.drawModelShadow(x, player.y - 2, 4, 1.3);
-        this.world.put(sprite, x, y, width * scale, height * scale, (heading - toolAxis(view)) * 180 / Math.PI, Color.WHITE);
-        if (cast && launched && elapsed < 3) this.drawFloatingFlash(tool, launched.x, launched.y, 1 - ease(elapsed / 3), cast);
+        const rotation = gunRotation(view, heading, flip);
+        this.world.put(sprite, x, y, width * scale, height * scale, rotation * 180 / Math.PI, Color.WHITE, false, flip);
+        if (launched) {
+            const tip = toolOffset(view, view.tip, rotation, scale, flip);
+            launched.flash = { x: x + tip.x, y: y + tip.y, heading };
+        }
     }
 
     private drawSweptTool(player: Actor, tool: ToolId, dock: Actor, view: PixelTool | undefined,
         elapsed: number, cast?: WeaponCast, windup?: MeleeWindup): void {
         const home = { x: player.x + dock.x, y: player.y + dock.y };
         const motion = cast?.melee;
-        const rest = Math.atan2(dock.y - WEAPON_ORBIT_HEIGHT, dock.x);
+        const rest = Math.atan2(dock.y - WEAPON_DOCK_HEIGHT, dock.x);
         let head = home;
         let heading = rest;
         if (cast && motion && elapsed < motion.last + MELEE_RETURN_TICKS) {
@@ -718,26 +752,6 @@ export class BattleSkinView {
         const { width, height } = sprite.rect;
         this.world.put(sprite, head.x - tip.x, head.y - tip.y, width * pixelWeaponScale, height * pixelWeaponScale,
             angle * 180 / Math.PI, Color.WHITE);
-    }
-
-    private drawFloatingFlash(tool: ToolId, x: number, y: number, strength: number, cast: WeaponCast): void {
-        const g = this.machineGround;
-        const { ux, uy } = cast;
-        const { effect, tint } = FLOATING_WEAPON_ART[tool];
-        const boost = cast.effectBoost ?? 0;
-        g.strokeColor = new Color(...tint, Math.round(245 * strength));
-        g.lineWidth = (effect === 'nail' ? 3 : 2) + boost * 0.8;
-        if (effect === 'coil' || effect === 'pulse' || effect === 'pull') {
-            g.circle(x, y, 4 + (1 - strength) * (effect === 'pulse' ? 10 : 6) + boost * 3);
-        } else {
-            const spread = (effect === 'jet' ? 4 : effect === 'fork' ? 3 : 2) + boost * 1.5;
-            const length = (effect === 'nail' ? 15 : effect === 'jet' ? 12 : 9) + boost * 3;
-            for (const sign of [-1, 1]) {
-                g.moveTo(x + uy * sign, y - ux * sign);
-                g.lineTo(x + ux * length + uy * spread * sign, y + uy * length - ux * spread * sign);
-            }
-        }
-        g.stroke();
     }
 
     private drawPixelMechanic(atlas: PixelMechanicAtlas, battle: Readonly<Battle>, motion: ActorMotion,
@@ -880,13 +894,33 @@ export class BattleSkinView {
         const hidden = kind === 'ambusher' && state === 'warn';
         const pose = hidden ? 'windup' : impactAge < 6 && !warning && !striking ? 'hit'
             : striking ? 'strike' : warning ? 'windup' : recoveringPose ? 'recover' : walkPose(motion);
-        const tint = hidden ? shadowMachine : impactAge < 5 ? hurt : boss?.vulnerable ? exposed : Color.WHITE;
+        // Crisp hit-flash (bright white on frames 0-1, warm flash on 2-4) + squash-and-stretch + directional recoil jitter!
+        const hitFlash = impactAge >= 0 && impactAge < 2;
+        const tint = hidden ? shadowMachine : hitFlash ? new Color(255, 255, 255) : impactAge < 5 ? hurt : boss?.vulnerable ? exposed : Color.WHITE;
         const size = unitSize[kind];
         const ground = this.machineGround;
         if (!hidden) {
             ground.fillColor = outline;
-            ground.ellipse(x, y - size * 0.16, size * 0.31, size * 0.14);
+            ground.ellipse(Math.round(x), Math.round(y - size * 0.16), size * 0.34, size * 0.15);
             ground.fill();
+            // High-contrast pixel warning ring beneath dark/specialist enemies during windup
+            if (warning && !boss) {
+                ground.fillColor = new Color(255, 198, 92, 165);
+                const wr = Math.round(size * 0.42);
+                ground.rect(Math.round(x) - wr, Math.round(y - size * 0.16) - 1, 4, 2);
+                ground.rect(Math.round(x) + wr - 4, Math.round(y - size * 0.16) - 1, 4, 2);
+                ground.fill();
+            }
+        }
+        // Squash & stretch on impact (frames 0-1 squash wide, frames 2-4 spring tall) + 2.5px knockback jitter away from player
+        let sx = 1, sy = 1, jitterX = 0, jitterY = 0;
+        if (impactAge >= 0 && impactAge < 5) {
+            if (impactAge < 2) { sx = 1.24; sy = 0.78; }
+            else { sx = 0.94; sy = 1.07; }
+            const kb = impactAge < 2 ? 2.8 : 1.2;
+            const dLen = Math.hypot(x - player.x, y - player.y) || 1;
+            jitterX = ((x - player.x) / dLen) * kb;
+            jitterY = ((y - player.y) / dLen) * kb;
         }
         const rise = impactAge < 6 ? (6 - impactAge) / 3 : striking ? 0.7 * Math.sin(tick * 0.5) : 0;
         const pixelFrame = this.frames.get('pixel-enemy:' + actorFrame(key, pose, motion.heading))
@@ -894,10 +928,20 @@ export class BattleSkinView {
         if (pixelFrame) {
             const { width, height } = pixelFrame.rect;
             const kick = kind === 'turret' && shotAge < 4 ? (4 - shotAge) * 0.75 : 0;
-            this.world.put(pixelFrame, x - enemy.vx * kick, y + rise - enemy.vy * kick, width, height, 0, tint);
+            const drawX = x - enemy.vx * kick + jitterX;
+            const drawY = y + rise - enemy.vy * kick + jitterY;
+            this.world.put(pixelFrame, drawX, drawY, width * sx, height * sy, 0, tint);
+            // Crisp white 4-way pixel hit-core flash on exact hit frame (solves missing white hit sprite!)
+            if (hitFlash && !hidden) {
+                ground.fillColor = new Color(255, 252, 232, 235);
+                const cx = Math.round(drawX), cy = Math.round(drawY + size * 0.15);
+                ground.rect(cx - 5, cy - 1, 10, 2);
+                ground.rect(cx - 1, cy - 5, 2, 10);
+                ground.fill();
+            }
             return true;
         }
-        return this.icon(this.world, actorFrame(key, pose, motion.heading), x, y + rise, size * 1.43, 0, tint);
+        return this.icon(this.world, actorFrame(key, pose, motion.heading), x + jitterX, y + rise + jitterY, size * 1.43, 0, tint);
     }
 
     private drawMachine(key: string, battle: Readonly<Battle>, enemy: Enemy, boss: ChapterBossView | null): void {

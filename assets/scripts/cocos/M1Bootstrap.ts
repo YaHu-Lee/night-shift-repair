@@ -42,6 +42,7 @@ import type { LobbyShortcut } from './CampaignLobbyView';
 import { CampaignAudio } from './CampaignAudio';
 import type { Sound } from './CampaignAudio';
 import { BENCH, benchLock, benchPlate, benchScrew } from './WorkshopBench';
+import { PatrolCampaignUi } from './PatrolCampaignUi';
 
 const { ccclass, property, requireComponent } = _decorator;
 const WIDTH = 360;
@@ -274,6 +275,7 @@ export class M1Bootstrap extends Component {
     private previewBattle?: Battle;
     private victory?: { battle: Battle; elapsed: number; kills: number };
     private weaponTick = 0;
+    private patrol?: PatrolCampaignUi;
 
     onLoad(): void {
         this.surface = this.node.getComponent(UITransform)!;
@@ -352,6 +354,12 @@ export class M1Bootstrap extends Component {
                 this.cloud = new CampaignCloudSession(cloud);
                 void this.restoreCloud();
             }
+            const useLegacy = previewQuery?.get('legacyCampaign') === '1';
+            if (!modelArt && !this.weaponShowcase && !useLegacy) {
+                this.patrol = this.createPatrolUi();
+                const dbg = previewQuery?.get('patrolDebug');
+                if (DEBUG && dbg) this.patrol.jumpDebugState(dbg);
+            }
         }
         else {
             this.run = new Run(undefined, this.fullRun ? M2_RULES : undefined);
@@ -410,6 +418,18 @@ export class M1Bootstrap extends Component {
     }
 
     update(dt: number): void {
+        if (this.patrol) {
+            if (this.patrol.page === 'home' && this.embers) {
+                const previous = Math.floor(this.emberTime * 15);
+                this.emberTime += dt;
+                if (Math.floor(this.emberTime * 15) !== previous) this.drawMotes(this.embers);
+            }
+            if ((!this.patrol.inBattle || this.run.background) && this.movementTouch !== null) this.cancelMovement();
+            if (!this.run.background) this.patrol.update(dt, this.stickAxis.x, this.stickAxis.y);
+            this.syncMusic();
+            this.draw();
+            return;
+        }
         if (this.reviveDecision && !this.reviveDecision.attempted && !this.run.background) this.finishRevive();
         this.advanceChapterHandoff(dt);
         if (this.victory && !this.run.background) {
@@ -694,6 +714,7 @@ export class M1Bootstrap extends Component {
 
     private suspend(): void {
         this.clearInput();
+        this.patrol?.suspend();
         this.run?.pause();
     }
 
@@ -768,7 +789,9 @@ export class M1Bootstrap extends Component {
 
     private syncMusic(gesture = false): void {
         const wanted = this.settings?.current.music && !this.musicSuspended && !this.run?.background;
-        const inCombat = !this.campaignPage && !this.campaignError && !this.cloudBusy && !!this.run?.battle;
+        const inCombat = this.patrol
+            ? this.patrol.page === 'battle'
+            : !this.campaignPage && !this.campaignError && !this.cloudBusy && !!this.run?.battle;
         this.audio?.syncMusic(wanted ? (inCombat ? 'combat' : 'workshop') : undefined, gesture);
     }
 
@@ -811,6 +834,7 @@ export class M1Bootstrap extends Component {
         this.stickOrigin = undefined;
         this.stickAxis.set(0, 0);
         if (this.run?.battle) this.run.battle.destination = null;
+        if (this.patrol?.session?.battle) this.patrol.session.battle.destination = null;
     }
 
     private get joystickMode(): boolean { return this.settings?.current.movement === 'joystick'; }
@@ -860,11 +884,15 @@ export class M1Bootstrap extends Component {
             this.visibleUi = '';
             return;
         }
-        if (this.cloudBusy || this.campaignPage || this.chooseRoute || this.campaignError || this.run.paused || !this.run.battle
+        const activePatrolBattle = this.patrol?.inBattle === true;
+        if (this.patrol) {
+            if (!activePatrolBattle || this.movementTouch !== null) return;
+        } else if (this.cloudBusy || this.campaignPage || this.chooseRoute || this.campaignError || this.run.paused || !this.run.battle
             || this.run.waitingForSave || this.movementTouch !== null) return;
         if (this.joystickMode) {
             if (point.y < Math.max(8, this.footer - 16) || point.y > FIELD.bottom + STICK_ENTRY_DEPTH) return;
-            this.run.battle.destination = null;
+            if (this.patrol?.session?.battle) this.patrol.session.battle.destination = null;
+            else if (this.run.battle) this.run.battle.destination = null;
             this.stickOrigin = new Vec2(point.x, point.y);
             this.movementTouch = event.getID();
             this.stickAxis.set(0, 0);
@@ -881,7 +909,8 @@ export class M1Bootstrap extends Component {
         const y = Math.min(FIELD.top, Math.max(FIELD.bottom, point.y));
         if (this.lastAim && Math.hypot(x - this.lastAim.x, y - this.lastAim.y) < 0.5) return;
         (this.lastAim ??= new Vec2()).set(x, y);
-        this.run.battle?.moveTo(x + this.battleOffset.x, y + this.battleOffset.y);
+        if (this.patrol) this.patrol.setBattleDestination(x + this.battleOffset.x, y + this.battleOffset.y);
+        else this.run.battle?.moveTo(x + this.battleOffset.x, y + this.battleOffset.y);
     }
 
     private dragMap(event: EventTouch): boolean {
@@ -907,7 +936,8 @@ export class M1Bootstrap extends Component {
             this.press.inside = inside;
             return;
         }
-        if (event.getID() !== this.movementTouch || this.run.paused || this.run.background) return;
+        const movePaused = this.patrol ? !this.patrol.inBattle : this.run.paused;
+        if (event.getID() !== this.movementTouch || movePaused || this.run.background) return;
         const point = this.point(event);
         if (this.joystickMode) this.steerStick(point);
         else this.aimAt(point);
@@ -925,7 +955,8 @@ export class M1Bootstrap extends Component {
                 return;
             }
             this.movementTouch = null;
-            if (!this.run.paused && !this.run.background) this.aimAt(this.point(event));
+            const movePaused = this.patrol ? !this.patrol.inBattle : this.run.paused;
+            if (!movePaused && !this.run.background) this.aimAt(this.point(event));
             this.lastAim = undefined;
             return;
         }
@@ -1033,7 +1064,86 @@ export class M1Bootstrap extends Component {
             bold: this.campaignMode && primary });
     }
 
+    private createPatrolUi(): PatrolCampaignUi {
+        const self = this;
+        return new PatrolCampaignUi({
+            get ui() { return self.ui; },
+            get art() { return self.art; },
+            get skillEffects() { return self.skillEffects; },
+            get threats() { return self.threats; },
+            get puddles() { return self.puddles; },
+            get flatFloor() { return self.flatFloor; },
+            get skin() { return self.skin; },
+            get top() { return self.top; },
+            get footer() { return self.footer; },
+            get capsuleCeiling() { return self.capsuleCeiling; },
+            get backdropScale() { return self.backdropScale; },
+            get joystickMode() { return self.joystickMode; },
+            get settings() { return self.settings?.current ?? { music: true, sound: true, movement: 'joystick' }; },
+            updateSettings: patch => { self.updateSettings(patch); },
+            play: sound => self.play(sound),
+            setScenery: key => self.drawScenery(key === 'night-depot' ? 'home' : null),
+            setBattleOffset: (x, y) => {
+                self.battleOffset.set(x, y);
+                self.actorSprites.setPosition(-x, -y, 0);
+                self.art.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
+                self.skinFloor.active = true;
+                self.skinFloor.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
+                self.puddles?.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
+                self.skillEffects.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
+                self.threats?.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
+                if (self.flatFloor) self.flatFloor.node.active = false;
+            },
+            clearWorldLayers: () => {
+                self.art.clear();
+                self.skillEffects.clear();
+                self.puddles?.clear();
+                self.threats?.clear();
+                self.skinFloor.active = false;
+                if (self.flatFloor) self.flatFloor.node.active = false;
+            },
+            addTouch: (x, y, w, h, action) => self.touchTarget(x, y, w, h, action),
+            text: (value, x, y, opts) => self.text(value, x, y, opts),
+            block: (x, y, w, h, color) => self.block(x, y, w, h, color),
+            syncMusic: () => self.syncMusic(),
+            onBattleStopped: () => self.clearInput(),
+        }, this.campaign?.profile);
+    }
+
     private draw(): void {
+        if (this.patrol) {
+            const frame = screen.windowSize;
+            const scale = Math.max(1e-6, view.getScaleY());
+            const layout = `patrol:${frame.width}:${frame.height}:${scale}`;
+            if (layout !== this.layout) {
+                this.layout = layout;
+                const insets = this.run.platform.getSafeInsets();
+                const letterbox = Math.max(0, (frame.height / scale - HEIGHT) / 2);
+                const backdropHeight = HEIGHT + 2 * letterbox;
+                this.backdropScale = backdropHeight / HEIGHT;
+                this.mapPadding = 0;
+                this.surface.setContentSize(WIDTH, HEIGHT);
+                const pixelRatio = screen.devicePixelRatio;
+                this.top = Math.floor(Math.min(589, HEIGHT - Math.max(0, insets.top * pixelRatio / scale - letterbox) - 27));
+                this.capsuleCeiling = insets.menuBottom === undefined ? HEIGHT
+                    : Math.floor(HEIGHT - Math.max(0, insets.menuBottom * pixelRatio / scale - letterbox) - 8);
+                this.footer = Math.ceil(Math.max(34, insets.bottom * pixelRatio / scale - letterbox + 16));
+            }
+            if (this.patrol.page !== 'home') {
+                this.audio?.prepareCombat();
+                this.skin?.prepare();
+            }
+            if (this.embers) this.embers.node.active = this.patrol.page === 'home';
+            this.actions.length = 0;
+            this.labelIndex = 0;
+            this.ui.clear();
+            if (this.equipmentOverlay) this.equipmentOverlay.graphics.node.active = false;
+            this.patrol.draw();
+            if (this.patrol.page === 'home' && this.embers) this.drawMotes(this.embers);
+            this.drawStick(this.joystickMode && this.patrol.inBattle && !this.run.background);
+            for (let index = this.labelIndex; index < this.labels.length; index++) this.labels[index].node.active = false;
+            return;
+        }
         const battle = this.run.battle;
         const data = this.run.data;
         const page = this.campaignError || this.cloudBusy ? null : this.campaignPage;
@@ -3459,6 +3569,7 @@ export class M1Bootstrap extends Component {
     }
 
     private readonly inspect = () => {
+        if (this.patrol) return this.patrol.inspect();
         const { data, battle, paused } = this.run;
         return {
             phase: this.campaignError ? 'storage-error' : this.campaignPage ?? (this.chooseRoute ? (this.campaign ? 'brief' : 'route') : data?.phase),

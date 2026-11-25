@@ -1,5 +1,12 @@
 import type { ToolId } from '../m1/content';
 
+export interface WeaponMuzzle {
+    x: number;
+    y: number;
+    heading?: number;
+    flash?: { x: number; y: number; heading: number };
+}
+
 type Effect = 'contact' | 'arc' | 'rivet' | 'nail' | 'jet' | 'pulse' | 'coil' | 'pull' | 'fork';
 interface WeaponArt {
     folder: string;

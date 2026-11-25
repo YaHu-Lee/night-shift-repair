@@ -2,7 +2,7 @@ import type { CombatBounds } from './content';
 import type { Position } from './Encounter';
 
 export const FLOATING_WEAPON_LIMIT = 6;
-export const WEAPON_ORBIT_HEIGHT = 19;
+export const WEAPON_DOCK_HEIGHT = 19;
 export const MELEE_RETURN_TICKS = 4;
 export const MELEE_TOOL_STATS = {
     wrench: { reach: 57, radius: 8 },
@@ -15,9 +15,15 @@ export function isMeleeTool(id: string): id is MeleeTool {
     return id === 'wrench' || id === 'bypass_wrench';
 }
 
-export function weaponDock(slot: number, count: number, ticks: number): Readonly<Position> {
-    const turn = Math.PI + 2 * Math.PI * (slot / Math.max(1, count) - ticks / 390);
-    return { x: 37 * Math.cos(turn), y: WEAPON_ORBIT_HEIGHT + 34 * Math.sin(turn) };
+// Offsets from the player's feet. Equipping another weapon leaves occupied slots in place.
+const weaponDocks = [
+    { x: -37, y: WEAPON_DOCK_HEIGHT }, { x: 37, y: WEAPON_DOCK_HEIGHT },
+    { x: -21, y: 48 }, { x: 21, y: 48 },
+    { x: -21, y: -10 }, { x: 21, y: -10 },
+] as const;
+
+export function weaponDock(slot: number): Readonly<Position> {
+    return weaponDocks[slot];
 }
 
 const swings = {

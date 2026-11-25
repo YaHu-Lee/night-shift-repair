@@ -4,7 +4,7 @@ import { resolve,join,dirname } from 'node:path';
 const out = resolve('.m0-build');
 await rm(out,{recursive:true,force:true});
 await mkdir(out,{recursive:true});
-for (const dir of ['core','platform','m0','m1','campaign']) {
+for (const dir of ['core','platform','m0','m1','campaign','roguelite']) {
   const source = resolve('assets/scripts',dir);
   for (const name of await readdir(source)) {
     if (!name.endsWith('.ts')) continue;

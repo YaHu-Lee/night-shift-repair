@@ -42,7 +42,7 @@ type Area = Position & (
     { shape: 'strip'; kind: 'shot'; ux: number; uy: number; length: number; halfWidth: number } |
     { shape: 'sector'; kind: 'heat'; ux: number; uy: number; radius: number; slope: number }
 );
-type HitWeight = 'armor' | 'break' | 'strike';
+type HitWeight = 'armor' | 'boss-break' | 'break' | 'strike';
 export interface WeaponImpact extends Readonly<Position> {
     tick: number;
     cast: WeaponCast;
@@ -1050,7 +1050,7 @@ export class Battle {
 
     private swingTarget(slot: number, reach: number): Enemy | undefined {
         if (!this.rules.sweptMelee) return this.nearest(this.player, reach);
-        const dock = weaponDock(slot, this.tools.length, this.tick);
+        const dock = weaponDock(slot);
         const weapon = { x: this.player.x + dock.x, y: this.player.y + dock.y };
         let picked: Enemy | undefined;
         let best = Infinity;
@@ -1208,7 +1208,7 @@ export class Battle {
         const marks = equipment?.marks ?? (tool.mods.indexOf('contact') >= 0 || (this.arc && tool.mods.indexOf('relay') >= 0));
         const linked = equipment?.arcLink ?? this.arc;
         if (meleeTool) {
-            const melee = createMeleeMotion(meleeTool, runtime.swings++, weaponDock(slot, this.tools.length, this.tick),
+            const melee = createMeleeMotion(meleeTool, runtime.swings++, weaponDock(slot),
                 cast, ux, uy, reach, this.field, targetRange, runtime.wideSweepReady);
             const swingBonus = runtime.wideSweepReady ? 2 : 0;
             if (runtime.wideSweepReady) this.wideSweeps++;
@@ -1309,7 +1309,7 @@ export class Battle {
             const effect = this.effects[i];
             effect.sourceCast = cast;
             if (effect.weight === 'break') defeated++;
-            if (!effect.weight || (rank >= 4 && effect.weight !== 'armor')) continue;
+            if (!effect.weight || (rank >= 4 && effect.weight !== 'armor' && effect.weight !== 'boss-break')) continue;
             this.weaponImpacts.push({ cast, x: effect.x, y: effect.y, tick: this.tick, weight: effect.weight, rank: rank++ });
         }
         if (this.weaponImpacts.length > 36) this.weaponImpacts.splice(0, this.weaponImpacts.length - 36);
@@ -1375,7 +1375,8 @@ export class Battle {
         if (damage <= 0) return false;
         enemy.hitAt = this.tick;
         this.weaponImpactSerial++;
-        const weight: HitWeight = enemy === this.boss?.unit ? 'armor' : enemy.hp <= damage ? 'break' : 'strike';
+        const lethal = enemy.hp <= damage;
+        const weight: HitWeight = enemy === this.boss?.unit ? (lethal ? 'boss-break' : 'armor') : (lethal ? 'break' : 'strike');
         const point = { x: enemy.x, y: enemy.y, life: 7, weight };
         if (kind === 'arc') {
             const link: Attack = { ...point, kind, shape: 'link', from: { x: from.x, y: from.y } };

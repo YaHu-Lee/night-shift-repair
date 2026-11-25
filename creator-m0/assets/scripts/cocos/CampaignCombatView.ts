@@ -1,7 +1,8 @@
 import { Color, Graphics } from 'cc';
-import type { ChapterHazard, MissionPoint, MissionView, Position, TerrainRect } from '../m1/Encounter';
+import type { ChapterBossKind, ChapterHazard, MissionPoint, MissionView, Position, TerrainRect } from '../m1/Encounter';
 import type { Battle } from '../m1/Battle';
 import { START } from '../m1/content';
+import { pxLine, pxRing, pxStarFlash, snap2 } from './PixelVfxEngine';
 
 const GOLD = new Color(252, 201, 108);
 const SEA = new Color(111, 230, 192);
@@ -22,13 +23,14 @@ const CONVEYOR_ARROW = new Color(195, 213, 206);
 const LIFT_GRATING = new Color(56, 73, 77);
 const LIFT_RAIL = new Color(127, 146, 141);
 const LIFT_BOLT = new Color(229, 176, 101);
-const SHELL_BODY = new Color(250, 149, 82);
-const SHELL_CORE = new Color(255, 232, 170);
-const SHELL_WAKE = new Color(243, 122, 91, 124);
-const THREAT_BORDER = new Color(27, 20, 25, 222);
-const PLAYER_HIT = new Color(255, 102, 91);
-const QUIET_WARNING = new Color(255, 178, 105, 120);
-const BOSS_SHELL = new Color(226, 133, 218);
+// Enter-the-Gungeon style high-contrast lethal enemy projectile palette (distinct from orange/purple player VFX!)
+const SHELL_BODY = new Color(255, 58, 76);
+const SHELL_CORE = new Color(255, 254, 245);
+const SHELL_WAKE = new Color(224, 48, 70, 145);
+const THREAT_BORDER = new Color(18, 12, 18, 245);
+const PLAYER_HIT = new Color(255, 92, 82);
+const QUIET_WARNING = new Color(255, 198, 92, 165);
+const BOSS_SHELL = new Color(255, 74, 196);
 type Escort = NonNullable<MissionView['escort']>;
 type TerminalMark = 'medical' | 'broadcast' | 'dots' | 'stripes';
 type EncounterProp = 'terminal' | 'battery' | 'lift' | 'relay' | 'valve' | 'barrier';
@@ -59,27 +61,48 @@ export function drawPixelEnemyAim(g: Graphics, x: number, y: number, dx: number,
     g.fill();
 }
 
-export function drawPixelEnemyShells(g: Graphics, bullets: Readonly<Battle['bullets']>, offsetX: number, offsetY: number): void {
+export function drawPixelEnemyShells(g: Graphics, bullets: Readonly<Battle['bullets']>, offsetX: number, offsetY: number, tick = 0): void {
     if (!bullets.length) return;
+    const pulse = (Math.floor(tick / 3) % 2) === 0;
+    // Pixel trail wake
     g.fillColor = SHELL_WAKE;
     for (const shell of bullets) {
-        const x = shell.x - offsetX, y = shell.y - offsetY;
-        g.rect(Math.round(x - shell.vx * 2), Math.round(y - shell.vy * 2), 2, 2);
-        g.rect(Math.round(x - shell.vx) - 1, Math.round(y - shell.vy) - 1, 3, 3);
+        const x = Math.round(shell.x - offsetX), y = Math.round(shell.y - offsetY);
+        g.rect(Math.round(x - shell.vx * 2.2) - 1, Math.round(y - shell.vy * 2.2) - 1, 2, 2);
+        g.rect(Math.round(x - shell.vx * 1.1) - 2, Math.round(y - shell.vy * 1.1) - 2, 4, 4);
     }
     g.fill();
+    // 9x9 crisp dark outer silhouette (rounded pixel diamond/octagon) so bullets pop against any VFX
     g.fillColor = THREAT_BORDER;
-    for (const shell of bullets) g.rect(Math.round(shell.x - offsetX) - 3, Math.round(shell.y - offsetY) - 3, 7, 7);
+    for (const shell of bullets) {
+        const x = Math.round(shell.x - offsetX), y = Math.round(shell.y - offsetY);
+        g.rect(x - 4, y - 3, 9, 7);
+        g.rect(x - 3, y - 4, 7, 9);
+    }
     g.fill();
+    // High-contrast crimson (regular) & hot-magenta (Boss) ring
     for (const [kind, color] of [[undefined, SHELL_BODY], [true, BOSS_SHELL]] as const) {
         g.fillColor = color;
         for (const shell of bullets) {
-            if (shell.boss === kind) g.rect(Math.round(shell.x - offsetX) - 2, Math.round(shell.y - offsetY) - 2, 5, 5);
+            if (shell.boss === kind) {
+                const x = Math.round(shell.x - offsetX), y = Math.round(shell.y - offsetY);
+                g.rect(x - 3, y - 2, 7, 5);
+                g.rect(x - 2, y - 3, 5, 7);
+            }
         }
         g.fill();
     }
+    // Pulsing pure-white hot core (alternates 3x3 and 5x3/3x5 cross for immediate eye tracking)
     g.fillColor = SHELL_CORE;
-    for (const shell of bullets) g.rect(Math.round(shell.x - offsetX) - 1, Math.round(shell.y - offsetY) - 1, 3, 3);
+    for (const shell of bullets) {
+        const x = Math.round(shell.x - offsetX), y = Math.round(shell.y - offsetY);
+        if (pulse) {
+            g.rect(x - 2, y - 1, 5, 3);
+            g.rect(x - 1, y - 2, 3, 5);
+        } else {
+            g.rect(x - 1, y - 1, 3, 3);
+        }
+    }
     g.fill();
 }
 
@@ -160,7 +183,7 @@ export function drawCampaignEncounter(g: Graphics, battle: Readonly<Battle>, sta
     const practice = battle.practiceWarning;
     const hazard = boss?.hazard ?? practice;
     if (hazard) {
-        drawBossHazard(g, hazard, !modelProps, threat);
+        drawBossHazard(g, hazard, !modelProps, threat, tick, boss?.kind, boss?.phaseStartedAt ?? 0);
         if (hazard.shape === 'rect' && (practice || boss?.kind === 'gatekeeper' && boss.facing === undefined)) {
             drawGatekeeperRail(g, hazard);
         }
@@ -392,52 +415,345 @@ function drawThermalSignals(g: Graphics, { previous, next, radius }: NonNullable
     g.stroke();
 }
 
-function drawBossHazard(g: Graphics, hazard: ChapterHazard, pixel: boolean, threat: Graphics): void {
+function drawBossHazard(
+    g: Graphics,
+    hazard: ChapterHazard,
+    pixel: boolean,
+    threat: Graphics,
+    tick = 0,
+    bossKind?: ChapterBossKind,
+    phaseStartedAt = 0,
+): void {
     const hot = hazard.state === 'active';
+    const age = Math.max(0, tick - phaseStartedAt);
     g.fillColor = hot ? new Color(247, 79, 59, 115) : new Color(255, 181, 61, 55);
-    g.strokeColor = hot ? RED : GOLD; g.lineWidth = 2.5;
+    g.strokeColor = hot ? RED : GOLD;
+    g.lineWidth = 2.5;
     switch (hazard.shape) {
         case 'rect':
-            if (hot || !pixel) {
+            if (!pixel) {
                 g.rect(hazard.left, hazard.bottom, hazard.right - hazard.left, hazard.top - hazard.bottom);
                 g.fill();
-            }
-            if (pixel) drawPixelLaneEdges(threat, hazard, hot);
-            else {
                 g.rect(hazard.left, hazard.bottom, hazard.right - hazard.left, hazard.top - hazard.bottom);
                 g.stroke();
+                break;
+            }
+            if (!hot) {
+                // Warning: crisp amber pixel dashed lane + subtle drifting danger chevrons
+                drawPixelLaneEdges(threat, hazard, false);
+                drawPixelLaneWarningChevrons(g, hazard, tick);
+            } else if (bossKind === 'gatekeeper') {
+                // Active Gatekeeper: roaring pixel fire sea + overloaded plasma busbar down the lane!
+                drawPixelFireLane(g, threat, hazard, tick, age);
+            } else {
+                // Active Supervisor / Elite / Core: searing multi-layer pixel plasma beam!
+                drawPixelLaserLane(g, threat, hazard, tick, age, bossKind === 'core');
             }
             break;
         case 'sector':
-            if (hot || !pixel) { wedge(g, hazard.x, hazard.y, hazard.radius, hazard.from, hazard.sweep); g.fill(); }
-            if (pixel) {
+            if (!pixel) {
+                wedge(g, hazard.x, hazard.y, hazard.radius, hazard.from, hazard.sweep);
+                g.fill();
+                wedge(g, hazard.x, hazard.y, hazard.radius, hazard.from, hazard.sweep);
+                g.stroke();
+                break;
+            }
+            if (!hot) {
                 const { x, y, radius, from, sweep } = hazard;
-                const color = hot ? RED : QUIET_WARNING;
-                drawPixelArcEdge(threat, x, y, radius, from, sweep, color, hot ? 3 : 18);
+                drawPixelArcEdge(threat, x, y, radius, from, sweep, QUIET_WARNING, 16);
                 for (const ray of [from + 0.018, from + sweep - 0.018]) {
-                    drawPixelCable(threat, x, y, x + Math.cos(ray) * (radius - 3), y + Math.sin(ray) * (radius - 3), color, hot);
+                    drawPixelCable(threat, x, y, x + Math.cos(ray) * (radius - 3), y + Math.sin(ray) * (radius - 3), QUIET_WARNING, false);
                 }
             } else {
-                wedge(g, hazard.x, hazard.y, hazard.radius, hazard.from, hazard.sweep); g.stroke();
+                drawPixelStormSector(g, threat, hazard, tick, age, bossKind === 'core');
             }
             break;
         case 'tether': {
-            // This area is a cuttable cable. A transparent round band matches the model's segment distance.
-            if (hot) {
-                const cap = g.lineCap;
-                g.lineCap = Graphics.LineCap.ROUND;
-                g.strokeColor = new Color(251, 216, 148, 98); g.lineWidth = 2 * hazard.width;
-                g.moveTo(hazard.x, hazard.y); g.lineTo(hazard.end.x, hazard.end.y); g.stroke();
-                g.lineCap = cap;
-            }
-            if (pixel) drawPixelCable(threat, hazard.x, hazard.y, hazard.end.x, hazard.end.y, hot ? RED : QUIET_WARNING, hot);
-            else {
+            if (!pixel) {
+                if (hot) {
+                    const cap = g.lineCap;
+                    g.lineCap = Graphics.LineCap.ROUND;
+                    g.strokeColor = new Color(251, 216, 148, 98); g.lineWidth = 2 * hazard.width;
+                    g.moveTo(hazard.x, hazard.y); g.lineTo(hazard.end.x, hazard.end.y); g.stroke();
+                    g.lineCap = cap;
+                }
                 g.strokeColor = GOLD; g.lineWidth = hot ? 3.5 : 2.5;
                 g.moveTo(hazard.x, hazard.y); g.lineTo(hazard.end.x, hazard.end.y); g.stroke();
+                break;
+            }
+            if (!hot) {
+                drawPixelCable(threat, hazard.x, hazard.y, hazard.end.x, hazard.end.y, QUIET_WARNING, false);
+            } else {
+                drawPixelHeavyTether(g, threat, hazard, tick);
             }
             break;
         }
     }
+}
+
+function drawPixelLaneWarningChevrons(g: Graphics, lane: Extract<ChapterHazard, { shape: 'rect' }>, tick: number): void {
+    const { left, right, bottom, top } = lane;
+    const width = right - left, height = top - bottom;
+    const horiz = width >= height;
+    const cx = (left + right) * 0.5, cy = (bottom + top) * 0.5;
+    const blink = Math.floor(tick / 4) % 2 === 0 ? 150 : 85;
+    g.fillColor = new Color(255, 198, 92, blink);
+    const shift = (tick * 2) % 32;
+    if (horiz) {
+        for (let x = left + 16 + shift; x < right - 16; x += 32) {
+            const px = snap2(x), py = snap2(cy);
+            g.rect(px - 2, py - 6, 4, 2);
+            g.rect(px + 2, py - 4, 2, 2);
+            g.rect(px + 4, py - 2, 2, 4);
+            g.rect(px + 2, py + 2, 2, 2);
+            g.rect(px - 2, py + 4, 4, 2);
+        }
+    } else {
+        for (let y = bottom + 16 + shift; y < top - 16; y += 32) {
+            const px = snap2(cx), py = snap2(y);
+            g.rect(px - 6, py - 2, 2, 4);
+            g.rect(px - 4, py + 2, 2, 2);
+            g.rect(px - 2, py + 4, 4, 2);
+            g.rect(px + 2, py + 2, 2, 2);
+            g.rect(px + 4, py - 2, 2, 4);
+        }
+    }
+    g.fill();
+}
+
+/** Active Gatekeeper Boss VFX: roaring multi-layer pure-pixel fire sea + central plasma surge! */
+function drawPixelFireLane(
+    g: Graphics,
+    threat: Graphics,
+    lane: Extract<ChapterHazard, { shape: 'rect' }>,
+    tick: number,
+    age: number,
+): void {
+    const { left, right, bottom, top } = lane;
+    const width = right - left, height = top - bottom;
+    const horiz = width >= height;
+    const ramp = Math.min(1, (age + 1) / 4);
+    const frame = Math.floor(tick / 2);
+
+    // 1. Subtle dark charred scorch bed under the roaring flames (keeps exact hitbox clear without looking like a flat red box)
+    g.fillColor = new Color(46, 16, 18, Math.round(135 * ramp));
+    g.rect(snap2(left), snap2(bottom), snap2(width), snap2(height));
+    g.fill();
+
+    // 2. Crisp scorched pixel perimeter on threat layer so player can judge exact safe line to 1 pixel
+    drawPixelLaneEdges(threat, lane, true);
+
+    // 3. Roaring 3-tier pixel fire plumes filling the lane!
+    const stepX = 16, stepY = 16;
+    // Pass A: deep crimson flame base blocks
+    g.fillColor = new Color(214, 42, 42, Math.round(215 * ramp));
+    for (let y = bottom + 6; y < top - 4; y += stepY) {
+        for (let x = left + 6; x < right - 4; x += stepX) {
+            const h = Math.sin(x * 0.13 + y * 0.17 + frame * 1.4);
+            const jx = snap2(x + Math.sin(y * 0.21 + frame * 1.1) * 4);
+            const jy = snap2(y + Math.abs(h) * 5);
+            const sz = h > 0.2 ? 10 : 8;
+            g.rect(jx - sz / 2, jy - sz / 2, sz, sz);
+        }
+    }
+    g.fill();
+
+    // Pass B: blazing orange flame tongues jumping upward
+    threat.fillColor = new Color(255, 118, 38, Math.round(235 * ramp));
+    for (let y = bottom + 8; y < top - 6; y += stepY) {
+        for (let x = left + 8; x < right - 6; x += stepX) {
+            const phase = Math.sin(x * 0.19 - y * 0.11 + frame * 1.9);
+            const px = snap2(x + phase * 5);
+            const py = snap2(y + (phase * 0.5 + 0.5) * 6);
+            const sz = phase > 0 ? 8 : 6;
+            threat.rect(px - sz / 2, py - sz / 2, sz, sz);
+        }
+    }
+    threat.fill();
+
+    // Pass C: golden-yellow inner heat cores + rising pixel embers
+    threat.fillColor = new Color(255, 222, 86, Math.round(245 * ramp));
+    for (let y = bottom + 10; y < top - 8; y += stepY) {
+        for (let x = left + 10; x < right - 8; x += stepX) {
+            const phase = Math.cos(x * 0.23 + y * 0.19 + frame * 2.3);
+            if (phase < -0.25) continue;
+            const px = snap2(x - phase * 3);
+            const py = snap2(y + phase * 4 + 2);
+            threat.rect(px - 2, py - 2, 4, 4);
+            // Detached ember spark rising off the fire crest
+            if (phase > 0.6) threat.rect(px, snap2(py + 6), 2, 2);
+        }
+    }
+    threat.fill();
+
+    // Pass D: white-hot central overload plasma arc whipping across the lane!
+    const cx = (left + right) * 0.5, cy = (bottom + top) * 0.5;
+    threat.fillColor = new Color(255, 252, 228, Math.round(240 * ramp));
+    const segs = 12;
+    let prevX = horiz ? left + 4 : cx;
+    let prevY = horiz ? cy : bottom + 4;
+    for (let i = 1; i <= segs; i++) {
+        const u = i / segs;
+        const jitter = Math.sin(i * 3.7 + frame * 2.7) * (horiz ? height * 0.22 : width * 0.22);
+        const nx = horiz ? left + width * u : cx + jitter;
+        const ny = horiz ? cy + jitter : bottom + height * u;
+        pxLine(threat, prevX, prevY, nx, ny, age < 3 ? 4 : 2, 4);
+        prevX = nx; prevY = ny;
+    }
+    threat.fill();
+}
+
+/** Active Supervisor / Elite / Core Boss VFX: multi-layer searing pixel plasma laser beam! */
+function drawPixelLaserLane(
+    g: Graphics,
+    threat: Graphics,
+    lane: Extract<ChapterHazard, { shape: 'rect' }>,
+    tick: number,
+    age: number,
+    isCore: boolean,
+): void {
+    const { left, right, bottom, top } = lane;
+    const width = right - left, height = top - bottom;
+    const horiz = width >= height;
+    const cx = (left + right) * 0.5, cy = (bottom + top) * 0.5;
+    const thickness = horiz ? height : width;
+    const pulse = (Math.floor(tick / 2) % 2) === 0 ? 1 : 0.86;
+    const outerCol = isCore ? new Color(238, 62, 168, 195) : new Color(255, 64, 58, 195);
+    const midCol = isCore ? new Color(255, 146, 232, 235) : new Color(255, 168, 64, 235);
+
+    // Outer scorched edge + pulsing plasma mantle
+    drawPixelLaneEdges(threat, lane, true);
+    const mantle = Math.max(8, snap2(thickness * 0.72 * pulse));
+    g.fillColor = outerCol;
+    if (horiz) g.rect(snap2(left), snap2(cy - mantle / 2), snap2(width), mantle);
+    else g.rect(snap2(cx - mantle / 2), snap2(bottom), mantle, snap2(height));
+    g.fill();
+
+    // Inner bright plasma ribbon
+    const ribbon = Math.max(6, snap2(thickness * 0.42 * pulse));
+    threat.fillColor = midCol;
+    if (horiz) threat.rect(snap2(left), snap2(cy - ribbon / 2), snap2(width), ribbon);
+    else threat.rect(snap2(cx - ribbon / 2), snap2(bottom), ribbon, snap2(height));
+    threat.fill();
+
+    // Pure white-hot core beam + racing shock nodes
+    const coreW = Math.max(4, snap2(thickness * (age < 3 ? 0.28 : 0.18)));
+    threat.fillColor = new Color(255, 253, 238, 250);
+    if (horiz) threat.rect(snap2(left), snap2(cy - coreW / 2), snap2(width), coreW);
+    else threat.rect(snap2(cx - coreW / 2), snap2(bottom), coreW, snap2(height));
+    const speedShift = (tick * 9) % 44;
+    if (horiz) {
+        for (let x = left + speedShift; x < right; x += 44) {
+            const sx = snap2(x);
+            threat.rect(sx - 2, snap2(cy - thickness * 0.44), 4, snap2(thickness * 0.88));
+        }
+    } else {
+        for (let y = bottom + speedShift; y < top; y += 44) {
+            const sy = snap2(y);
+            threat.rect(snap2(cx - thickness * 0.44), sy - 2, snap2(thickness * 0.88), 4);
+        }
+    }
+    threat.fill();
+}
+
+/** Active Silence Array / Core Stage 1 VFX: sweeping concentric pixel shockwave storm! */
+function drawPixelStormSector(
+    g: Graphics,
+    threat: Graphics,
+    hazard: Extract<ChapterHazard, { shape: 'sector' }>,
+    tick: number,
+    age: number,
+    isCore: boolean,
+): void {
+    const { x, y, radius, from, sweep } = hazard;
+    const primary = isCore ? new Color(255, 86, 178, 235) : new Color(196, 114, 255, 235);
+    const accent = isCore ? new Color(255, 198, 92, 235) : new Color(255, 76, 108, 235);
+
+    // Subtle dark purple/crimson static floor tint so exact safe wedge remains unmistakable
+    g.fillColor = isCore ? new Color(68, 18, 42, 92) : new Color(46, 20, 68, 92);
+    wedge(g, x, y, radius, from, sweep);
+    g.fill();
+
+    // Crisp outer boundary & side rails
+    drawPixelArcEdge(threat, x, y, radius, from, sweep, RED, 4);
+    for (const ray of [from + 0.018, from + sweep - 0.018]) {
+        threat.fillColor = RED;
+        pxLine(threat, x, y, x + Math.cos(ray) * radius, y + Math.sin(ray) * radius, 2, 4);
+        threat.fill();
+    }
+
+    // 5 sweeping concentric pixel shock arcs racing outward from the Boss!
+    for (let w = 0; w < 5; w++) {
+        const phase = ((tick * 0.09 + w * 0.2) % 1);
+        const r = Math.max(16, radius * phase);
+        threat.fillColor = w % 2 === 0 ? primary : accent;
+        pxRing(threat, x, y, r, phase > 0.7 ? 4 : 2, from + 0.03, sweep - 0.06, 6, 4);
+        threat.fill();
+    }
+
+    // 6 crackling white-hot radial pixel lightning spokes
+    const spokes = 6;
+    threat.fillColor = new Color(255, 250, 232, age < 3 ? 250 : 210);
+    for (let i = 0; i < spokes; i++) {
+        const u = (i + 0.5) / spokes;
+        const a = from + sweep * u + Math.sin(tick * 0.7 + i * 2.1) * 0.06;
+        const len = radius * (0.45 + 0.5 * ((tick * 0.13 + i * 0.31) % 1));
+        const midX = x + Math.cos(a + 0.08) * (len * 0.52);
+        const midY = y + Math.sin(a + 0.08) * (len * 0.52);
+        pxLine(threat, x, y, midX, midY, 2, 5);
+        pxLine(threat, midX, midY, x + Math.cos(a) * len, y + Math.sin(a) * len, 2, 5);
+    }
+    threat.fill();
+}
+
+/** Active Tow / Core Stage 2 VFX: taut heavy pixel chain + crackling red-white voltage surge + claw! */
+function drawPixelHeavyTether(
+    g: Graphics,
+    threat: Graphics,
+    hazard: Extract<ChapterHazard, { shape: 'tether' }>,
+    tick: number,
+): void {
+    const { x, y, end } = hazard;
+    const dx = end.x - x, dy = end.y - y;
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    const ux = dx / dist, uy = dy / dist;
+    const nx = -uy, ny = ux;
+
+    // 1. Dark steel outer chain border
+    g.fillColor = THREAT_BORDER;
+    pxLine(g, x, y, end.x, end.y, 8, 5);
+    g.fill();
+
+    // 2. Alternating steel & industrial yellow chain links
+    const links = Math.max(3, Math.ceil(dist / 8));
+    for (let i = 0; i <= links; i++) {
+        const u = i / links;
+        const lx = snap2(x + dx * u), ly = snap2(y + dy * u);
+        threat.fillColor = i % 2 === 0 ? new Color(255, 198, 92, 245) : new Color(165, 182, 190, 245);
+        threat.rect(lx - 2, ly - 2, 4, 4);
+    }
+    threat.fill();
+
+    // 3. High-voltage crimson & white-hot zigzag surge racing along the taut chain
+    const frame = Math.floor(tick / 2);
+    threat.fillColor = new Color(255, 74, 88, 240);
+    let px = x, py = y;
+    for (let i = 1; i <= 7; i++) {
+        const u = i / 7;
+        const bend = i === 7 ? 0 : Math.sin(i * 3.1 + frame * 2.4) * 9;
+        const qx = x + dx * u + nx * bend, qy = y + dy * u + ny * bend;
+        pxLine(threat, px, py, qx, qy, 2, 4);
+        px = qx; py = qy;
+    }
+    threat.fill();
+
+    // 4. Pixel claw prongs & starburst spark at the grappling head
+    pxStarFlash(threat, end.x, end.y, 8, [255, 92, 82], 245);
+    threat.fillColor = GOLD;
+    for (const side of [-1, 1]) {
+        pxLine(threat, end.x, end.y, end.x - ux * 10 + nx * side * 9, end.y - uy * 10 + ny * side * 9, 2, 3);
+    }
+    threat.fill();
 }
 
 function drawPixelArcEdge(g: Graphics, x: number, y: number, radius: number, from: number, sweep: number,
@@ -624,19 +940,32 @@ function drawEnemyTelegraphs(g: Graphics, enemies: Battle['enemies'], mission: M
         } else if (kind === 'reclaimer' && state !== 'walk' && tether) {
             const target = tether;
             const pulling = state === 'dash';
-            if (pulling) {
-                const cap = g.lineCap;
-                g.lineCap = Graphics.LineCap.ROUND;
-                g.strokeColor = new Color(251, 216, 148, 90); g.lineWidth = 24;
-                g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
-                g.lineCap = cap;
-            } else if (!pixel) {
-                g.strokeColor = INK; g.lineWidth = 5;
-                g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
-            }
-            const color = pulling || tick % 7 < 4 ? GOLD : DIM;
-            if (pixel) drawPixelCable(threat, x, y, target.x, target.y, pulling ? RED : QUIET_WARNING, pulling);
-            else {
+            if (pixel) {
+                if (pulling) {
+                    // Taut pixel grappling cable with voltage sparks instead of a flat translucent strip!
+                    g.fillColor = THREAT_BORDER;
+                    pxLine(g, x, y, target.x, target.y, 6, 4);
+                    g.fill();
+                    threat.fillColor = RED;
+                    pxLine(threat, x, y, target.x, target.y, 2, 4);
+                    threat.fill();
+                    const travel = (tick * 0.14) % 1;
+                    pxStarFlash(threat, x + (target.x - x) * travel, y + (target.y - y) * travel, 5, [255, 206, 98], 235);
+                } else {
+                    drawPixelCable(threat, x, y, target.x, target.y, QUIET_WARNING, false);
+                }
+            } else {
+                if (pulling) {
+                    const cap = g.lineCap;
+                    g.lineCap = Graphics.LineCap.ROUND;
+                    g.strokeColor = new Color(251, 216, 148, 90); g.lineWidth = 24;
+                    g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
+                    g.lineCap = cap;
+                } else {
+                    g.strokeColor = INK; g.lineWidth = 5;
+                    g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
+                }
+                const color = pulling || tick % 7 < 4 ? GOLD : DIM;
                 g.strokeColor = color; g.lineWidth = pulling ? 3 : 2;
                 g.moveTo(x, y); g.lineTo(target.x, target.y); g.stroke();
             }

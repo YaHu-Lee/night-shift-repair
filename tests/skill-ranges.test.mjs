@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Battle } from '../.m0-build/m1/Battle.js';
 import { createEquipment } from '../.m0-build/m1/Equipment.js';
 import { M1_RULES, TOOLS } from '../.m0-build/m1/content.js';
-import { circleContact, createMeleeMotion, sampleMeleeHead, weaponDock, WEAPON_ORBIT_HEIGHT } from '../.m0-build/m1/WeaponMotion.js';
+import { circleContact, createMeleeMotion, sampleMeleeHead, weaponDock } from '../.m0-build/m1/WeaponMotion.js';
 
 function meleeBattle(tool = 'wrench') {
     return new Battle(0, 105, [{ id: tool, mods: [] }], { ...M1_RULES, sweptMelee: true,
@@ -16,6 +16,33 @@ function addTarget(battle, x, y) {
     battle.enemies.push(unit);
     return unit;
 }
+
+test('every weapon reports the outcome of its actual damage at the contact point', () => {
+    for (const id of Object.keys(TOOLS)) for (const lethal of [false, true]) {
+        const battle = meleeBattle(id);
+        const target = addTarget(battle, battle.player.x + 38, battle.player.y);
+        target.hp = lethal ? 1 : 50;
+        const { x, y } = target;
+        for (let i = 0; i < 16 && !battle.weaponImpacts.length; i++) battle.step(0, 0);
+        const hit = battle.weaponImpacts[0];
+        assert.equal(hit?.cast.tool, id);
+        assert.equal(hit.weight, lethal ? 'break' : 'strike', id);
+        assert.deepEqual([hit.x, hit.y], [x, y], id);
+        assert.equal(battle.enemies.includes(target), !lethal, id);
+    }
+});
+
+test('a lethal boss hit gets its own break effect and does not count as a group kill', () => {
+    for (const lethal of [false, true]) {
+        const battle = new Battle(0, 42, [{ id: 'riveter', mods: [] }], { ...M1_RULES,
+            waves: [{ seconds: 30, spawnEvery: 0, enemies: [], boss: true }] });
+        Object.assign(battle.boss.unit, { x: battle.player.x + 40, y: battle.player.y, hp: lethal ? 1 : 50 });
+        battle.step(0, 0);
+        assert.equal(battle.weaponImpacts[0].weight, lethal ? 'boss-break' : 'armor');
+        assert.equal(battle.bossDefeated, lethal);
+        assert.equal(battle.groupBreak, undefined);
+    }
+});
 
 test('two distinct hits arm one flywheel sweep, with damage only along its wider path', () => {
     const { tools, equipment } = createEquipment('wrench', {});
@@ -45,18 +72,23 @@ test('two distinct hits arm one flywheel sweep, with damage only along its wider
     assert.equal(battle.wideSweeps, 1, 'one victim cannot renew the charge through repeated contact');
 });
 
-test('six idle weapons share the orbit and move slowly clockwise', () => {
-    function angle(slot, tick) {
-        const dock = weaponDock(slot, 6, tick);
-        return Math.atan2((dock.y - WEAPON_ORBIT_HEIGHT) / 34, dock.x / 37);
+test('melee launches from the same side slot after time passes and the loadout grows', () => {
+    const docks = Array.from({ length: 6 }, (_, slot) => weaponDock(slot));
+    assert.equal(new Set(docks.map(p => p.x + ',' + p.y)).size, 6);
+    for (const count of [1, 2, 6]) for (const tick of [1, 98, 205, 390]) {
+        const tools = Array.from({ length: count }, () => ({ id: 'wrench', mods: [] }));
+        const battle = new Battle(0, 105, tools, { ...M1_RULES, sweptMelee: true,
+            waves: [{ seconds: 30, spawnEvery: 0, enemies: [] }] });
+        battle.tick = tick;
+        battle.player.x += 10;
+        addTarget(battle, battle.player.x - 36, battle.player.y);
+        battle.step(0, 0);
+        assert.equal(battle.weaponCasts.length, count);
+        for (const cast of battle.weaponCasts) {
+            const dock = docks[cast.slot], start = cast.melee.points[0];
+            assert.deepEqual([start.x - cast.x, start.y - cast.y], [dock.x, dock.y]);
+        }
     }
-    const angles = Array.from({ length: 6 }, (_, slot) => angle(slot, 0));
-    for (let index = 1; index < angles.length; index++) {
-        const gap = angles[index] - angles[index - 1];
-        assert.ok(Math.abs(Math.atan2(Math.sin(gap), Math.cos(gap)) - Math.PI / 3) < 1e-9);
-    }
-    const drift = angle(2, 30) - angle(2, 0);
-    assert.ok(drift < 0 && drift > -0.6);
 });
 
 test('melee selects from the player radius using distance to the weapon', () => {
@@ -102,7 +134,7 @@ test('each melee attacks with two distinct paths, hits along the sweep once, and
 
 test('the arc wrench swings in opposite directions and can hit at point-blank range', () => {
     const battle = meleeBattle();
-    const dock = weaponDock(0, 1, 0);
+    const dock = weaponDock(0);
     for (const [sequence, sign] of [[0, 1], [1, -1]]) {
         const motion = createMeleeMotion('wrench', sequence, dock, battle.player, 1, 0, 57, battle.field, 42);
         const angles = motion.offsets.slice(motion.first).map(({ x, y }) => Math.atan2(y, x));
