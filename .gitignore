@@ -7,3 +7,7 @@ build/
 profiles/
 .DS_Store
 .env*
+/log/
+/project.config.json
+/project.private.config.json
+__pycache__/

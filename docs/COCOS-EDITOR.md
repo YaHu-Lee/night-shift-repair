@@ -1,4 +1,10 @@
-# M0 Cocos 预览与抖音导出
+# Cocos 工程、战役构建与 M0 预览
+
+正式战役使用 `assets/scenes/Campaign.scene`。Web 试玩从仓库的[战役启动说明](../README.md#试玩像素战役)开始。微信或抖音开发者工具应打开对应的 Creator 导出目录，其中包含小游戏入口和该平台的 `project.config.json`。[导出目录与包体验证](../cloud/README.md#发布包身份核对)
+
+构建配置、场景、脚本、导入设置和素材随 Git 保存。Creator 会在打开工程或构建时重建 `creator-m0/library/` 和 `creator-m0/temp/`。各平台的本地导出位于 `creator-m0/build/`，可以用相应构建配置重新生成；已选入评审文档的实录放在 `docs/review/`。
+
+## M0 压测场景
 
 适用 **Cocos Creator 3.8.8 LTS**。本地 M0 工程位于 `creator-m0/`。用 Creator 打开该目录并打开 `assets/scenes/M0.scene`，可直接预览已挂载组件的 360 × 640 场景。修改仓库根目录的脚本后，构建前将改动同步到 `creator-m0/assets/scripts/`，保留 Creator 已生成的 `.meta` 文件。
 

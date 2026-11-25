@@ -2,6 +2,8 @@
 
 打开 Creator 3.8.8 工程 `creator-m0/`，预览 `assets/scenes/M2.scene`。构建配置为 `creator-m0/build-m2.json`，抖音本地竖屏调试包输出到 `creator-m0/build/bytedance-mini-game-m2/`。M2 使用独立的 A/B 存档键，旧 M1 灰盒仍可打开。
 
+竖屏整备台的历史验收画面见 [M2 商店截图](review/m2-shop-mobile.png)。
+
 ## 一局流程
 
 - 六波时长为 30 / 40 / 45 / 55 / 60 / 75 秒。前五波存活后进整备，最后一波必须在时限内击败巡检机。生命归零或 Boss 超时进入失败结算。
