@@ -1010,6 +1010,19 @@ export class BattleSkinView {
                     this.icon(this.world, 'scrap', part.x, part.y, 9);
                 }
             }
+            if (floatingTick !== undefined && !prototypeModels) {
+                for (const enemy of battle.defeatedEnemies) {
+                    const t = (floatingTick - enemy.hitAt!) / 6;
+                    if (t < 0 || t >= 1 || enemy === core) continue;
+                    const dx = enemy.x - player.x, dy = enemy.y - player.y, length = Math.hypot(dx, dy) || 1;
+                    const key = actorFrame(enemy.kind, 'hit', facing(-dx, -dy));
+                    const frame = this.frames.get('pixel-enemy:' + key);
+                    if (!frame) continue;
+                    const scale = 1 - .42 * t, { width, height } = frame.rect;
+                    this.world.put(frame, enemy.x + dx / length * t * 9, enemy.y + dy / length * t * 9 + 5 * Math.sin(t * Math.PI),
+                        width * scale, height * scale, (dx >= 0 ? -1 : 1) * t * 38, t < .4 ? hurt : offlineCore);
+                }
+            }
             for (const enemy of battle.enemies) {
                 if (prototypeModels) {
                     const size = unitSize[enemy.kind];

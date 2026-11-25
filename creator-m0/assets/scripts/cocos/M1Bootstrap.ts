@@ -27,7 +27,7 @@ import { createEquipment, getEquipmentOffer, resolveEquipment, weaponAttachmentC
 import type { EquipmentOffer, EquipmentOfferId, EquipmentShop, EquipmentSlot, EquipmentStart, EquipmentTarget } from '../m1/Equipment';
 import { equipmentDetail } from '../m1/EquipmentDetails';
 import { BOSS_CHARGE_SPEED, BOSS_CHARGE_TICKS, CHARGER_DASH_TRAVEL, ENEMY_FIELD_MARGIN, type Battle } from '../m1/Battle';
-import { drawSkillEffects } from './SkillEffectsView';
+import { drawBossBreak, drawSkillEffects } from './SkillEffectsView';
 import { BattleSkinView } from './BattleSkinView';
 import { PrototypeActorView } from './PrototypeActorView';
 import { PrototypeDepotView } from './PrototypeDepotView';
@@ -270,7 +270,9 @@ export class M1Bootstrap extends Component {
     private weaponShowcase?: keyof typeof showcaseLoadouts;
     private benchTool: ToolId = 'wrench';
     private benchModified = false;
+    private benchBoss = false;
     private previewBattle?: Battle;
+    private victory?: { battle: Battle; elapsed: number; kills: number };
     private weaponTick = 0;
 
     onLoad(): void {
@@ -285,6 +287,7 @@ export class M1Bootstrap extends Component {
             const selected = previewQuery?.get('tool') ?? '';
             if (isTool(selected)) this.benchTool = selected;
             this.benchModified = previewQuery?.get('special') === '1';
+            this.benchBoss = previewQuery?.get('target') === 'boss';
         }
         const prototypeSetting = previewQuery?.get('prototype3d');
         const modelArt = !this.weaponShowcase && typeof MeshRenderer === 'function' && !!primitives?.sphere && prototypeSetting !== '0'
@@ -409,8 +412,12 @@ export class M1Bootstrap extends Component {
     update(dt: number): void {
         if (this.reviveDecision && !this.reviveDecision.attempted && !this.run.background) this.finishRevive();
         this.advanceChapterHandoff(dt);
+        if (this.victory && !this.run.background) {
+            this.victory.elapsed += dt;
+            if (this.victory.elapsed >= 1.55 || this.campaignPage || this.run.data?.phase !== 'won') this.victory = undefined;
+        }
         const unlock = this.activeWeaponUnlock;
-        if (unlock && !this.run.background) {
+        if (unlock && !this.victory && !this.run.background) {
             unlock.elapsed = Math.min(1.2, unlock.elapsed + dt);
             if (!unlock.announced) {
                 unlock.announced = true;
@@ -458,6 +465,10 @@ export class M1Bootstrap extends Component {
             this.clearInput();
             this.selection = null;
             this.traceOutcome();
+            if (this.campaignMode && !this.prototypeLayer && battle?.bossDefeated && this.run.data?.phase === 'won') {
+                const kills = this.run.data.reports?.reduce((total, report) => total + report.kills, 0) ?? battle.kills;
+                this.victory = { battle, elapsed: 0, kills };
+            }
             this.reconcileCampaignResult();
         }
         this.syncMusic();
@@ -468,6 +479,7 @@ export class M1Bootstrap extends Component {
         const campaign = this.campaign = this.cloud?.binding?.campaign ?? new Campaign(this.weaponShowcase ? showcasePlatform() : undefined);
         const prefix = this.cloud?.binding?.runPrefix ?? GUEST_CAMPAIGN_RUN_PREFIX;
         this.reconciledRuns.clear();
+        this.victory = undefined;
         this.chapterHandoff = undefined;
         this.weaponUnlock = undefined;
         this.tuningPage = false;
@@ -638,7 +650,7 @@ export class M1Bootstrap extends Component {
             const kit = createEquipment(weapon, this.benchModified ? {
                 starterAttachment: `${weapon}/signature`, unlockedAttachments: [`${weapon}/signature`],
             } : {});
-            if (!kit || !platform.writeCheckpoint(data.schemaVersion, { ...data, ...kit, wave: 2 })) return;
+            if (!kit || !platform.writeCheckpoint(data.schemaVersion, { ...data, ...kit, wave: this.benchBoss ? stage.finalWave : 2 })) return;
             this.loadCampaignStage(stage, mode, platform);
             return;
         }
@@ -1032,7 +1044,7 @@ export class M1Bootstrap extends Component {
                 this.audio?.prepareCombat();
                 this.skin?.prepare();
             }
-            this.drawField();
+            this.drawField(this.victory?.battle ?? battle);
         } else if (this.prototypeActors) {
             this.prototypeActors.dispose();
             this.prototypeActors = undefined;
@@ -1061,7 +1073,7 @@ export class M1Bootstrap extends Component {
         }
         if (this.embers) this.embers.node.active = sceneryPage;
         const workshopPage = page === 'equipment' || page === 'role';
-        const worksheetPhase = !page && !this.chooseRoute && !this.run.waitingForSave && this.currentCampaignRun()
+        const worksheetPhase = !this.victory && !page && !this.chooseRoute && !this.run.waitingForSave && this.currentCampaignRun()
             && (data?.phase === 'won' || data?.phase === 'lost' || data?.phase === 'revive' || (data?.phase === 'shop' && !!data.equipment));
         const workbench = this.campaignMode && !this.campaignError && !this.cloudBusy && (workshopPage || worksheetPhase);
         this.drawScenery(page === 'settings' ? 'home' : page === 'home' || page === 'map' ? page : workbench ? 'bench' : null);
@@ -1071,6 +1083,7 @@ export class M1Bootstrap extends Component {
         const seconds = battle && !clearProgress ? Math.ceil((battle.duration - battle.tick) / TICK_RATE) : 0;
         let waveCue: string | undefined;
         if (battle?.counterattackStarting) waveCue = '另一队赶来了';
+        else if (battle?.groupBreak && battle.tick - battle.groupBreak.tick <= 22) waveCue = '一击拆掉 ' + battle.groupBreak.count + ' 台';
         else if (battle && clearProgress && !battle.enemies.length) {
             if (battle.warnings.length) waveCue = '敌机快到了';
             else if (!battle.mission && clearProgress.kills > 0 && clearProgress.kills < clearProgress.total) waveCue = '还有增援';
@@ -1082,7 +1095,7 @@ export class M1Bootstrap extends Component {
             battle?.triggers.arc, battle?.triggers.magnet, battle?.triggers.heat, this.run.paused,
             this.run.waitingForSave, this.run.storageFailed, this.selection, this.slot, this.replacement, this.chooseRoute,
             this.tuningPage, this.equipmentSelection, this.equipmentTarget, this.equipmentFocus, this.equipmentDetails,
-            unlock ? Math.floor(unlock.elapsed * 24) : null,
+            unlock ? Math.floor(unlock.elapsed * 24) : null, this.victory ? this.victory.elapsed >= .38 : null,
             this.campaign ? [this.campaignPage, this.selectedStage.id, this.stage.id, this.campaignError, this.startWeapon, this.currentCampaignRun(), this.campaign.profile.revision, this.mapChapter, this.mapOffset, this.loadoutMode,
                 this.workshopTab, this.workshopFromResult, this.archiveIndex, this.archiveKind, this.equipmentTab, this.growthBack, this.trainingWeapon] : null,
             this.top, this.footer, battle?.boss?.unit.hp, battle?.boss?.phase, battle?.boss?.attack,
@@ -1127,7 +1140,14 @@ export class M1Bootstrap extends Component {
             else this.drawShop();
         }
         else if (data.phase === 'won' || data.phase === 'lost') {
-            if (unlock) this.drawWeaponUnlock(unlock);
+            if (this.victory) {
+                this.actions.push({ left: 0, right: WIDTH, bottom: 0, top: HEIGHT, action: () => { this.victory = undefined; } });
+                if (this.victory.elapsed >= .38) {
+                    this.text(this.stage.id === '20' ? '街区亮灯了' : this.stage.title + '恢复供电', 180, this.top - 24,
+                        { size: 24, bold: true, width: 330, color: MINT });
+                    this.text('本关击倒 ' + this.victory.kills + ' 台敌机', 180, this.top - 55, { size: 16, width: 300, color: PAPER });
+                }
+            } else if (unlock) this.drawWeaponUnlock(unlock);
             else if (this.campaign) this.drawCampaignResult(data.phase === 'won');
             else this.drawResult(data.phase === 'won');
         } else this.drawBattleHud(seconds, clearProgress, waveCue);
@@ -1191,10 +1211,9 @@ export class M1Bootstrap extends Component {
         floor.stroke();
     }
 
-    private drawField(): void {
+    private drawField(battle = this.run.battle): void {
         const art = this.art;
         art.clear();
-        const battle = this.run.battle;
         const modelBattle = this.prototypeLayer && !this.campaignPage
             && (!this.campaignMode || this.currentCampaignRun()) ? battle : null;
         this.followBattle(this.campaignPage ? null : battle, !!modelBattle);
@@ -1215,10 +1234,14 @@ export class M1Bootstrap extends Component {
         }
         this.previewBattle = battle ?? undefined;
         const floatingTick = this.campaignMode && battle && !modelBattle && this.weaponShowcase !== 'held'
-            ? this.weaponTick : undefined;
+            ? this.weaponTick + (this.victory?.elapsed ?? 0) * TICK_RATE : undefined;
         this.skin?.drawWorld(battle, !!modelBattle, floatingTick);
         const origin = floatingTick === undefined ? this.skin?.weaponOrigin : this.skin?.floatingWeaponOrigin;
-        drawSkillEffects(this.skillEffects, battle?.effects ?? [], !!modelBattle, origin, floatingTick, battle?.weaponCasts);
+        drawSkillEffects(this.skillEffects, this.victory && this.victory.elapsed > .13 ? [] : battle?.effects ?? [], !!modelBattle, origin, floatingTick, battle?.weaponCasts, battle?.weaponImpacts);
+        if (this.victory && battle?.boss) {
+            drawBossBreak(this.skillEffects, battle.boss.unit.x, battle.boss.unit.y, this.victory.elapsed, this.stage.id === '20', battle.spawnBounds);
+            return;
+        }
         if (modelBattle) drawModeledTerrainSignals(this.skillEffects, modelBattle);
         if (!battle) return;
         const boss = battle.boss;
@@ -2691,10 +2714,11 @@ export class M1Bootstrap extends Component {
                     { width: 69, size: 13, bold: true, color: BENCH.yellow });
             }
             if (this.weaponShowcase === 'bench' && !this.run.paused) {
-                const switchTool = (tool: ToolId, special: boolean) => {
+                const switchTool = (tool: ToolId, special: boolean, boss = this.benchBoss) => {
                     const url = new URL(globalThis.location.href);
                     url.searchParams.set('tool', tool);
                     url.searchParams.set('special', special ? '1' : '0');
+                    url.searchParams.set('target', boss ? 'boss' : 'crowd');
                     globalThis.location.assign(url.href);
                 };
                 const index = showcaseLoadouts.bench.indexOf(this.benchTool);
@@ -2702,6 +2726,8 @@ export class M1Bootstrap extends Component {
                     () => switchTool(showcaseLoadouts.bench[(index + 1) % showcaseLoadouts.bench.length], this.benchModified), { height: 34 });
                 this.benchButton(this.benchModified ? '拆下专属件' : '装上专属件', 212, 129, 104,
                     () => switchTool(this.benchTool, !this.benchModified), { height: 34 });
+                this.benchButton(this.benchBoss ? '打怪群' : '打首领', 306, 129, 74,
+                    () => switchTool(this.benchTool, this.benchModified, !this.benchBoss), { height: 34 });
             } else if ((this.weaponShowcase === 'floating' || this.weaponShowcase === 'held') && !this.run.paused) {
                 this.benchButton(this.weaponShowcase === 'floating' ? '悬浮 · 切换手持' : '手持 · 切换悬浮', 198, 129, 137, () => {
                     this.weaponShowcase = this.weaponShowcase === 'floating' ? 'held' : 'floating';
@@ -2817,10 +2843,12 @@ export class M1Bootstrap extends Component {
             : seconds * TICK_RATE / Math.max(1, battle.duration);
         const finish = !!clearProgress && fraction >= 1;
         const accent = finish ? BENCH.attachment.accent : !clearProgress && seconds <= 10 ? RED : BENCH.yellow;
-        this.text(defeated || timer, 226, top + 10, { width: 70, size: defeated ? 14 : 19, bold: true, color: accent });
+        const compact = clearProgress && clearProgress.total >= 100;
+        const count = compact ? `${clearProgress.kills}/${clearProgress.total}` : defeated || timer;
+        this.text(count, 226, top + 10, { width: 70, size: defeated ? 14 : 19, bold: true, color: accent });
         this.block(135, top - 10, 121, 3, BENCH.edge);
         if (fraction > 0) this.block(135, top - 10, 121 * Math.min(1, fraction), 3, accent);
-        if (waveCue) this.text(waveCue, 195, top - 21, { width: 122, height: 15, size: 11, color: BENCH.muted });
+        if (waveCue || compact) this.text(waveCue ?? '击倒敌机', 195, top - 21, { width: 122, height: 15, size: 11, color: BENCH.muted });
     }
 
     private drawCampaignPause(waveStatus: string): void {

@@ -96,7 +96,8 @@ test('the starting station sends groups from alternating sides and retries membe
     const regular = campaignPressureRules(stage.id, stage.rules, 'normal');
     const overtime = campaignPressureRules(stage.id, stage.rules, 'overtime_1');
     const wave = regular.waves[1];
-    assert.equal(wave.clear.opening, 54);
+    assert.equal(wave.clear.escortTarget, 54);
+    assert.equal(wave.clear.opening, 106);
     assert.ok(overtime.waves[1].clear.openingGroup.every < wave.clear.openingGroup.every);
     assert.equal(overtime.waves[1].clear.opening, wave.clear.opening);
 
@@ -118,7 +119,7 @@ test('the starting station sends groups from alternating sides and retries membe
         wipe(capped);
         capped.step(0, 0);
     });
-    assert.deepEqual(capped.clearProgress, { kills: 54, total: 54 });
+    assert.deepEqual(capped.clearProgress, { kills: 106, total: 106 });
     assert.equal(capped.parts.length + capped.collected, wave.clear.partBudget);
 });
 
@@ -161,6 +162,40 @@ test('a shop saved before drone escorts keeps its purchases and starts the new f
     restored.dispose();
 });
 
+test('an escort-era report restores with the closing flank available on the next wave', () => {
+    const slots = new Map();
+    const platform = makePlatform({ localStorage: { getItem: k => slots.get(k) ?? null,
+        setItem: (k, v) => slots.set(k, v) } }, 'flank-migration');
+    const rules = campaignStage('01').rules;
+    const prior = rules.waves[0].clear.escortTarget;
+    const wave = { ...rules.waves[0], clear: { ...rules.waves[0].clear, opening: prior, counterattack: undefined } };
+    const first = new Run(platform, { ...rules, waves: [wave, ...rules.waves.slice(1)] }, { clearByKills: true });
+    first.start('arc', 42, 'wrench', 'older-escort', undefined, 'normal', 0, {});
+    until(() => first.data.phase === 'shop', () => { wipe(first.battle); first.advance(step); });
+    const saved = structuredClone(first.data);
+    first.dispose();
+    assert.equal(saved.reports[0].kills, prior);
+    const restored = new Run(platform, rules, { clearByKills: true });
+    assert.deepEqual(restored.data, saved);
+    assert.ok(restored.nextWave(saved.revision));
+    assert.equal(restored.battle.clearProgress.total, rules.waves[1].clear.opening);
+    restored.dispose();
+});
+
+test('boss escorts enter once per health threshold and allow the killing blow', () => {
+    const b = new Battle(5, 42, [], campaignStage('10').rules);
+    for (const health of [.71, .33]) {
+        b.boss.unit.hp = b.boss.maxHp * health;
+        const count = b.warnings.length;
+        b.step(0, 0);
+        assert.equal(b.warnings.length - count, b.spec.bossEscorts);
+        b.step(0, 0);
+        assert.equal(b.warnings.length - count, b.spec.bossEscorts);
+    }
+    b.boss.unit.hp = 0;
+    assert.ok(b.bossDefeated);
+});
+
 test('the freight elevator sends half a group through each of the two marked entrances', () => {
     const stage = campaignStage('09');
     const battle = new Battle(3, 42, [], stage.rules);
@@ -197,7 +232,7 @@ test('09 spawns its converted enemy roster on the open floor and completes by de
         battle.step(0, 0);
         for (const enemy of battle.enemies) killed.push(enemy.kind);
         wipe(battle);
-    });
+    }, 6500);
     assert.deepEqual(killed.slice(0, spec.enemies.length), spec.enemies);
     assert.deepEqual(killed.slice(spec.clear.opening, spec.clear.opening + spec.escalation.enemies.length), spec.escalation.enemies);
     assert.ok(battle.waveCleared);

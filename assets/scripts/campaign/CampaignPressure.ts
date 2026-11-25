@@ -65,7 +65,7 @@ export function campaignPressureRules(id: string, base: RunRules, mode: Challeng
     const ends: readonly SpawnEdge[] = Number(id) % 2 ? ['north', 'south'] : ['south', 'north'];
     const twoToolWaves: WaveSpec[] = [];
     const waves = base.waves.map((wave, index): WaveSpec => {
-        if (wave.boss) { twoToolWaves.push(wave); return wave; }
+        if (wave.boss) { twoToolWaves.push(wave); return { ...wave, bossEscorts: 4 + chapter * 2, seconds: Math.ceil(wave.seconds * 1.45) }; }
         const escalation = wave.escalation ?? (reserves && (index === 3 || index === 4) ? {
             atTick: Math.floor(wave.seconds * (index === 4 ? 0.68 : 0.55)) * TICK_RATE,
             ...(index === 4 ? { requiredTicks: 15 * TICK_RATE } : {}),
@@ -86,12 +86,18 @@ export function campaignPressureRules(id: string, base: RunRules, mode: Challeng
         const openingRoster = escortedRoster(wave.enemies, clear.opening, leaders, escorts);
         const extra = index ? COUNTERATTACKS[station][index - 1] : 0;
         // Only one weapon slot is open before the second shop. Give short-range starters room to turn.
-        const counter = { start: openingRoster.length, size: index === 1 ? 4 : 4 + index + chapter,
-            every: [0, 62, 67, 69, 65][index], edges: index % 2 ? [...flanks, ...ends] : [...ends, ...flanks] };
+        const counter = { start: openingRoster.length, sweepGroup: extra, size: index < 2 ? 4 : 4 + index + chapter,
+            every: [65, 62, 67, 69, 65][index], edges: index % 2 ? [...flanks, ...ends] : [...ends, ...flanks] };
         const specialists = (index >= 3 ? reserves : wave.enemies).filter(enemy => enemy !== 'crawler');
-        for (let squad = 0; squad < extra; squad++) {
+        // In the last push, stagger three ranks along one edge, then change sides.
+        const sweepGroups = [9, 13, 17, 20, 24][index] + chapter * 2;
+        const escortTarget = openingRoster.length + extra * counter.size;
+        for (let squad = 0; squad < extra + sweepGroups; squad++) {
             for (let member = 0; member < counter.size; member++) {
-                const leader = member === 0 && (index === 1 ? squad % 4 === 2 : squad % 3 !== 0) && specialists.length;
+                const sweep = squad - extra;
+                const specialistBeat = sweep >= 0 ? index > 0 && sweep % 4 === 2
+                    : index === 1 ? squad % 4 === 2 : squad % 3 !== 0;
+                const leader = member === 0 && specialistBeat && specialists.length;
                 openingRoster.push(leader ? specialists[squad % specialists.length] : 'crawler');
             }
         }
@@ -106,7 +112,7 @@ export function campaignPressureRules(id: string, base: RunRules, mode: Challeng
                 spawnEvery: reserveCadence } } : {}) });
         return {
             ...wave, enemies: openingRoster, clear: { ...clear, opening: openingRoster.length, reserves: reserveRoster.length, openingGroup: group,
-                ...(extra ? { counterattack: counter } : {}),
+                counterattack: counter, escortTarget: escortTarget + reserveRoster.length,
                 previousTarget: oldTotal,
                 partBudget: Math.min(openingRoster.length + reserveRoster.length, Math.ceil(oldTotal * 1.15)),
                 ...(id === '09' && index === 3 ? { reserveRestTicks: 18 } : {}) },
@@ -122,8 +128,8 @@ export function campaignPressureRules(id: string, base: RunRules, mode: Challeng
         secondShopPart: id === '01' ? 'wrench/dispatch' : id === '06' ? 'wrench/flywheel' : undefined,
         ...(base.encounter ? { encounter: {
             ...base.encounter, legacyBossHp: base.encounter.bossHp ?? ENEMIES.inspector.hp,
-            enemyCap: 20 + chapter * 4,
-            bossHp: BOSS_HP[station],
+            enemyCap: station === 0 ? 20 : 24 + chapter * 4,
+            bossHp: Math.round(BOSS_HP[station] * (1.47 + chapter * .08)),
             ...(plan?.duel ? { bossDuel: plan.duel } : {}),
             ...(plan?.inspectorOpener ? { inspectorOpener: plan.inspectorOpener } : {}),
         } } : {}),

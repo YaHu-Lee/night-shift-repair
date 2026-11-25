@@ -92,13 +92,17 @@ function play(stage, campaign, starter, route, seed, profile) {
         const power = combatPower(b);
         const bossHp = b.boss?.unit.hp ?? 0;
         let peak = 0, firstAttack = 0, attacks = 0, priorPhase, lastHit = 0;
+        let lastContact = -Infinity, contactTicks = 0;
         let visibleEnemies = 0, samples = 0, peakVisible = 0, largestKillBurst = 0, previousKills = 0;
         const hitSources = {};
         const patterns = new Set();
         const maxTicks = b.clearProgress ? Math.max(180 * TICK_RATE, b.duration * 4) : b.duration;
         for (let tick = 0; run.battle === b && tick <= maxTicks; tick++) {
             if (b.tick % 7 === 0) chooseDestination(b, starter, b.equipment.weapons[0].reach);
+            const previousImpact = b.weaponImpactSerial;
             run.advance(1 / TICK_RATE);
+            if (b.weaponImpactSerial !== previousImpact) lastContact = b.tick;
+            if (b.tick - lastContact < TICK_RATE) contactTicks++;
             peak = Math.max(peak, b.enemies.length);
             if (!b.boss && b.tick % 6 === 0) {
                 const view = b.spawnBounds;
@@ -126,7 +130,7 @@ function play(stage, campaign, starter, route, seed, profile) {
             }
             priorPhase = b.boss.phase;
         }
-        waves.push({ seconds: b.tick / TICK_RATE, kills: b.kills, peak, hits: b.damageTaken,
+        waves.push({ seconds: b.tick / TICK_RATE, contactSeconds: contactTicks / TICK_RATE, kills: b.kills, peak, hits: b.damageTaken,
             health: b.player.hp, power, tools: b.tools.map(tool => tool.id), hitSources,
             ...(b.boss ? { attacks, firstAttack: firstAttack / TICK_RATE, patterns: [...patterns], hp: bossHp,
                 actualDps: (bossHp - Math.max(b.boss.unit.hp, 0)) / (b.tick / TICK_RATE) }

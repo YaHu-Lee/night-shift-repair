@@ -42,7 +42,15 @@ type Area = Position & (
     { shape: 'strip'; kind: 'shot'; ux: number; uy: number; length: number; halfWidth: number } |
     { shape: 'sector'; kind: 'heat'; ux: number; uy: number; radius: number; slope: number }
 );
-export type Attack = { life: number; sourceCast?: WeaponCast } & (Area |
+type HitWeight = 'armor' | 'break' | 'strike';
+export interface WeaponImpact extends Readonly<Position> {
+    tick: number;
+    cast: WeaponCast;
+    weight: HitWeight;
+    rank: number;
+}
+export const IMPACT_TICKS = 18;
+export type Attack = { life: number; weight?: HitWeight; sourceCast?: WeaponCast } & (Area |
     (Position & { shape: 'link'; kind: 'arc'; from: Position; fromWeapon?: true; melee?: true; mark?: 'applied' | 'boosted' }) |
     (Position & { shape: 'impact'; kind: Exclude<SkillKind, 'arc'>; pullFrom?: Position }));
 
@@ -144,6 +152,9 @@ export class Battle {
     readonly warnings: Spawn[] = [];
     readonly effects: Attack[] = [];
     readonly weaponCasts: WeaponCast[] = [];
+    readonly weaponImpacts: WeaponImpact[] = [];
+    private readonly castBreaks = new WeakMap<WeaponCast, number>();
+    groupBreak?: { tick: number; count: number };
     private readonly activeMelee: ActiveMelee[] = [];
     readonly triggers = { arc: 0, magnet: 0, heat: 0 };
     wideSweeps = 0;
@@ -198,6 +209,7 @@ export class Battle {
     private reserveRest = 0;
     private groupLane = 0.5;
     private counterattackAt = 0;
+    private bossEscortWaves = 0;
     private readonly random: () => number;
     private readonly runtime: ToolRuntime[];
     private readonly magnet: boolean;
@@ -389,6 +401,7 @@ export class Battle {
         while (this.weaponCasts.length && this.tick - this.weaponCasts[0].tick >= WEAPON_CAST_HISTORY) {
             this.weaponCasts.shift();
         }
+        while (this.weaponImpacts.length && this.tick - this.weaponImpacts[0].tick >= IMPACT_TICKS) this.weaponImpacts.shift();
         const nextTerrain = this.updateTerrain();
         if (nextTerrain.some((rect, index) => (rect.state === 'closed') !== (this.terrain[index]?.state === 'closed'))) {
             Object.assign(this.player, nearestOpen(this.player, nextTerrain, PLAYER_MARGIN, this.field));
@@ -402,6 +415,14 @@ export class Battle {
         this.applyTerrain(this.player, PLAYER_MARGIN);
         if (steering && Math.hypot(this.player.x - x, this.player.y - y) > 0.02) this.moved = true;
         this.spawn();
+        const boss = this.boss;
+        if (boss && this.spec.bossEscorts && boss.unit.hp > 0 && this.bossEscortWaves < 2
+            && boss.unit.hp <= boss.maxHp * (this.bossEscortWaves === 0 ? .72 : .34)) {
+            const edge = this.bossEscortWaves++ === 0 ? 'west' : 'east';
+            for (let i = 0; i < this.spec.bossEscorts; i++) {
+                this.queueSpawn(i === 2 ? 'charger' : 'crawler', edge, .28 + (i % 5) * .1, Math.floor(i / 5) * 14);
+            }
+        }
         const priorEnemies = this.activeMelee.length
             ? new Map(this.enemies.map(enemy => [enemy, { x: enemy.x, y: enemy.y }])) : undefined;
         this.moveEnemies();
@@ -417,9 +438,7 @@ export class Battle {
             this.fire(tool, this.runtime[index], index);
             const cast = this.weaponCasts[nextCast];
             if (!cast) return;
-            for (let effect = firstEffect; effect < this.effects.length; effect++) {
-                this.effects[effect].sourceCast = cast;
-            }
+            this.tagWeaponHits(cast, firstEffect);
         });
         this.collect();
         if (!this.boss || this.boss.unit.hp <= 0) this.task?.startWork(this.tick);
@@ -495,7 +514,8 @@ export class Battle {
             const size = attack?.size ?? clear.openingGroup.size;
             const groupStart = attack?.start ?? 0;
             const group = Math.floor((this.spawnCursor - groupStart) / size);
-            const split = attack ? group % 3 === 2 : clear.openingGroup.split;
+            const sweep = attack?.sweepGroup === undefined ? -1 : group - attack.sweepGroup;
+            const split = sweep >= 0 ? sweep % 4 === 3 : attack ? group % 3 === 2 : clear.openingGroup.split;
             const groupedLane = clear.openingGroup.groupedLane;
             const end = Math.min(clear.opening, attack ? clear.opening : counter?.start ?? clear.opening, groupStart + (group + 1) * size);
             if (attack && !this.counterattackAt && this.enemies.length + this.warnings.length <= size) this.counterattackAt = this.tick;
@@ -506,8 +526,9 @@ export class Battle {
                 while (this.spawnCursor < end) {
                     const slot = (this.spawnCursor - groupStart) % size;
                     const opposite = split && slot >= Math.ceil(size / 2);
-                    const edge = this.spawnEdge(attack?.edges ?? wave.spawnEdges, opposite ? (group ^ 1) : group);
-                    if (groupedLane && slot === 0) this.groupLane = 0.23 + this.random() * 0.54;
+                    const flank = sweep >= 0 ? Math.floor(sweep / 4) : group;
+                    const edge = this.spawnEdge(attack?.edges ?? wave.spawnEdges, opposite ? (flank ^ 1) : flank);
+                    if (groupedLane && slot === 0) this.groupLane = sweep >= 0 ? [0.26, 0.5, 0.74, 0.5][sweep % 4] : 0.23 + this.random() * 0.54;
                     const half = Math.ceil(size / 2);
                     const local = opposite ? slot - half : slot;
                     const columns = Math.min(5, split ? opposite ? size - half : half : size);
@@ -1122,7 +1143,7 @@ export class Battle {
                     runtime.lastInMelee = this.tick;
                 }
             }
-            for (let i = start; i < this.effects.length; i++) this.effects[i].sourceCast = cast;
+            this.tagWeaponHits(cast, start);
         }
         while (this.activeMelee.length) {
             const expired = this.activeMelee.findIndex(({ cast }) => this.tick - cast.tick >= cast.melee.last);
@@ -1279,6 +1300,26 @@ export class Battle {
         return area;
     }
 
+    private tagWeaponHits(cast: WeaponCast, first: number): void {
+        let rank = 0;
+        const priorBreaks = this.castBreaks.get(cast) ?? 0;
+        let defeated = priorBreaks;
+        if (cast.melee) for (const hit of this.weaponImpacts) if (hit.cast === cast) rank++;
+        for (let i = first; i < this.effects.length; i++) {
+            const effect = this.effects[i];
+            effect.sourceCast = cast;
+            if (effect.weight === 'break') defeated++;
+            if (!effect.weight || (rank >= 4 && effect.weight !== 'armor')) continue;
+            this.weaponImpacts.push({ cast, x: effect.x, y: effect.y, tick: this.tick, weight: effect.weight, rank: rank++ });
+        }
+        if (this.weaponImpacts.length > 36) this.weaponImpacts.splice(0, this.weaponImpacts.length - 36);
+        if (defeated === priorBreaks) return;
+        this.castBreaks.set(cast, defeated);
+        if (defeated >= 3 && (!this.groupBreak || this.tick - this.groupBreak.tick > 22 || defeated >= this.groupBreak.count)) {
+            this.groupBreak = { tick: this.tick, count: defeated };
+        }
+    }
+
     private displace(enemy: Enemy, amount: number): void {
         if (enemy.hp <= 0 || enemy.kind === 'inspector' || enemy.nextShift && enemy.nextShift > this.tick) return;
         const range = distance(enemy, this.player);
@@ -1334,7 +1375,8 @@ export class Battle {
         if (damage <= 0) return false;
         enemy.hitAt = this.tick;
         this.weaponImpactSerial++;
-        const point = { x: enemy.x, y: enemy.y, life: 7 };
+        const weight: HitWeight = enemy === this.boss?.unit ? 'armor' : enemy.hp <= damage ? 'break' : 'strike';
+        const point = { x: enemy.x, y: enemy.y, life: 7, weight };
         if (kind === 'arc') {
             const link: Attack = { ...point, kind, shape: 'link', from: { x: from.x, y: from.y } };
             if (motion === 'melee' || motion === 'launch') link.fromWeapon = true;

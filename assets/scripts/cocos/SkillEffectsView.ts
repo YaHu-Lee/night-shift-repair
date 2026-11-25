@@ -1,5 +1,7 @@
 import { Color, Graphics } from 'cc';
-import type { Attack, WeaponCast } from '../m1/Battle';
+import type { Attack, WeaponCast, WeaponImpact } from '../m1/Battle';
+import { IMPACT_TICKS } from '../m1/Battle';
+import type { CombatBounds } from '../m1/content';
 import { sampleMeleeHead } from '../m1/WeaponMotion';
 import { FLOATING_WEAPON_ART } from './FloatingWeaponArt';
 
@@ -18,13 +20,20 @@ type Contact = Extract<Attack, { shape: 'link' | 'impact' }>;
 // The graphics node's local space is battle space. Its parent clips to the playfield.
 export function drawSkillEffects(g: Graphics, effects: readonly Attack[], modelEffects = false,
     weaponOrigin?: (cast: WeaponCast) => { x: number; y: number } | undefined, floatingTick?: number,
-    casts: readonly WeaponCast[] = []): void {
+    casts: readonly WeaponCast[] = [], impacts: readonly WeaponImpact[] = []): void {
     g.clear();
     const fraction = floatingTick === undefined ? 0 : floatingTick % 1;
     const detail = floatingTick !== undefined && casts.filter(cast => floatingTick - cast.tick < 12).length >= 3 ? 0.72 : 1;
     const contacts = floatingTick === undefined ? undefined : new Map<string, Contact>();
     if (floatingTick !== undefined) {
-        for (const cast of casts) drawSweepTrail(g, cast, floatingTick - cast.tick, detail);
+        for (const cast of casts) {
+            const age = floatingTick - cast.tick;
+            drawSweepTrail(g, cast, age, detail);
+            if (!cast.melee && age >= 0 && age < 7) {
+                const muzzle = weaponOrigin?.(cast);
+                if (muzzle) drawDischarge(g, cast, muzzle, age / 7, detail);
+            }
+        }
     }
     for (const effect of effects) {
         const { x, y, life } = effect;
@@ -156,6 +165,9 @@ export function drawSkillEffects(g: Graphics, effects: readonly Attack[], modelE
         }
     }
     // Contact markers stay above the cast trails, even when several weapons fire on the same step.
+    if (floatingTick !== undefined) {
+        for (const hit of impacts) drawStrike(g, hit, floatingTick - hit.tick, detail);
+    }
     for (const effect of contacts?.values() ?? []) {
         drawPixelImpact(g, effect, fraction);
     }
@@ -255,7 +267,7 @@ function drawJet(g: Graphics, e: Sector, cast: WeaponCast, fraction: number, det
             const length = front * (.89 + .09 * flicker - .07 * Math.abs(tongue));
             const curl = (4 + 3 * t) * flicker;
             for (const core of [false, true]) {
-                const width = core ? 3 : 7, tip = length * (core ? .73 : 1);
+                const width = core ? 5 : high ? 13 : 10, tip = length * (core ? .73 : 1);
                 g.fillColor = new Color(...(core ? inner : outer), core ? alpha : Math.round(alpha * .84));
                 lanePoint(g, e, 5, 0, true);
                 lanePoint(g, e, tip * .32, tip * .32 * slope - width * .55);
@@ -297,6 +309,16 @@ function drawCoilField(g: Graphics, e: Circle, cast: WeaponCast, fraction: numbe
     const radius = e.radius * (pull ? 1 - t * .88 : Math.min(1, .42 + t));
     const alpha = Math.round(244 * (1 - t) * detail);
     const tint = FLOATING_WEAPON_ART[cast.tool].tint;
+    // Rotating vanes make the moving front a solid silhouette, with clear windows between blades.
+    const blades = cast.modified ? 8 : 5;
+    g.fillColor = new Color(...tint, alpha * .82);
+    for (let i = 0; i < blades; i++) {
+        const a = i * 2 * Math.PI / blades + (pull ? -2 : 1.5) * t;
+        const r = Math.max(3, radius - 6);
+        const px = e.x + r * Math.cos(a), py = e.y + r * Math.sin(a);
+        chip(g, px, py, pull ? a + .55 : a + Math.PI / 2, Math.min(r * .24, cast.modified ? 14 : 9), 2 + 3 * (1 - t));
+    }
+    g.fill();
     if (pull) {
         g.strokeColor = new Color(...tint, alpha); g.lineWidth = cast.modified ? 4 : 2.6;
         for (let arm = 0; arm < (cast.modified ? 6 : 3); arm++) {
@@ -373,7 +395,7 @@ function drawPixelImpact(g: Graphics, effect: Contact, fraction: number): void {
 function drawSweepTrail(g: Graphics, cast: WeaponCast, age: number, detail: number): void {
     const { melee } = cast;
     const boost = cast.effectBoost ?? 0;
-    const linger = 4.5 + boost * 0.8;
+    const linger = 7 + boost;
     if (!melee || age < melee.first || age > melee.last + linger) return;
     const end = Math.min(age, melee.last);
     const start = Math.max(melee.first, age - linger);
@@ -433,6 +455,12 @@ function drawSweepTrail(g: Graphics, cast: WeaponCast, age: number, detail: numb
         }
         cursor = next;
     }
+    const head = sampleMeleeHead(melee, end), before = sampleMeleeHead(melee, Math.max(start, end - .9));
+    const angle = Math.atan2(head.y - before.y, head.x - before.x);
+    const force = Math.max(0, 1 - (age - end) / linger);
+    g.fillColor = new Color(...energized, 236 * force * detail);
+    chip(g, head.x, head.y, angle, (cast.modified ? 20 : 14) * force, melee.radius * .7 * force);
+    g.fill();
     g.lineCap = cap;
 }
 
@@ -475,7 +503,7 @@ function drawFloatingArc(g: Graphics, from: { x: number; y: number },
     // A short contact burst stays at the cast point. The remaining arc burns away toward the hit.
     const start = fromWeapon ? 0.9 * Math.max(0, elapsed - 1) / 6 : 0;
     const boost = hit.sourceCast?.effectBoost ?? 0;
-    const amplitude = Math.min(length / 8, 4.4 + boost * 1.6) * force;
+    const amplitude = Math.min(length / 8, 7 + boost * 2.2) * force;
     const trace = (side = 1) => {
         for (let i = 0; i < 6; i++) {
             const t = start + (1 - start) * i / 6;
@@ -488,7 +516,7 @@ function drawFloatingArc(g: Graphics, from: { x: number; y: number },
         g.stroke();
     };
     g.strokeColor = new Color(...tint, Math.round(167 * fade * force * detail));
-    g.lineWidth = (4.5 + boost * 1.8) * force;
+    g.lineWidth = (8 + boost * 2.4) * force;
     trace();
     if (hit.sourceCast?.modified) {
         g.strokeColor = new Color(181, 126, 255, Math.round(248 * fade * detail));
@@ -499,4 +527,193 @@ function drawFloatingArc(g: Graphics, from: { x: number; y: number },
     g.lineWidth = (1.8 + boost * 0.5) * force;
     trace();
 
+}
+
+type RGB = readonly [number, number, number];
+const whiteHot: RGB = [255, 250, 221];
+const brass: RGB = [255, 185, 69];
+const plasma: RGB = [95, 224, 255];
+const oxide: RGB = [255, 100, 63];
+
+// A sharp, ink-edged chip. Batching all chips of a material keeps packed hits legible.
+function chip(g: Graphics, x: number, y: number, angle: number, length: number, width: number): void {
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    g.moveTo(Math.round(x + dx * length), Math.round(y + dy * length));
+    g.lineTo(Math.round(x - dy * width), Math.round(y + dx * width));
+    g.lineTo(Math.round(x - dx * length * .53), Math.round(y - dy * length * .53));
+    g.lineTo(Math.round(x + dy * width), Math.round(y - dx * width));
+    g.close();
+}
+
+function brokenRing(g: Graphics, x: number, y: number, radius: number, angle: number, ratio: number, segments: number): void {
+    for (let i = 0; i < segments; i++) {
+        for (let j = 0; j <= 3; j++) {
+            const a = angle + (i + j * .24) * 2 * Math.PI / segments;
+            const dx = Math.round(x + radius * Math.cos(a)), dy = Math.round(y + radius * ratio * Math.sin(a));
+            if (j === 0) g.moveTo(dx, dy); else g.lineTo(dx, dy);
+        }
+    }
+    g.stroke();
+}
+
+function drawDischarge(g: Graphics, cast: WeaponCast, muzzle: { x: number; y: number }, t: number, detail: number): void {
+    const { effect, tint } = FLOATING_WEAPON_ART[cast.tool];
+    const { x, y } = muzzle;
+    const angle = Math.atan2(cast.uy, cast.ux);
+    const power = (cast.modified ? 1.35 : 1) * (1 - t * t);
+    const alpha = Math.round(238 * (1 - t) * detail);
+    if (effect === 'pull' || effect === 'coil') {
+        g.strokeColor = new Color(...tint, alpha); g.lineWidth = 3;
+        brokenRing(g, x, y, 4 + 10 * power, angle + t * 3, .65, effect === 'pull' ? 3 : 4);
+        return;
+    }
+    const recoil = effect === 'nail' ? 8 : effect === 'rivet' ? 5 : 2;
+    const flame = effect === 'jet' ? (cast.powered ? plasma : oxide) : tint;
+    g.fillColor = new Color(...flame, alpha);
+    const lobes = effect === 'fork' || effect === 'arc' ? 2 : 3;
+    for (let i = 0; i < lobes; i++) {
+        const fan = angle + (i - (lobes - 1) * .5) * .63;
+        chip(g, x + Math.cos(fan) * 5 * power, y + Math.sin(fan) * 5 * power, fan,
+            (8 + recoil + (i === 1 ? 5 : 0)) * power, (3 + recoil * .25) * power);
+    }
+    g.fill(); g.fillColor = new Color(...whiteHot, alpha);
+    chip(g, x, y, angle, (11 + recoil) * power, 3.3 * power); g.fill();
+    if (effect === 'rivet' || effect === 'nail') {
+        g.fillColor = new Color(...brass, alpha);
+        const eject = angle + (cast.slot % 2 ? 2 : -2);
+        chip(g, x + Math.cos(eject) * (6 + 15 * t), y + Math.sin(eject) * (6 + 15 * t) - 5 * t * t,
+            eject + 3 * t, recoil * .8, 2.4); g.fill();
+    }
+}
+
+function drawStrike(g: Graphics, hit: WeaponImpact, age: number, detail: number): void {
+    const { cast, rank, weight, x, y } = hit;
+    const t = (age - Math.min(rank, 3) * .8) / IMPACT_TICKS;
+    if (t < 0 || t >= 1) return;
+    const armor = weight === 'armor', heavy = armor || rank === 0;
+    const k = (armor ? 1.45 : rank ? .62 : 1) * (cast.modified ? 1.27 : 1) * (cast.powered ? 1.15 : 1);
+    const fade = Math.round(248 * (1 - t * t) * detail);
+    const a = Math.atan2(cast.uy, cast.ux);
+    const tool = cast.tool;
+    const tint: RGB = tool === 'torch' && cast.powered ? plasma : tool === 'wrench' ? plasma : FLOATING_WEAPON_ART[tool].tint;
+    const travel = 1 - (1 - t) ** 2;
+    const radius = (5 + 26 * travel) * k;
+    const turn = (cast.tick % 11) * .29;
+    if (heavy) {
+        // The first silhouette belongs to the tool. Armor keeps its bright seam after the initial flash.
+        g.strokeColor = new Color(...tint, fade); g.lineWidth = (armor ? 4 : 3) * (1 - t) + 1;
+        if (tool === 'induction' || tool === 'pulse_nozzle') {
+            brokenRing(g, x, y, radius, turn + t, tool === 'pulse_nozzle' ? .55 : 1, 6);
+            if (cast.modified) brokenRing(g, x, y, radius * .66, turn - t, .84, 4);
+        } else if (tool === 'traction_coil') {
+            brokenRing(g, x, y, Math.max(2, (1 - t) * 25 * k), turn - 3 * t, .78, cast.modified ? 4 : 3);
+        } else if (tool === 'arc_gun' || tool === 'bypass_wrench') {
+            const count = cast.modified ? 5 : 3;
+            for (let i = 0; i < count; i++) {
+                const dir = a + turn + i * 2 * Math.PI / count, r = radius * (i % 2 ? .72 : 1);
+                g.moveTo(x + Math.cos(dir) * r * t, y + Math.sin(dir) * r * t);
+                g.lineTo(x + Math.cos(dir + .32) * r * .62, y + Math.sin(dir + .32) * r * .62);
+                g.lineTo(x + Math.cos(dir) * r, y + Math.sin(dir) * r);
+            }
+            g.stroke();
+        } else if (tool === 'wrench' || tool === 'split_probe') {
+            const dir = a + (tool === 'wrench' ? .85 : 0);
+            g.fillColor = new Color(...tint, fade);
+            chip(g, x, y, dir, radius * (1.55 - t), 4 * (1 - t) + 1);
+            if (cast.modified) chip(g, x, y, dir + 1.65, radius * .78, 3 * (1 - t) + 1);
+            g.fill();
+        } else if (tool === 'torch') {
+            const hot = cast.powered;
+            for (let i = 0; i < 3; i++) {
+                const side = Math.sin(i * 2.4 + turn) * radius * .47;
+                const px = x + cast.ux * travel * 13 - cast.uy * side;
+                const py = y + cast.uy * travel * 13 + cast.ux * side + travel * (10 + i * 3);
+                const r = (3 + 5 * Math.sin(t * Math.PI)) * k * (1 - t);
+                g.fillColor = new Color(...(hot ? plasma : oxide), fade * .8);
+                chip(g, px, py, Math.PI * .49, r * 1.65, r); g.fill();
+                g.fillColor = new Color(...(hot ? whiteHot : brass), fade);
+                chip(g, px, py - 1, Math.PI * .5, r, r * .55); g.fill();
+            }
+        } else {
+            // Copper jackets tumble across the rivet lane. Hydraulic shots punch a long spike along it.
+            g.fillColor = new Color(...brass, fade);
+            if (tool === 'hydraulic_nailer') chip(g, x + cast.ux * radius * .4, y + cast.uy * radius * .4, a, radius, 5 * k * (1 - t));
+            else for (const side of [-1, 1]) chip(g, x - cast.uy * side * radius * .55, y + cast.ux * side * radius * .55,
+                a + side * (1 + t * 4), 7 * k * (1 - t), 3 * k * (1 - t));
+            g.fill();
+        }
+    }
+    // Casts disassemble small machines into falling steel; a boss sheds plates along its armor face.
+    const debris = weight === 'break' || armor;
+    const count = heavy ? (debris ? 7 : 5) : 3;
+    for (let pass = 0; pass < 2; pass++) {
+        g.fillColor = pass ? new Color(...(armor || debris ? brass : tint), fade) : new Color(28, 31, 44, fade);
+        for (let i = 0; i < count; i++) {
+            const angle = debris && !armor ? turn + i * 2.4 : a + (i - (count - 1) / 2) * .55;
+            const r = radius * (.56 + (i % 3) * .22);
+            const px = x + Math.cos(angle) * r, py = y + Math.sin(angle) * r - (debris ? 11 * t * t : 0);
+            const size = (1 - t) * k * (debris ? 4.4 : 3.3) + (pass ? 0 : 1.2);
+            chip(g, px, py, angle + (debris ? t * 3 : 0), size * (1.4 + i % 2), size * .64);
+        }
+        g.fill();
+    }
+    if (heavy && t < .24) {
+        const flash = (1 - t / .24) * k;
+        g.fillColor = new Color(...whiteHot, fade);
+        chip(g, x, y, a, 14 * flash, 5 * flash); chip(g, x, y, a + 1.57, 9 * flash, 3 * flash); g.fill();
+    }
+}
+
+export function drawBossBreak(g: Graphics, x: number, y: number, elapsed: number, final: boolean, field: CombatBounds): void {
+    // The core collapses inward, its casing bursts, then the restored circuit runs out across the floor.
+    const pulse = Math.min(1, elapsed / .23);
+    if (elapsed < .32) {
+        g.strokeColor = new Color(255, 235, 173, 250); g.lineWidth = 4;
+        brokenRing(g, x, y, 5 + 32 * (1 - pulse), -pulse, .82, 6);
+    }
+    for (let i = 0; i < (final ? 5 : 3); i++) {
+        const t = (elapsed - .12 - i * .09) / .78;
+        if (t < 0 || t >= 1) continue;
+        const px = x + Math.sin(i * 9) * 16, py = y + Math.sin(i * 2) * 12;
+        const radius = (12 + 65 * (1 - (1 - t) ** 2)) * (i ? .66 : 1);
+        g.strokeColor = new Color(...(i % 2 ? plasma : brass), 235 * (1 - t));
+        g.lineWidth = 6 * (1 - t) + 1;
+        brokenRing(g, px, py, radius, t + i, .76, 8);
+        g.fillColor = new Color(...(i % 2 ? whiteHot : oxide), 244 * (1 - t));
+        for (let j = 0; j < 9; j++) {
+            const angle = i + j * 2.4, r = radius * (.6 + j % 3 * .24);
+            chip(g, px + Math.cos(angle) * r, py + Math.sin(angle) * r - t * t * 16, angle + t, 8 * (1 - t), 4 * (1 - t));
+        }
+        g.fill();
+    }
+    const current = Math.min(1, Math.max(0, elapsed - .45) / .75);
+    if (current > 0) {
+        // Current races to the four bus bars. Lit junctions stay on while the closing message is visible.
+        g.fillColor = new Color(134, 229, 209, Math.round(28 * current));
+        g.rect(field.left, field.bottom, field.right - field.left, field.top - field.bottom); g.fill();
+        for (const side of [-1, 1]) for (const row of [-1, 1]) {
+            const endX = side > 0 ? field.right - 9 : field.left + 9;
+            const endY = row > 0 ? field.top - 17 : field.bottom + 17;
+            const bendX = x + (endX - x) * .58;
+            const bendY = y + (endY - y) * .42;
+            const nodes = [[x, y], [bendX, y], [bendX, bendY], [endX, bendY], [endX, endY]];
+            g.strokeColor = new Color(92, 238, 206, 138); g.lineWidth = 2;
+            g.moveTo(x, y);
+            for (let i = 0; i < 4; i++) {
+                const f = Math.max(0, Math.min(1, current * 4 - i));
+                if (!f) break;
+                const from = nodes[i], to = nodes[i + 1];
+                g.lineTo(Math.round(from[0] + (to[0] - from[0]) * f), Math.round(from[1] + (to[1] - from[1]) * f));
+            }
+            g.stroke();
+            g.fillColor = new Color(193, 255, 215, 225);
+            for (let i = 1; i < 5 && i <= current * 4; i++) g.rect(nodes[i][0] - 2, nodes[i][1] - 2, 5, 5);
+            g.fill();
+            if (current > .95) {
+                g.fillColor = new Color(105, 255, 209, 58); g.rect(endX - 8, endY - 7, 17, 15); g.fill();
+            }
+        }
+        g.strokeColor = new Color(103, 254, 217, 220 * (1 - current)); g.lineWidth = 3;
+        brokenRing(g, x, y, 15 + 175 * current, 0, .77, 8);
+    }
 }

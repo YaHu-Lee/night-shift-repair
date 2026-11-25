@@ -122,8 +122,9 @@ export interface WaveClearSpec {
     readonly opening: number;
     /** Completed reports from a save made before drone escorts were introduced. */
     readonly previousTarget?: number;
+    readonly escortTarget?: number;
     readonly partBudget?: number;
-    readonly counterattack?: { readonly start: number; readonly size: number; readonly every: number; readonly edges: readonly SpawnEdge[] };
+    readonly counterattack?: { readonly start: number; readonly sweepGroup?: number; readonly size: number; readonly every: number; readonly edges: readonly SpawnEdge[] };
     readonly openingGroup?: { readonly size: number; readonly every: number; readonly split?: true; readonly groupedLane?: true };
     readonly reserves: number;
     readonly reserveAfterTick?: number;
@@ -132,6 +133,7 @@ export interface WaveClearSpec {
 }
 
 export interface WaveSpec {
+    readonly bossEscorts?: number;
     readonly seconds: number;
     readonly spawnEvery: number;
     readonly enemies: readonly RegularEnemyId[];

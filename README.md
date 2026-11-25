@@ -27,7 +27,7 @@ npm run preview
 
 武器组合的战力公式、20 站敌群与首领参数、数值复跑命令见[战役战力与难度校准](docs/CAMPAIGN-POWER-BALANCE.md)。
 
-本轮可评审版本的逐关密度、两条路线计时、十把武器的动作对照和启动方法见[战斗评审单](docs/CAMPAIGN-COMBAT-REVIEW.md)。浏览器调试包加 `?weaponShowcase=bench` 可单独试每把武器，点武器名换下一把，点“装上专属件”用同一波敌人比较。
+本轮可评审版本的逐关密度、两条路线计时、十把武器的动作对照和启动方法见[战斗评审单](docs/CAMPAIGN-COMBAT-REVIEW.md)。浏览器调试包加 `?weaponShowcase=bench` 可单独试每把武器，点武器名换下一把，点“装上专属件”用同一波敌人比较，点“打首领”切换到巡检机。
 
 浏览器调试包用 `?weaponShowcase=armory` 或 `?weaponShowcase=utility` 跳到第 3 波的两组六武器样片，共覆盖 10 把武器。原双武器对照入口为 `?weaponShowcase=floating` 和 `?weaponShowcase=held`，3D 对照构建用 `?prototype3d=1`。样片进度仅存于当前页面内存。贴图及打包方式见[武器素材](art/pixel/weapons/README.md)。
 

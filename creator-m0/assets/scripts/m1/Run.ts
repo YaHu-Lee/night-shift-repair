@@ -91,7 +91,7 @@ function validReports(data: Checkpoint, rules: RunRules, previousCombat: boolean
         const cleared = report?.wave < data.wave || data.phase === 'shop' || data.phase === 'won';
         if (!report || !integer(report.wave, previous + 1, lastWave)
             || !wave || !integer(report.ticks, 0, tickLimit)
-            || (target !== undefined && (report.kills > target || (cleared && report.kills !== target && report.kills !== wave.clear?.previousTarget)))
+            || (target !== undefined && (report.kills > target || (cleared && report.kills !== target && report.kills !== wave.clear?.previousTarget && report.kills !== wave.clear?.escortTarget)))
             || (data.equipment ? !integer(report.maxHp, rules.maxHp + data.equipment.role.hpBonus,
                 rules.maxHp + data.equipment.role.hpBonus + (report.wave >= 2 ? MAX_EQUIPMENT_HP_BONUS : 0)) : report.maxHp !== undefined)
             || !integer(report.hits, 0, report.maxHp ?? rules.maxHp)

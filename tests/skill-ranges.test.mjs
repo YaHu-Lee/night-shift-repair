@@ -186,17 +186,29 @@ test('a moving player carries the active sweep and its range limit', () => {
 
 // Turrets stay still within 195 units. Use the normal simulation step so hit and
 // render events are sampled after movement and expiration, as in Creator.
-function cast(id, offsets, mods = []) {
+function cast(id, offsets, mods = [], hp = 20) {
     const battle = new Battle(0, 105, [{ id, mods }]);
     Object.assign(battle.player, { x: 55, y: 300 });
     offsets.forEach(([dx, dy], index) => battle.enemies.push({
-        x: 55 + dx, y: 300 + dy, id: index, hp: 20, kind: 'turret',
+        x: 55 + dx, y: 300 + dy, id: index, hp, kind: 'turret',
         state: 'walk', next: 100, vx: 0, vy: 0, marked: false,
     }));
     if (mods.includes('coil')) battle.parts.push(...Array.from({ length: 5 }, () => ({ ...battle.player })));
     battle.step(0, 0);
     return battle;
 }
+
+test('one flame can dismantle six machines while limiting the large impact drawings to four', () => {
+    const targets = Array.from({ length: 6 }, (_, i) => [20 + i * 5, 0]);
+    assert.equal(cast('torch', targets).groupBreak, undefined);
+    const battle = cast('torch', targets, [], 1);
+    assert.equal(battle.kills, 6);
+    assert.deepEqual(battle.groupBreak, { count: 6, tick: battle.tick });
+    assert.equal(battle.weaponImpacts.length, 4);
+    assert.ok(battle.weaponImpacts.every(hit => hit.weight === 'break' && hit.cast === battle.weaponCasts[0]));
+    for (let i = 0; i < 18; i++) battle.step(0, 0);
+    assert.equal(battle.weaponImpacts.length, 0);
+});
 
 test('riveter paints one full strip and marks only the first three eligible targets', () => {
     const b = cast('riveter', [[8, 0], [32, 11], [70, -10.9], [115, 0], [165, 0], [185, 0]]);
