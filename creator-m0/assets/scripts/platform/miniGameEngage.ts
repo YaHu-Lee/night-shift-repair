@@ -57,7 +57,7 @@ export function createMiniGameEngage(
     const native = kind === 'douyin' ? host.tt : kind === 'wechat' ? host.wx : undefined;
     const mockAds = options.mockAds === true;
     let sidebarEntry = false;
-    let sidebarSupported = false;
+    let sidebarSupported: boolean | undefined;
     let busy = false;
     let disposed = false;
 
@@ -73,7 +73,7 @@ export function createMiniGameEngage(
                 success: res => { sidebarSupported = res?.isExist === true; },
             });
         } catch {
-            sidebarSupported = false;
+            sidebarSupported = undefined;
         }
     }
 
@@ -88,7 +88,9 @@ export function createMiniGameEngage(
         get platform() { return kind ?? 'browser'; },
         get hasRewardedAd() { return !!rewardedAd || mockAds; },
         get isDouyinSidebarEntry() { return sidebarEntry; },
-        get canOpenSidebar() { return kind === 'douyin' && (sidebarSupported || typeof native?.navigateToScene === 'function'); },
+        get canOpenSidebar() {
+            return kind === 'douyin' && sidebarSupported !== false && typeof native?.navigateToScene === 'function';
+        },
         get canShare() { return typeof native?.shareAppMessage === 'function'; },
 
         async requestReward(_placement, opts = {}) {
@@ -108,7 +110,7 @@ export function createMiniGameEngage(
         },
 
         openSidebar() {
-            if (kind !== 'douyin' || typeof native?.navigateToScene !== 'function') {
+            if (kind !== 'douyin' || sidebarSupported === false || typeof native?.navigateToScene !== 'function') {
                 return Promise.resolve(false);
             }
             return new Promise<boolean>(resolve => {

@@ -165,6 +165,24 @@ test('shop inflation, escalating rerolls, locking price freeze, auto-merge at 6 
     assert.ok(shop.weapons.some(w => w.tier === 2));
 });
 
+test('refreshing a fully reserved shelf spends neither copper nor a free refresh', () => {
+    const profile = { ...createDefaultProfile(), talents: { shop_permit: 2 }, maxDangerCleared: { '01': 3 } };
+    const shop = createIntermission({
+        wave: 3, seed: 42, rigId: 'duty_standard', parts: 500, level: 3, pendingLevelUps: 0,
+        levelStats: {}, weapons: [{ uid: 1, id: 'wrench', tier: 1 }], modules: [], nextWeaponUid: 2,
+    }, profile);
+    shop.slots.forEach((_, i) => assert.equal(toggleLockSlot(shop, i, profile), true));
+    for (const free of [0, 1]) {
+        shop.freeRerollsLeft = free;
+        const before = structuredClone(shop);
+        assert.equal(rerollShop(shop, profile), false);
+        assert.deepEqual(shop, before);
+    }
+    assert.equal(toggleLockSlot(shop, 0, profile), true);
+    assert.equal(rerollShop(shop, profile), true);
+    assert.equal(shop.freeRerollsLeft, 0);
+});
+
 test('redesigned jammer actively slows weapon cadence and blocks arc chains, ambusher stalks and exposes', () => {
     const ch3 = CHAPTER_CATALOG[2];
     const battle = new RogueliteBattle({
@@ -538,9 +556,9 @@ test('chapter & danger progression unlocks rigs, weapons, capstones, secret arch
     const res1 = run1.settle(fresh);
     assert.equal(res1.firstClearBonus, FIRST_CLEAR_DANGER_BONUS[0]);
     assert.equal(res1.creditsEarned, 24 + CHAPTER_CLEAR_BONUS['01'] + FIRST_CLEAR_DANGER_BONUS[0]);
-    assert.ok(res1.unlocks.some(u => u.includes('阿阮跨接衣')));
-    assert.ok(res1.unlocks.some(u => u.includes('磁吸抓钩圈')));
-    assert.ok(res1.unlocks.some(u => u.includes('寒潮锁阀')));
+    assert.ok(res1.unlocks.includes(`解锁工装：${RIG_CATALOG.high_voltage.name}`));
+    assert.ok(res1.unlocks.includes(`解锁武器：${WEAPON_CATALOG.traction_coil.name}`));
+    assert.ok(res1.unlocks.includes('解锁难度 1 · 寒潮来袭'));
 
     const after1 = run1.applySettlementToProfile(fresh);
     assert.equal(isChapterUnlocked(after1, '02'), true);
@@ -556,8 +574,8 @@ test('chapter & danger progression unlocks rigs, weapons, capstones, secret arch
     run2.phase = 'won';
     const res2 = run2.settle(withD2);
     assert.equal(res2.firstClearBonus, FIRST_CLEAR_DANGER_BONUS[0] + FIRST_CLEAR_DANGER_BONUS[1] + FIRST_CLEAR_DANGER_BONUS[2]);
-    assert.ok(res2.unlocks.some(u => u.includes('急诊室稳压包')));
-    assert.ok(res2.unlocks.some(u => u.includes('加班密件')));
+    assert.ok(res2.unlocks.includes('解锁配件：急诊稳压器'));
+    assert.ok(res2.unlocks.includes('解锁本章加密附件'));
     const after2 = run2.applySettlementToProfile(withD2);
     assert.equal(isSecretArchiveUnlocked(after2, '02'), true);
     assert.equal(isModuleUnlocked(after2, 'emergency_generator'), true);
@@ -578,7 +596,7 @@ test('chapter & danger progression unlocks rigs, weapons, capstones, secret arch
     assert.equal(hasCustomStarterUnlock(after4), true);
     assert.equal(goldSealCount(after4), 4);
     assert.equal(isModuleUnlocked(after4, 'main_breaker_lever'), true);
-    assert.ok(res4.unlocks.some(u => u.includes('全城值守·金章')));
+    assert.ok(res4.unlocks.includes('集齐四章金章'));
     assert.ok(resolveBuild('duty_standard', 1, {}, [{ uid: 1, id: 'wrench', tier: 1 }], [], after4).maxLocks >= 2);
 });
 
@@ -611,7 +629,7 @@ test('danger mechanical rules (D1-D4), D4 capstone surge, and pre-run supplies w
     assert.equal(surgeBattle.build.hasBreakerSurge, true);
     surgeBattle.step(0, 0);
     assert.ok(surgeBattle.effects.some(e => e.shape === 'circle' && e.radius === 140), 'breaker surge emits shock ring on tick 1');
-    assert.ok(surgeBattle.floaters.some(f => f.text === '强合超载'));
+    assert.ok(surgeBattle.floaters.some(f => f.text === '开场电震'));
 
     // Pre-run supply spare_parts & atomic storage.startRun (failed write must not spend credits)
     const { platform, open } = patrolJournalFixture();
@@ -723,6 +741,27 @@ test('rewarded ad placements (boss rescue, level-up bonus, shop aid, double base
     assert.equal(run.shopView.parts, partsBefore + SHOP_EMERGENCY_PARTS * 2);
 });
 
+test('sidebar navigation is offered only when the native action can be attempted', async () => {
+    const supportsSidebar = ({ success }) => success({ isExist: true });
+    const noNavigation = createMiniGameEngage(null, { host: { tt: { checkScene: supportsSidebar } } });
+    assert.equal(noNavigation.canOpenSidebar, false);
+    assert.equal(await noNavigation.openSidebar(), false);
+
+    let opened = 0;
+    const navigateToScene = ({ success }) => { opened++; success(); };
+    const unsupported = createMiniGameEngage(null, {
+        host: { tt: { checkScene: ({ success }) => success({ isExist: false }), navigateToScene } },
+    });
+    assert.equal(unsupported.canOpenSidebar, false);
+    assert.equal(await unsupported.openSidebar(), false);
+    assert.equal(opened, 0);
+
+    const supported = createMiniGameEngage(null, { host: { tt: { checkScene: supportsSidebar, navigateToScene } } });
+    assert.equal(supported.canOpenSidebar, true);
+    assert.equal(await supported.openSidebar(), true);
+    assert.equal(opened, 1);
+});
+
 test('daily check-in, daily urgent shift, harbor endless waves, and monotonic cloud merge work cleanly', () => {
     const day1 = '2026-11-26';
     const day2 = '2026-11-27';
@@ -756,7 +795,7 @@ test('daily check-in, daily urgent shift, harbor endless waves, and monotonic cl
     dailyRun.phase = 'won';
     const dailyRes = dailyRun.settle(p);
     assert.equal(dailyRes.creditsEarned, dailyRes.baseCreditsForDouble + dailyRes.firstClearBonus + DAILY_SHIFT_BONUS_CREDITS);
-    assert.ok(dailyRes.unlocks.some(u => u.includes('今日急单完成')));
+    assert.ok(dailyRes.unlocks.includes(`完成今日委托，额外获得 ${DAILY_SHIFT_BONUS_CREDITS} 凭证`));
 
     // Harbor endless mode generates Wave 13..15 (Boss at Wave 15) and updates bestEndlessWave
     const w15 = buildEndlessWaveDef(15);

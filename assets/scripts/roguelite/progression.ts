@@ -36,20 +36,20 @@ export const FIRST_CLEAR_DANGER_BONUS: Readonly<Record<DangerLevel, number>> = {
     4: 40,
 };
 
-export const DANGER_SHORT_LABELS: Readonly<Record<DangerLevel, string>> = {
-    0: '断',
-    1: '寒',
-    2: '急',
-    3: '封',
-    4: '死',
+export const DANGER_NAMES: Readonly<Record<DangerLevel, string>> = {
+    0: '02:13 断电',
+    1: '寒潮来袭',
+    2: '清退加急',
+    3: '全区封锁',
+    4: '03:55 最后期限',
 };
 
 export const DANGER_RULE_TEXT: Readonly<Record<DangerLevel, string>> = {
-    0: '常规夜班抢修节奏',
-    1: '寒潮锁阀，波间回血减至 18%',
-    2: '料斗涨价 10%，第 4 波起出干扰机',
-    3: '中段精英带护卫，第 8 波增派精英',
-    4: '首领解限速提招，敞开窗口更短',
+    0: '标准难度。',
+    1: '每波结束时只回复已损失生命的 18%。',
+    2: '商店涨价 10%，第 4 波起出现干扰机。',
+    3: '中段精英带有护卫，第 8 波增加精英敌机。',
+    4: '首领的攻击间隔更短，弱点暴露时间也更短。',
 };
 
 export const STARTER_RIGS: readonly RigId[] = ['duty_standard', 'heavy_fitter'];
@@ -94,10 +94,10 @@ export const PRE_RUN_SUPPLY_ORDER: readonly PreRunSupplyId[] = [
 ];
 
 export const PRE_RUN_SUPPLIES: Readonly<Record<PreRunSupplyId, PreRunSupplySpec>> = {
-    none: { id: 'none', name: '不带特供', cost: 0, detail: '轻装背架出门，不花凭证' },
-    extra_crate: { id: 'extra_crate', name: '老站撬棍', cost: 12, detail: '前两次翻料斗，各多白翻一箱' },
-    spare_parts: { id: 'spare_parts', name: '拆机铜袋', cost: 15, detail: '带 35 铜件进场，首店多买一件' },
-    hot_thermos: { id: 'hot_thermos', name: '浓茶加料', cost: 18, detail: '本班生命 +10，波间多回 10% 血' },
+    none: { id: 'none', name: '不带补给', cost: 0, detail: '直接出发，不消耗维修凭证。' },
+    extra_crate: { id: 'extra_crate', name: '备用撬棍', cost: 12, detail: '前两次进商店时，各多 1 次免费刷新。' },
+    spare_parts: { id: 'spare_parts', name: '备用铜件', cost: 15, detail: '开局带 35 铜件。' },
+    hot_thermos: { id: 'hot_thermos', name: '热茶', cost: 18, detail: '本局生命上限 +10，波末回复比例另加 10 个百分点。' },
 };
 
 export type ProgressionProfileSlice = Pick<WorkshopProfile, 'clearedChapters' | 'maxDangerCleared'> & {
@@ -116,7 +116,7 @@ export function chapterUnlockHint(chapterId: ChapterId): string {
     const idx = CHAPTER_ORDER.indexOf(chapterId);
     if (idx <= 0) return '';
     const prev = CHAPTER_CATALOG[idx - 1];
-    return `先通第${'一二三四'[idx - 1]}章「${prev.title}」开启`;
+    return `通关第 ${'一二三四'[idx - 1]} 章「${prev.title}」后解锁`;
 }
 
 export function maxGlobalDangerCleared(profile?: Pick<WorkshopProfile, 'maxDangerCleared'>): number {
@@ -139,7 +139,8 @@ export function isDangerUnlocked(profile: Pick<WorkshopProfile, 'maxDangerCleare
 
 export function dangerUnlockHint(danger: DangerLevel): string {
     if (danger <= 0) return '';
-    return `先通任意一章「${danger === 1 ? '02:13 断电夜' : danger === 2 ? '寒潮锁阀' : danger === 3 ? '清退加急' : '全区封控'}」开启`;
+    const previous = (danger - 1) as DangerLevel;
+    return `通关任意一章的难度 ${previous}（${DANGER_NAMES[previous]}）后解锁`;
 }
 
 export function unlockedRigsForProfile(profile?: Pick<WorkshopProfile, 'clearedChapters' | 'unlockedRigs'>): RigId[] {
@@ -164,7 +165,7 @@ export function rigUnlockHint(rigId: RigId): string {
     for (let i = 0; i < CHAPTER_ORDER.length; i++) {
         const id = CHAPTER_ORDER[i];
         if (CHAPTER_UNLOCKS[id].rig === rigId) {
-            return `首通第${'一二三四'[i]}章「${CHAPTER_CATALOG[i].title}」解锁`;
+            return `通关第 ${'一二三四'[i]} 章「${CHAPTER_CATALOG[i].title}」后解锁`;
         }
     }
     return '';
@@ -266,16 +267,16 @@ export function computeRunUnlocks(
         const grant = CHAPTER_UNLOCKS[chapterId];
         if (grant.nextChapter) {
             const nextCh = CHAPTER_CATALOG.find(c => c.id === grant.nextChapter);
-            if (nextCh) list.push(`开启第${'一二三四'[nextCh.index]}章 · ${nextCh.title}`);
+            if (nextCh) list.push(`解锁第 ${'一二三四'[nextCh.index]} 章 · ${nextCh.title}`);
         }
         if (grant.rig && !isRigUnlocked(prev, grant.rig)) {
-            list.push(`新工装：${RIG_CATALOG[grant.rig].name}`);
+            list.push(`解锁工装：${RIG_CATALOG[grant.rig].name}`);
         }
         if (grant.weapon) {
-            list.push(`入库武器：${WEAPON_CATALOG[grant.weapon].name}`);
+            list.push(`解锁武器：${WEAPON_CATALOG[grant.weapon].name}`);
         }
         if (grant.customStarter) {
-            list.push('解锁：出勤可自选起手武器');
+            list.push('出发前可以选择初始武器');
         }
     }
 
@@ -283,10 +284,7 @@ export function computeRunUnlocks(
     const prevMaxD = maxUnlockedDanger(prev);
     const nextMaxD = maxUnlockedDanger(next);
     if (nextMaxD > prevMaxD) {
-        const names: Record<DangerLevel, string> = {
-            0: '02:13 断电夜', 1: '寒潮锁阀', 2: '清退加急', 3: '全区封控', 4: '03:55 死线',
-        };
-        list.push(`解锁升级令：${names[nextMaxD]}`);
+        list.push(`解锁难度 ${nextMaxD} · ${DANGER_NAMES[nextMaxD]}`);
     }
 
     // 3. Global Danger capstone module + meta perks (checks every newly crossed danger threshold!)
@@ -296,22 +294,22 @@ export function computeRunUnlocks(
         if (prevGlobal < d && nextGlobal >= d) {
             const modId = DANGER_CAPSTONE_MODULES[d];
             const mod = MODULE_BY_ID[modId];
-            if (mod) list.push(`违章件入库：${mod.name}`);
-            if (d === 2) list.push('工坊黑名单位 +2');
-            if (d === 3) list.push('商店锁定上限 +1');
+            if (mod) list.push(`解锁配件：${mod.name}`);
+            if (d === 2) list.push('工坊可排除的配件数量 +2');
+            if (d === 3) list.push('商店留货上限 +1');
         }
     }
 
     // 4. Chapter-specific secret archive (unlocked at Danger >= 2 per chapter)
     if (!isSecretArchiveUnlocked(prev, chapterId) && isSecretArchiveUnlocked(next, chapterId)) {
-        list.push('解锁本章加班密件');
+        list.push('解锁本章加密附件');
     }
 
     // 5. Chapter Gold Seal (Danger 4 clear on this chapter)
     const prevChD = prev.maxDangerCleared[chapterId] ?? -1;
     if (prevChD < 4 && danger === 4 && next.maxDangerCleared[chapterId] === 4) {
         const seals = goldSealCount(next);
-        list.push(seals === 4 ? '达成：全城值守·金章！' : `本章金印达成（${seals}/4）`);
+        list.push(seals === 4 ? '集齐四章金章' : `获得本章金章（${seals}/4）`);
     }
 
     return list;

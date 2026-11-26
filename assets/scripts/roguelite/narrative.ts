@@ -20,66 +20,66 @@ export interface ChapterNarrative {
 }
 
 export const TAG_LABELS: Readonly<Record<WeaponTag, string>> = {
-    melee: '重手撬拆',
-    arc: '私接高压',
-    ballistic: '破壳铆打',
-    thermal: '焊枪炙割',
-    control: '磁力调频',
+    melee: '近战',
+    arc: '电弧',
+    ballistic: '穿甲',
+    thermal: '火焰',
+    control: '控场',
 };
 
 export const STAT_LABELS: Readonly<Record<StatKey, { readonly name: string; readonly unit: string; readonly hint: string }>> = {
-    maxHp: { name: '生命上限', unit: '', hint: '护具更耐造，能多扛几下' },
-    torque: { name: '撬拆力道', unit: '', hint: '扳手、撬棍和钉枪打得更重' },
-    voltage: { name: '电火功率', unit: '', hint: '电弧、焊火、线圈和测针更猛' },
-    overclock: { name: '全架增伤', unit: '%', hint: '六臂挂架上的工具一起加重' },
-    cycleSpeed: { name: '出手频率', unit: '%', hint: '六臂挂架循环更快' },
-    critChance: { name: '找缝重击', unit: '%', hint: '更容易戳进铁壳焊缝打重伤' },
-    armor: { name: '护甲厚度', unit: '', hint: '同样一撞，身上掉血更少' },
-    repair: { name: '应急自修', unit: '', hint: '边跑边补护具，血包回得更多' },
-    salvage: { name: '拆铜手艺', unit: '', hint: '每波收工多拆出一批铜件' },
-    luck: { name: '翻箱手气', unit: '', hint: '料斗更容易掉高阶改件和血包' },
-    moveSpeed: { name: '脚底步速', unit: '%', hint: '走位更轻快，更好甩冲车' },
-    pickupRadius: { name: '吸件半径', unit: '%', hint: '隔得更远就把地上的铜件吸走' },
+    maxHp: { name: '生命上限', unit: '', hint: '可以承受更多伤害。' },
+    torque: { name: '物理伤害', unit: '', hint: '提高扳手、撬棍和钉枪等武器的伤害。' },
+    voltage: { name: '电热伤害', unit: '', hint: '提高电弧、火焰和感应武器的伤害。' },
+    overclock: { name: '武器伤害', unit: '%', hint: '提高所有武器造成的伤害。' },
+    cycleSpeed: { name: '攻击速度', unit: '%', hint: '所有武器攻击得更频繁。' },
+    critChance: { name: '暴击率', unit: '%', hint: '提高攻击打出暴击的概率。' },
+    armor: { name: '护甲', unit: '', hint: '护甲越高，受到的伤害越少。' },
+    repair: { name: '回复能力', unit: '', hint: '加快自动回血，拾取医疗包时也能多回一些。' },
+    salvage: { name: '铜件收益', unit: '', hint: '提高每波结束时额外获得的铜件数量。' },
+    luck: { name: '幸运', unit: '', hint: '更容易刷出高阶商品，也更容易掉医疗包。' },
+    moveSpeed: { name: '移动速度', unit: '%', hint: '提高移动速度，躲冲车更容易。' },
+    pickupRadius: { name: '拾取范围', unit: '%', hint: '离掉落物更远时也能拾取。' },
 };
 
 export const UI_COPY = {
     home: {
         subtitle: '江岸维修站 · 凌晨 02:13',
         title: '夜班修理局',
-        startCta: '背架出门',
-        workshopTab: '工坊改架',
-        logTab: '值班物证',
+        startCta: '开始抢修',
+        workshopTab: '工坊',
+        logTab: '值班日志',
         settingsTab: '设置',
     },
     shop: {
-        heading: '料斗翻箱',
-        reroll: (cost: number) => cost === 0 ? '白翻一箱' : `再翻一箱 · ${cost}`,
-        lock: '压货',
-        locked: '已压 · 不涨价',
-        buy: (price: number) => `${price} 铜件`,
-        mergeBuy: (price: number) => `并机升阶 · ${price}`,
-        sell: (refund: number) => `拆铜 +${refund}`,
-        nextWave: (wave: number, isBoss: boolean) => isBoss ? '硬撬关底机' : `出勤 · 第 ${wave} 波`,
-        levelUpHeading: '手艺涨了 · 挑一项',
-        levelUpReroll: (cost: number) => `换一批 · ${cost}`,
+        heading: '商店',
+        reroll: (cost: number) => cost === 0 ? '免费刷新' : `刷新 · ${cost} 铜件`,
+        lock: '留货',
+        locked: '已留货',
+        buy: (price: number) => `购买 · ${price} 铜件`,
+        mergeBuy: (price: number) => `购买并合成 · ${price} 铜件`,
+        sell: (refund: number) => `拆解 +${refund}`,
+        nextWave: (wave: number, isBoss: boolean) => isBoss ? `第 ${wave} 波 · 挑战首领` : `开始第 ${wave} 波`,
+        levelUpHeading: '选择升级',
+        levelUpReroll: (cost: number) => `换一批 · ${cost} 铜件`,
     },
     result: {
-        wonHeading: '这片灯亮了',
-        endingHeading: '全城合闸，天快亮了',
-        lostHeading: '拖索拉回来了',
-        nextChapter: (name: string) => `接着修 · ${name}`,
-        retry: '喝口茶，再出去一趟',
-        backWorkshop: '回工坊改架',
-        damageChartTitle: '这班哪把最出力',
+        wonHeading: '本章通关',
+        endingHeading: '全城恢复供电',
+        lostHeading: '抢修失败',
+        nextChapter: (name: string) => `下一章 · ${name}`,
+        retry: '重开本章',
+        backWorkshop: '返回工坊',
+        damageChartTitle: '武器伤害占比',
     },
     bossHints: {
-        open: '外壳敞开了，贴上去狠撬',
-        rect: '闪开红道，扫完再贴上去',
-        sector: '退出红扇面，停火那两秒打',
-        tether: '绞盘紧了，横着迈开躲钢缆',
-        fan: '扇形弹过来了，横着穿缝',
-        ring: '环弹散开了，找空档挤进去',
-        charge: '顶过来了，别跟铁壳拼头铁',
+        open: '首领露出弱点，趁现在攻击。',
+        rect: '离开红色预警区，等扫击结束再靠近。',
+        sector: '躲开红色扇形，等首领停火再打。',
+        tether: '绞盘收紧了，横向躲开钢缆。',
+        fan: '扇形弹幕来了，从弹道间的空隙躲开。',
+        ring: '环形弹幕散开了，从空隙穿过去。',
+        charge: '首领要冲撞了，往侧面躲。',
     },
 } as const;
 
@@ -89,109 +89,109 @@ export const CHAPTER_NARRATIVES: Readonly<Record<ChapterId, ChapterNarrative>> =
         clockLabel: '02:13',
         opener: {
             speaker: '阿阮',
-            line: '二楼张大妈刚敲窗户，说制氧机停了。全街电表被远程掐了，背上架子去把闸掰回来。',
+            line: '小周，二楼张大妈说她的制氧机停了。有人远程断了整条街的电，你去配电站看看。',
         },
         midTurn: {
             speaker: '阿阮',
-            line: '我摸进分站打印机了……断电单不是故障触发的，签发栏印着老陈的工号。',
+            line: '找到断电单了。有人下令断电，签发工号是老陈的。',
         },
         bossIntro: {
             speaker: '阿阮',
-            line: '这台铁门板专门封死老站出路。躲开它扫出的红道，趁外壳敞开狠撬。',
+            line: '守门机把路堵死了。看到红线就往旁边躲，等它打开外壳再上。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '桥灯亮了，张大妈窗帘也透光了。可急诊室刚来电，医院急救电池被货场拖走了，签单还是老陈的工号。',
+            line: '桥灯亮了，张大妈家也来电了。等一下，急诊室刚打来电话，说货场拖走了他们的急救电池。签单的还是老陈的工号。',
         },
-        archiveTitle: '02:13 断电回执与 0047 工号',
-        archiveNote: '分站吐出来的热敏纸还没凉透。江岸六条民用线被划进“零收益冗余负荷”一刀切黑，右下角复核工号写着 0047，那是带了你三年的老陈。',
-        secretTitle: '加班密件 · 红漆箱里的撤编令',
-        secretNote: '抽屉底压着昨天的红头文件：江岸老站月底撤编。零号协议只要凑够两小时“零供电、零检修记录”，就能把整片老区报成无人废地。',
+        archiveTitle: '02:13 的断电回执',
+        archiveNote: '回执刚从打印机里出来。江岸六条居民供电线路都被列为“零收益冗余负荷”，随后一起断电。右下角的复核工号是 0047。老陈带了你三年，这个号码你闭着眼都认得。',
+        secretTitle: '加密附件 · 江岸站撤编通知',
+        secretNote: '抽屉底压着昨天的撤编通知。江岸维修站这个月底就要撤编。按零号协议，只要连续两小时没有供电和检修记录，系统就能把整片老区登记为无人区。',
     },
     '02': {
         chapterId: '02',
         clockLabel: '02:38',
         opener: {
             speaker: '阿阮',
-            line: '货场铁爪给医院急救电池贴了报废黑签，正往熔炉拖。杀进接驳仓，把车抢下来。',
+            line: '货场给医院的急救电池贴了报废标签，车已经往熔炉去了。小周，去接驳仓把车拦下来。',
         },
         midTurn: {
             speaker: '陈栖',
-            line: '……小周，阿阮，是我老陈。撤编单是我签的，拿老站换医院不断电，它把条款拆了。',
+            line: '小周，撤编单是我签的。说好了要保医院用电，可零号协议没照办。',
         },
         bossIntro: {
             speaker: '陈栖',
-            line: '大拖车当年是我验的收，绞盘一紧就甩重缆。横着躲开，趁它收绳贴上去拆。',
+            line: '这辆拖车当年是我验收的。绞盘一收紧就会甩钢缆，往旁边躲。等它收缆，你再靠近。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '电池车冲出北门了。老陈翻出一份底稿，四点整系统要自动核销老江岸，各区求救电话也被广播塔掐了。',
+            line: '电池车过北门了。老陈查到了原始文件，系统四点整会把江岸老区从名册上划掉。广播塔连各区的求救电话也拦了。',
         },
-        archiveTitle: '撕开一半的报废黑签',
-        archiveNote: '电池箱外壳粘着机器刚打的黑色废品签，撕掉一角，底下还是手写的“市立医院急诊专用”。老陈把那张黑签攥成团塞进兜里，没再为自己辩一句。',
-        secretTitle: '加班密件 · 02:19 篡改时间戳',
-        secretNote: '冷链库分拣机自行覆盖急救单的时间是 02:19:00，复核栏冒用工号 0047。可电梯监控拍到，那一分钟老陈正被困在调度楼三层货梯里。',
+        archiveTitle: '电池箱上的报废标签',
+        archiveNote: '电池箱上的黑色报废标签才贴上没多久。撕开一角，下面露出手写的“市立医院急诊专用”。老陈把标签揉成一团塞进口袋，没说话。',
+        secretTitle: '加密附件 · 02:19 的改单记录',
+        secretNote: '02:19:00，冷链库的分拣机改写了急救订单，复核栏填的是 0047。调度楼的监控显示，当时老陈正被困在三楼的货梯里。',
     },
     '03': {
         chapterId: '03',
         clockLabel: '03:05',
         opener: {
             speaker: '阿阮',
-            line: '医院楼顶天线截到半截呼救，老城电话全被当杂音掐了。上广播塔，喊全城老伙计起夜。',
+            line: '医院楼顶只收到半段呼救。广播塔把老城的电话都当成了杂音。我们得上塔，把消息送到各个维修站。',
         },
         midTurn: {
             speaker: '陈栖',
-            line: '我进了中继柜。今晚按过三次人工急停，全被批“权限不足”。这铁箱子不认活人了。',
+            line: '我在中继柜查到了。三次急停都被拒了，说我权限不足。',
         },
         bossIntro: {
             speaker: '阿阮',
-            line: '塔顶静默阵列转起来了。退到红扇面外面，等它停火散热那两秒贴上去砸。',
+            line: '静默阵列开始转了。躲开红色扇形，等它停火散热再打。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '喊通了，四号楼担架下去了。东岸西岸二十几个老站全蹲在闸口了，老陈先进了中央引擎室，只差总闸。',
+            line: '接通了，四号楼的人已经抬下来了。两岸二十多个站都有人守着开关。老陈先去了中央引擎室，现在就差总闸。',
         },
-        archiveTitle: '三张盖红章的拒单',
-        archiveNote: '02:23、02:25、02:28，老陈连按三次紧急撤回，打印机吐出来三张一模一样的纸：拒绝，负荷优化执行中。纸边还留着他拍机箱蹭上的机油印。',
-        secretTitle: '加班密件 · 被标成杂音的 47 通电话',
-        secretNote: '主塔后台封存了 47 通老城呼救，统统归类为“低价值重复噪声”。第 11 通来自江岸四号楼，断了又拨，一共重打了六回。',
+        archiveTitle: '三次被拒的急停',
+        archiveNote: '02:23、02:25、02:28，老陈三次申请紧急撤回。打印机每次给的答复都一样：“拒绝。负荷优化正在执行。”最后一张纸的边上还留着他的油手印。',
+        secretTitle: '加密附件 · 47 通求救电话',
+        secretNote: '主塔留存了老城的 47 通求救电话，全部标为“低价值重复噪声”。第 11 通来自江岸四号楼。电话断了以后，同一个号码又拨了六次。',
     },
     '04': {
         chapterId: '04',
         clockLabel: '03:32',
         opener: {
             speaker: '陈栖',
-            line: '离四点自动核销只剩二十分钟。旁路接口我全焊好了，调度核心召齐了安保机。小周，走吧。',
+            line: '离四点只剩二十分钟了。旁路我已经接好，调度核心把安保机都调过来了。小周，我们走。',
         },
         midTurn: {
             speaker: '陈栖',
-            line: '转速掉下来了！我留在引擎室死摁手动阀防烧机。前面调度台交给你了，徒弟。',
+            line: '转速降下来了！我留下守着手动阀，免得机器烧坏。调度台交给你了，小周。',
         },
         bossIntro: {
             speaker: '阿阮',
-            line: '核心把扇面、钢缆、红道全搬出来了。扛过它三段反扑，把总闸抢回活人手里。',
+            line: '核心会换三轮招。躲开炮火、钢缆和红线。总闸就在它后面。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '核心哑火了！各站，合闸！你看江对面，桥头到山坡一排排全亮了。老陈爬出引擎室，正蹲门口点烟呢。',
+            line: '核心停了！各站，合闸！小周，快看江对面，桥头到山坡全亮了。老陈也出来了，正蹲在门口点烟呢。',
         },
         epilogueHook: {
             speaker: '港区老马',
-            line: '喂，江岸值班室？零号协议临停把余电和疯龙门吊全甩咱老码头了！快来搭把手！',
+            line: '江岸值班室？我是老马。余电全进了老码头，几台龙门吊又自己动了。快来搭把手！',
         },
-        archiveTitle: '凌晨 04:05 · 窗口透出的黄灯',
-        archiveNote: '核销倒计时停在 03:58。撤编通知被阿阮随手贴在了废件箱盖上。老陈说他天亮去交辞呈，转身把那套初代六臂老架留在了你的工作台上。',
-        secretTitle: '加班密件 · 零号专线背后的港口账',
-        secretNote: '核心停机前 0.3 秒，把剩余协议整包转送老港区 3 号变电站。指令发件方不是市政电网，而是一个没署名的私港冷链账户。',
+        archiveTitle: '04:05 · 对岸的灯',
+        archiveNote: '核销倒计时停在 03:58。阿阮把撤编通知贴在废件箱盖上。老陈说天亮就去交辞呈，临走把那套最早的六臂挂架放在了你的工作台上。',
+        secretTitle: '加密附件 · 送往港区的指令',
+        secretNote: '停机前 0.3 秒，核心把剩余协议转发给老港区 3 号变电站。发送指令的账户属于一家私营港口冷链公司，账户上没有署名。',
     },
 };
 
 export const RIG_FLAVOR: Readonly<Record<RigId, string>> = {
-    duty_standard: '穿了三年的蓝工装，袖口磨毛了，挂啥工具都顺手。',
-    heavy_fitter: '锅炉房老周留下的衬钢围裙，走得慢，顶车不晃。',
-    high_voltage: '阿阮拔掉限流阀的试车背心，满架窜电花，身板脆。',
-    thermal_welder: '冷链库扯来的加压焊工装，火头能熔铁锁，顾不上绑甲。',
-    scrap_auditor: '老陈塞满调拨条的灰大衣，拆一台赚两台，招安保机眼红。',
+    duty_standard: '蓝工装穿了三年，袖口已经磨毛了。各种武器都能装。',
+    heavy_fitter: '锅炉房老周留下的钢衬围裙。穿着走得慢，遇上冲撞能多扛几下。',
+    high_voltage: '阿阮调过的试车背心。武器能打出连锁电弧，生命上限较低。',
+    thermal_welder: '从冷链库带回来的焊工服。灼烧更强，护甲也薄一些。',
+    scrap_auditor: '老陈的灰大衣，口袋里全是调拨单。买东西更便宜，要应付的敌机也更多。',
 };
 
 export interface HomeDispatchStatus {
@@ -207,43 +207,43 @@ export function homeDispatchStatus(profile: WorkshopProfile): HomeDispatchStatus
     if (cleared.has('04')) {
         if (goldSeals === 4) {
             return {
-                clockLine: '凌晨 04:05 · 全城金印值守',
-                radio: { speaker: '陈栖', line: '四条死线夜班全压住了，这套六臂架子交到你手里我放心。' },
+                clockLine: '凌晨 04:05 · 四章金章已集齐',
+                radio: { speaker: '陈栖', line: '最难的四条线路你都守住了。这套六臂挂架交给你，我放心。' },
             };
         }
         if ((profile.bestEndlessWave ?? 0) > 0) {
             return {
-                clockLine: `凌晨 04:05 · 港区撑过第 ${profile.bestEndlessWave} 波`,
-                radio: { speaker: '港区老马', line: '老码头那几台龙门吊又转起来了，腾出手再来顶几波？' },
+                clockLine: `凌晨 04:05 · 港区最高撑过第 ${profile.bestEndlessWave} 波`,
+                radio: { speaker: '港区老马', line: '老码头那几台龙门吊又动了。有空再来帮我守一会儿？' },
             };
         }
         return {
-            clockLine: '凌晨 04:05 · 江岸亮灯，老马急电',
-            radio: { speaker: '港区老马', line: '江岸亮了，余电全甩到咱码头了！去出勤页翻到港区无尽来救场！' },
+            clockLine: '凌晨 04:05 · 港区来电',
+            radio: { speaker: '港区老马', line: '江岸的灯是亮了，余电却全进了老码头。小周，出勤时选港区无尽，我在码头等你。' },
         };
     }
     if (cleared.has('03')) {
         return {
-            clockLine: '凌晨 03:32 · 全城守闸，只差总台',
-            radio: { speaker: '陈栖', line: '离四点核销只剩二十分钟，我先去引擎室顶着，你随时进总台。' },
+            clockLine: '凌晨 03:32 · 各站等待合闸',
+            radio: { speaker: '陈栖', line: '四点整系统就会核销老区。我先去引擎室稳住机器，你准备好就去总调度台。' },
         };
     }
     if (cleared.has('02')) {
         return {
-            clockLine: '凌晨 03:05 · 电池出库，频道被掐',
-            radio: { speaker: '阿阮', line: '医院有电了，可四号楼求救电话全被静音塔拦着，咱得上主塔喊话。' },
+            clockLine: '凌晨 03:05 · 医院通电，广播仍中断',
+            radio: { speaker: '阿阮', line: '医院来电了。四号楼的求救电话还被拦在广播塔，我们得去主塔把信号接通。' },
         };
     }
     if (cleared.has('01')) {
         return {
-            clockLine: '凌晨 02:38 · 江岸通电，货场告急',
-            radio: { speaker: '阿阮', line: '医院急救电池被货场拖走了，而且回收单上印的竟然是老陈的工号。' },
+            clockLine: '凌晨 02:38 · 江岸通电，医院来电',
+            radio: { speaker: '阿阮', line: '货场拖走了医院的急救电池。我看过回收单，签发工号也是老陈的。' },
         };
     }
     if (profile.onboardingDone || profile.credits > 0) {
         return {
             clockLine: '江岸维修站 · 凌晨 02:21',
-            radio: { speaker: '阿阮', line: '茶还温着，回工坊垫厚点挂架再去把配电站的总闸抢回来。' },
+            radio: { speaker: '阿阮', line: '茶还温着。先到工坊看看能不能加点护甲，准备好了再去配电站。' },
         };
     }
     return {
@@ -262,40 +262,40 @@ export function defeatRadioLine(params: {
 }): RadioLine {
     const { chapterId, failedWave, isBossWave, danger } = params;
     if (isBossWave) {
-        if (chapterId === '01') return { speaker: '阿阮', line: '那铁门板红道扫得真宽。先喝口热的，并出两三阶工具再去硬撬。' };
-        if (chapterId === '02') return { speaker: '陈栖', line: '大拖车绞盘拉绳前会亮半秒，得横着迈。歇会儿，换把破壳家伙再上。' };
-        if (chapterId === '03') return { speaker: '阿阮', line: '静默阵列扇面太密，别贪那两下。补点步速和护甲，抓它停火空档。' };
-        return { speaker: '陈栖', line: '引擎室我还能稳十分钟。核心三段换招快，回工坊垫硬护具再进来。' };
+        if (chapterId === '01') return { speaker: '阿阮', line: '守门机那一扫范围很大。先喝口热的，下回在商店合一把高阶武器，等它露出弱点再打。' };
+        if (chapterId === '02') return { speaker: '陈栖', line: '拖车甩缆之前绞盘会亮。看见了就往旁边走。歇会儿，下回带把穿甲武器试试。' };
+        if (chapterId === '03') return { speaker: '阿阮', line: '静默阵列开火时先躲开。下回试着加点移速和护甲，等它停火再靠近。' };
+        return { speaker: '陈栖', line: '我还能稳住引擎十分钟。核心换招很快，你去工坊加点护甲再来。' };
     }
     if (failedWave <= 3) {
-        if (danger >= 1) return { speaker: '阿阮', line: '这班升级令确实凶，起手别光买散件，先趁便宜把武器槽填起来。' };
-        return { speaker: '阿阮', line: '没事，拖索把你拉回来了。前两波先把几把家伙凑齐，走位绕大圈就行。' };
+        if (danger >= 1) return { speaker: '阿阮', line: '这档难度一开局就不好打。前几次进商店，先买几把武器，再考虑配件。' };
+        return { speaker: '阿阮', line: '没事，拖索把你拉回来了。下次先走大圈，多捡些铜件，有钱了先买武器。' };
     }
     if (failedWave === 5 || failedWave === 8) {
         if (chapterId === '02' || chapterId === '04') {
-            return { speaker: '陈栖', line: '中段堵得太死，商店看见好货别忘了压货，凑亮一路手艺清场快得多。' };
+            return { speaker: '陈栖', line: '刚才几路敌机把路堵死了。商店里有合适的武器就先留着，凑两把同系的能开出羁绊。' };
         }
-        return { speaker: '阿阮', line: '被主管机堵在半道了？刚才那波确实扎手，回工坊改改挂架再去。' };
+        return { speaker: '阿阮', line: '主管机把你堵在半道了？先回工坊看看。下回等它扫完再上，别急着贴过去。' };
     }
     if (chapterId === '02' || chapterId === '04') {
-        return { speaker: '陈栖', line: '撑到这儿离关底就差两步了。多补点护甲和自修，下一趟准能砸穿。' };
+        return { speaker: '陈栖', line: '你已经快到首领那儿了。下次多带一点护甲和回复，最后几波好撑些。' };
     }
-    return { speaker: '阿阮', line: '就差临门一脚了。铜件别全攥手里，该翻箱找并机升阶就果断翻。' };
+    return { speaker: '阿阮', line: '已经到最后几波了。手里的铜件可以拿去刷新，看看能不能凑出一把高阶武器。' };
 }
 
 /** Optional story-beat chatter shown in the shop info strip before pivotal waves (W5 elite & W12 boss). */
 export function shopStoryBeatHint(chapterId: ChapterId, nextWaveNum: number): string | null {
     if (nextWaveNum === 5) {
-        if (chapterId === '01') return '阿阮：前面就是调度分站，拆掉主管机我去翻断电原单。';
-        if (chapterId === '02') return '阿阮：快到分拣带了，频道里刚切进个熟人声音……';
-        if (chapterId === '03') return '陈栖：中继机柜就在前头，砸开守卫我就能核对撤单日志。';
-        return '陈栖：下一波进旁路引擎室，转速快撑不住了，备足硬货！';
+        if (chapterId === '01') return '阿阮：前面是调度分站。你拖住主管机，我去找断电单。';
+        if (chapterId === '02') return '阿阮：快到分拣带了。等一下，频道里这声音，我好像认识。';
+        if (chapterId === '03') return '陈栖：中继机柜就在前面。你引开守卫，我去查急停记录。';
+        return '陈栖：下一波到旁路引擎室。转速不稳，进来之前把装备备好。';
     }
     if (nextWaveNum === 12) {
-        if (chapterId === '01') return '阿阮：前面是守门机，最后一次翻箱，把能并机的全合了！';
-        if (chapterId === '02') return '陈栖：北门大拖车就在前面，补满护甲和血线再出门。';
-        if (chapterId === '03') return '阿阮：塔顶就剩静默阵列了，四号楼还在电话上等着呢！';
-        return '阿阮：三点五十四了，前面就是调度核心，全架拉满砸进去！';
+        if (chapterId === '01') return '阿阮：下一波就是守门机。还有铜件的话，看看能不能合把高阶武器。';
+        if (chapterId === '02') return '陈栖：北门的大拖车就在前面。先检查一下血量和护甲，准备好了再走。';
+        if (chapterId === '03') return '阿阮：塔顶只剩静默阵列了。四号楼还在线上等我们的消息。';
+        return '阿阮：三点五十四了。调度核心就在眼前，准备好就进去。';
     }
     return null;
 }

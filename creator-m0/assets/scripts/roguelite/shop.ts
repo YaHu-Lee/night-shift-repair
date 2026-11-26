@@ -444,17 +444,17 @@ export function buyShopSlot(
     slotIndex: number,
     profile?: ShopProfileSlice,
 ): { readonly ok: boolean; readonly merged?: boolean; readonly freeBuyoutReroll?: boolean; readonly reason?: string } {
-    if (state.pendingLevelUps > 0) return { ok: false, reason: '请先挑完升级属性' };
+    if (state.pendingLevelUps > 0) return { ok: false, reason: '请先选完升级。' };
     const slot = state.slots[slotIndex];
-    if (!slot || slot.sold) return { ok: false, reason: '这件已经买走了' };
-    if (state.parts < slot.price) return { ok: false, reason: `还差 ${slot.price - state.parts} 个零件` };
+    if (!slot || slot.sold) return { ok: false, reason: '这件商品已售出。' };
+    if (state.parts < slot.price) return { ok: false, reason: `还差 ${slot.price - state.parts} 铜件。` };
 
     let merged = false;
     if (slot.kind === 'weapon') {
         const toolId = slot.itemId as ToolId;
         const mergeIdx = canAutoMergeWeapon(state.weapons, toolId, slot.tier);
         if (state.weapons.length >= MAX_WEAPONS) {
-            if (mergeIdx < 0) return { ok: false, reason: '6 个武器位全满了，先合成或拆一把' };
+            if (mergeIdx < 0) return { ok: false, reason: '武器栏已满。先合成或拆解一把。' };
             state.weapons[mergeIdx] = { ...state.weapons[mergeIdx], tier: (slot.tier + 1) as Tier };
             merged = true;
         } else {
@@ -507,11 +507,15 @@ export function sellOwnedWeapon(
     return refund;
 }
 
+export function hasRefreshableShopSlots(slots: readonly ShopSlot[]): boolean {
+    return slots.some(slot => slot.sold || !slot.locked);
+}
+
 export function rerollShop(
     state: IntermissionState,
     profile?: ShopProfileSlice,
 ): boolean {
-    if (state.pendingLevelUps > 0) return false;
+    if (state.pendingLevelUps > 0 || !hasRefreshableShopSlots(state.slots)) return false;
     if (state.freeRerollsLeft > 0) {
         state.freeRerollsLeft--;
     } else {

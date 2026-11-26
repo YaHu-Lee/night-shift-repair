@@ -1,5 +1,5 @@
 import {
-    _decorator, Color, Component, EventTouch, Game, game, Graphics, Label, Mask, Node,
+    _decorator, Color, Component, EventTouch, Game, game, Graphics, input, Input, Label, Mask, Node,
     profiler, screen, Sprite, SpriteFrame, sys, Texture2D, UITransform, Vec2, Vec3, view,
 } from 'cc';
 import { DEBUG } from 'cc/env';
@@ -28,16 +28,17 @@ const WIDTH = 360;
 const HEIGHT = 640;
 const VIEW_CENTER_X = (FIELD.left + FIELD.right) / 2;
 const VIEW_CENTER_Y = (FIELD.bottom + FIELD.top) / 2;
-const STICK_RADIUS = 32;
-const STICK_KNOB_RADIUS = 12;
-const STICK_DEAD_ZONE = 5;
-const STICK_ENTRY_DEPTH = 108;
+const STICK_RADIUS = 52;
+const STICK_KNOB_RADIUS = 20;
+const STICK_DEAD_ZONE = 3;
+const STICK_TRAVEL = STICK_RADIUS - STICK_KNOB_RADIUS;
 const PAPER = new Color(226, 237, 241);
-const STICK_BG = new Color(22, 29, 27, 238);
+const STICK_BG = new Color(22, 29, 27, 105);
 
 const qaHost = globalThis as typeof globalThis & { __nightShiftCampaignState?: () => unknown };
 
 interface HitArea {
+    key: string;
     left: number;
     right: number;
     bottom: number;
@@ -127,6 +128,8 @@ export class M1Bootstrap extends Component {
     private readonly localPoint = new Vec3();
     private readonly battleOffset = new Vec2();
     private readonly stickAxis = new Vec2();
+    private readonly stickCenter = new Vec2();
+    private readonly stickKnob = new Vec2();
 
     private movementTouch: number | null = null;
     private lastAim?: Vec2;
@@ -228,20 +231,20 @@ export class M1Bootstrap extends Component {
     onEnable(): void {
         this.musicSuspended = false;
         this.syncMusic();
-        this.node.on(Node.EventType.TOUCH_START, this.touchStart, this);
-        this.node.on(Node.EventType.TOUCH_MOVE, this.touchMove, this);
-        this.node.on(Node.EventType.TOUCH_END, this.touchEnd, this);
-        this.node.on(Node.EventType.TOUCH_CANCEL, this.touchCancel, this);
+        input.on(Input.EventType.TOUCH_START, this.touchStart, this);
+        input.on(Input.EventType.TOUCH_MOVE, this.touchMove, this);
+        input.on(Input.EventType.TOUCH_END, this.touchEnd, this);
+        input.on(Input.EventType.TOUCH_CANCEL, this.touchCancel, this);
         game.on(Game.EVENT_HIDE, this.onGameHide, this);
         game.on(Game.EVENT_SHOW, this.onGameShow, this);
         this.uiDirty = true;
     }
 
     onDisable(): void {
-        this.node.off(Node.EventType.TOUCH_START, this.touchStart, this);
-        this.node.off(Node.EventType.TOUCH_MOVE, this.touchMove, this);
-        this.node.off(Node.EventType.TOUCH_END, this.touchEnd, this);
-        this.node.off(Node.EventType.TOUCH_CANCEL, this.touchCancel, this);
+        input.off(Input.EventType.TOUCH_START, this.touchStart, this);
+        input.off(Input.EventType.TOUCH_MOVE, this.touchMove, this);
+        input.off(Input.EventType.TOUCH_END, this.touchEnd, this);
+        input.off(Input.EventType.TOUCH_CANCEL, this.touchCancel, this);
         game.off(Game.EVENT_HIDE, this.onGameHide, this);
         game.off(Game.EVENT_SHOW, this.onGameShow, this);
         this.musicSuspended = true;
@@ -339,21 +342,16 @@ export class M1Bootstrap extends Component {
     private updateSettings(patch: Partial<CampaignPreferences>): boolean {
         if (!this.settings.update(patch)) return false;
         this.soundEnabled = this.settings.current.sound;
-        if (patch.movement) this.cancelMovement();
+        if (patch.movement || patch.stickPlacement || patch.sideMargin !== undefined || patch.bottomMargin !== undefined) {
+            this.layout = '';
+            this.cancelMovement();
+        }
         this.syncMusic();
         this.uiDirty = true;
         return true;
     }
 
     private get joystickMode(): boolean { return this.settings.current.movement === 'joystick'; }
-    private get stickX(): number {
-        const x = this.stickOrigin?.x ?? WIDTH / 2;
-        return Math.min(WIDTH - STICK_RADIUS - 4, Math.max(STICK_RADIUS + 4, x));
-    }
-    private get stickY(): number {
-        return Math.max(this.footer + 16, this.stickOrigin?.y ?? this.footer + 16);
-    }
-
     private clearInput(): void {
         this.cancelMovement();
         if (this.press) this.uiDirty = true;
@@ -364,6 +362,7 @@ export class M1Bootstrap extends Component {
         this.movementTouch = null;
         this.lastAim = undefined;
         this.stickOrigin = undefined;
+        this.stickKnob.set(0, 0);
         this.stickAxis.set(0, 0);
         if (this.patrol?.session?.battle) this.patrol.session.battle.destination = null;
     }
@@ -372,7 +371,10 @@ export class M1Bootstrap extends Component {
         if (!this.stickOrigin) return;
         const dx = point.x - this.stickOrigin.x, dy = point.y - this.stickOrigin.y;
         const distance = Math.hypot(dx, dy);
-        const magnitude = Math.max(0, Math.min(1, (distance - STICK_DEAD_ZONE) / (STICK_RADIUS - STICK_DEAD_ZONE)));
+        const travel = Math.min(distance, STICK_TRAVEL);
+        const fraction = travel / (distance || 1);
+        this.stickKnob.set(dx * fraction, dy * fraction);
+        const magnitude = Math.max(0, (travel - STICK_DEAD_ZONE) / (STICK_TRAVEL - STICK_DEAD_ZONE));
         const step = magnitude / (distance || 1);
         this.stickAxis.set(dx * step, dy * step);
     }
@@ -402,18 +404,23 @@ export class M1Bootstrap extends Component {
         if (this.background) return;
         const p = this.point(event);
         const area = this.actions.find(candidate => this.contains(candidate, p.x, p.y));
-        if (area && !this.press) {
-            this.press = { id: event.getID(), area, inside: true };
-            this.uiDirty = true;
+        if (area) {
+            if (!this.press) {
+                this.press = { id: event.getID(), area, inside: true };
+                this.uiDirty = true;
+            }
             return;
         }
         if (!this.patrol.inBattle || this.movementTouch !== null) return;
         if (this.joystickMode) {
-            if (p.y < Math.max(8, this.footer - 16) || p.y > FIELD.bottom + STICK_ENTRY_DEPTH) return;
             if (this.patrol.session?.battle) this.patrol.session.battle.destination = null;
-            this.stickOrigin = new Vec2(p.x, p.y);
+            // On the pad, even the first contact steers relative to its fixed center.
+            // Elsewhere, dragging is relative to the finger-down point.
+            const { x, y } = this.stickCenter;
+            const onPad = Math.hypot(p.x - x, p.y - y) <= STICK_RADIUS;
+            this.stickOrigin = onPad ? new Vec2(x, y) : new Vec2(p.x, p.y);
             this.movementTouch = event.getID();
-            this.stickAxis.set(0, 0);
+            this.steerStick(p);
             return;
         }
         if (p.x < FIELD.left || p.x > FIELD.right || p.y < FIELD.bottom || p.y > FIELD.top) return;
@@ -442,19 +449,20 @@ export class M1Bootstrap extends Component {
         if (event.getID() === this.movementTouch) {
             if (this.joystickMode) {
                 this.cancelMovement();
+            } else {
+                this.movementTouch = null;
+                if (this.patrol.inBattle && !this.background) this.aimAt(this.point(event));
+                this.lastAim = undefined;
                 return;
             }
-            this.movementTouch = null;
-            if (this.patrol.inBattle && !this.background) this.aimAt(this.point(event));
-            this.lastAim = undefined;
-            return;
         }
         if (this.press?.id !== event.getID()) return;
-        const area = this.press.area;
+        const pressed = this.press.area;
         this.press = null;
         this.uiDirty = true;
         const p = this.point(event);
-        if (!this.background && this.contains(area, p.x, p.y)) {
+        const area = this.actions.find(candidate => this.sameTarget(candidate, pressed));
+        if (!this.background && area && this.contains(area, p.x, p.y)) {
             area.action();
             this.syncMusic();
             this.draw();
@@ -571,11 +579,16 @@ export class M1Bootstrap extends Component {
         this.ui.fill();
     }
 
-    private touchTarget(x: number, y: number, width: number, height: number, action: () => void): boolean {
+    private sameTarget(a: HitArea, b: HitArea): boolean {
+        return a.key === b.key && a.left === b.left && a.right === b.right && a.bottom === b.bottom && a.top === b.top;
+    }
+
+    private touchTarget(x: number, y: number, width: number, height: number, key: string, action: () => void): boolean {
         const left = x - width / 2;
         const bottom = y - height / 2;
-        this.actions.push({ left, right: left + width, bottom, top: bottom + height, action });
-        return !!this.press?.inside && this.press.area.left === left && this.press.area.bottom === bottom;
+        const area = { key: this.patrol.page + ':' + key, left, right: left + width, bottom, top: bottom + height, action };
+        this.actions.push(area);
+        return !!this.press?.inside && this.sameTarget(this.press.area, area);
     }
 
     private loadScenery(asset: string): void {
@@ -640,19 +653,17 @@ export class M1Bootstrap extends Component {
     private drawStick(active: boolean): void {
         const g = this.stickView;
         g.clear();
-        if (!active || !this.stickOrigin) return;
-        const y = this.stickY;
-        const x = this.stickX;
+        if (!active) return;
+        const { x, y } = this.stickCenter;
         g.fillColor = STICK_BG;
         g.circle(x, y, STICK_RADIUS + 2); g.fill();
         g.strokeColor = BENCH.weapon.accent; g.lineWidth = 2;
         g.circle(x, y, STICK_RADIUS); g.stroke();
-        const travel = STICK_RADIUS - STICK_KNOB_RADIUS - 1;
-        const knobX = x + this.stickAxis.x * travel, knobY = y + this.stickAxis.y * travel;
+        const knobX = x + this.stickKnob.x, knobY = y + this.stickKnob.y;
         g.fillColor = BENCH.yellow;
         g.circle(knobX, knobY, STICK_KNOB_RADIUS); g.fill();
         g.strokeColor = BENCH.ink; g.lineWidth = 1.5;
-        g.circle(knobX, knobY, 7); g.stroke();
+        g.circle(knobX, knobY, STICK_KNOB_RADIUS - 3); g.stroke();
     }
 
     private createPatrolUi(): PatrolCampaignUi {
@@ -670,12 +681,12 @@ export class M1Bootstrap extends Component {
             get backdropScale() { return self.backdropScale; },
             get joystickMode() { return self.joystickMode; },
             get settings() { return self.settings.current; },
-            updateSettings: patch => { self.updateSettings(patch); },
+            updateSettings: patch => self.updateSettings(patch),
             play: sound => self.play(sound),
             setScenery: key => self.drawScenery(key),
             setBattleOffset: (x, y) => {
                 self.battleOffset.set(x, y);
-                self.actorSprites.setPosition(-x, -y, 0);
+                self.actorSprites.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
                 self.art.node.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
                 self.skinFloor.active = true;
                 self.skinFloor.setPosition(-WIDTH / 2 - x, -HEIGHT / 2 - y, 0);
@@ -690,7 +701,7 @@ export class M1Bootstrap extends Component {
                 self.threats.clear();
                 self.skinFloor.active = false;
             },
-            addTouch: (x, y, w, h, action) => self.touchTarget(x, y, w, h, action),
+            addTouch: (x, y, w, h, key, action) => self.touchTarget(x, y, w, h, key, action),
             text: (value, x, y, opts) => self.text(value, x, y, opts),
             block: (x, y, w, h, color) => self.block(x, y, w, h, color),
             syncMusic: () => self.syncMusic(),
@@ -715,6 +726,14 @@ export class M1Bootstrap extends Component {
             this.backdropScale = backdropHeight / HEIGHT;
             this.surface.setContentSize(WIDTH, HEIGHT);
             const pixelRatio = screen.devicePixelRatio;
+            const visibleRight = (WIDTH + frame.width / scale) / 2;
+            const visibleBottom = (HEIGHT - frame.height / scale) / 2;
+            const { stickPlacement, sideMargin, bottomMargin } = this.settings.current;
+            const unitScale = pixelRatio / scale;
+            let stickX = WIDTH / 2;
+            if (stickPlacement === 'right') stickX = visibleRight - insets.right * unitScale - STICK_RADIUS - sideMargin;
+            if (stickPlacement === 'left') stickX = WIDTH - visibleRight + insets.left * unitScale + STICK_RADIUS + sideMargin;
+            this.stickCenter.set(stickX, visibleBottom + insets.bottom * unitScale + STICK_RADIUS + bottomMargin);
             this.top = Math.floor(Math.min(589, HEIGHT - Math.max(0, insets.top * pixelRatio / scale - letterbox) - 27));
             this.capsuleCeiling = insets.menuBottom === undefined ? HEIGHT
                 : Math.floor(HEIGHT - Math.max(0, insets.menuBottom * pixelRatio / scale - letterbox) - 8);

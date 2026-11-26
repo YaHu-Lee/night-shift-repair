@@ -329,7 +329,7 @@ export class RogueliteBattle {
         }
         this.warnings.length = 0;
         this.effects.push({ x: this.player.x, y: this.player.y, shape: 'circle', kind: 'induction', radius: 160, life: 16 });
-        this.pushFloater(this.player.x, this.player.y + 24, '急救续班', 'heal');
+        this.pushFloater(this.player.x, this.player.y + 24, '已复活', 'heal');
     }
 
     get bossView(): ChapterBossView | null {
@@ -492,7 +492,7 @@ export class RogueliteBattle {
         // Breaker surge (D4 capstone): wave-opening shock ring + 6s attack speed burst
         if (this.tick === 1 && this.build.hasBreakerSurge) {
             this.effects.push({ x: this.player.x, y: this.player.y, shape: 'circle', kind: 'induction', radius: 140, life: 16 });
-            this.pushFloater(this.player.x, this.player.y + 24, '强合超载', 'crit');
+            this.pushFloater(this.player.x, this.player.y + 24, '开场电震', 'crit');
             const surgeDmg = Math.max(24, Math.round(45 + this.build.stats.voltage * 2.5));
             for (const e of [...this.enemies]) {
                 if (this.canTarget(e) && distance(this.player, e) <= 140) {
@@ -504,7 +504,7 @@ export class RogueliteBattle {
         // Breaker surge (D4 capstone): wave-opening shock ring + 6s attack speed burst
         if (this.tick === 1 && this.build.hasBreakerSurge) {
             this.effects.push({ x: this.player.x, y: this.player.y, shape: 'circle', kind: 'induction', radius: 140, life: 16 });
-            this.pushFloater(this.player.x, this.player.y + 24, '强合超载', 'crit');
+            this.pushFloater(this.player.x, this.player.y + 24, '开场电震', 'crit');
             const surgeDmg = Math.max(24, Math.round(45 + this.build.stats.voltage * 2.5));
             for (const e of [...this.enemies]) {
                 if (this.canTarget(e) && distance(this.player, e) <= 140) {
@@ -937,7 +937,7 @@ export class RogueliteBattle {
             }
         }
         if (this.isJammed && !wasJammed) {
-            this.pushFloater(this.player.x, this.player.y + 22, '攻速变慢', 'jam');
+            this.pushFloater(this.player.x, this.player.y + 22, '攻速降低', 'jam');
         }
     }
 

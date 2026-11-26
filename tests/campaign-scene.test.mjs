@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 const json = path => JSON.parse(read(path));
@@ -54,8 +55,8 @@ test('Campaign.scene is the sole portrait startup scene across all active build 
 });
 
 test('every TypeScript file in assets/scripts matches its Creator mirror and has a .meta file', () => {
-    const srcRoot = new URL('../assets/scripts', import.meta.url).pathname;
-    const creatorRoot = new URL('../creator-m0/assets/scripts', import.meta.url).pathname;
+    const srcRoot = fileURLToPath(new URL('../assets/scripts', import.meta.url));
+    const creatorRoot = fileURLToPath(new URL('../creator-m0/assets/scripts', import.meta.url));
     const srcFiles = listTs(srcRoot);
     const creatorFiles = listTs(creatorRoot);
     assert.deepEqual(creatorFiles, srcFiles);

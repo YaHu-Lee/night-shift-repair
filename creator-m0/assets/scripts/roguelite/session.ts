@@ -105,6 +105,7 @@ export interface PatrolResult {
     readonly rigId: RigId;
     readonly danger: DangerLevel;
     readonly won: boolean;
+    readonly failure?: 'hp' | 'timeout';
     readonly wavesCleared: number;
     readonly totalKills: number;
     readonly creditsEarned: number;
@@ -479,7 +480,7 @@ export class PatrolSession {
     }
 
     buySlot(slotIndex: number) {
-        if (!this.intermission) return { ok: false, reason: '当前不在整备台' };
+        if (!this.intermission) return { ok: false, reason: '当前无法购买，请先进入商店。' };
         return buyShopSlot(this.intermission, slotIndex, this.profile);
     }
 
@@ -569,9 +570,9 @@ export class PatrolSession {
 
         const nextProfile = this.projectPostRunProfile(targetProfile, won, wavesCleared);
         const unlocks = won && !this.endlessMode ? computeRunUnlocks(targetProfile, nextProfile, this.chapter.id, this.danger) : [];
-        if (dailyBonus > 0) unlocks.unshift(`今日急单完成 · 额外 +${dailyBonus} 凭证`);
+        if (dailyBonus > 0) unlocks.unshift(`完成今日委托，额外获得 ${dailyBonus} 凭证`);
         if (this.endlessMode && wavesCleared > (targetProfile.bestEndlessWave ?? 0)) {
-            unlocks.unshift(`港区无尽新纪录：撑过 ${wavesCleared} 波！`);
+            unlocks.unshift(`港区新纪录：完成 ${wavesCleared} 波`);
         }
 
         const totals = new Map<string, { id: ToolId; tier: WeaponDamageStat['tier']; dmg: number; kills: number; crits: number }>();
@@ -602,8 +603,8 @@ export class PatrolSession {
         const endlessRadio = {
             speaker: '港区老马',
             line: wavesCleared >= 15
-                ? `好家伙，撑过 ${wavesCleared} 波！码头这几台龙门吊总算老实一会儿了！`
-                : `撑到第 ${wavesCleared} 波已经够硬了！歇口热茶，下回咱再冲更高波！`,
+                ? `你撑过了 ${wavesCleared} 波啊！那几台龙门吊总算安静下来了。谢了，小周。`
+                : `小周，先回来歇会儿。等你准备好了，咱们再去码头。`,
         };
         const failedReport = this.reports.length ? this.reports[this.reports.length - 1] : undefined;
         const failedWave = failedReport?.wave ?? (this.waveIndex + 1);
@@ -616,10 +617,12 @@ export class PatrolSession {
         });
         return {
             chapterId: this.chapter.id,
-            chapterTitle: this.endlessMode ? '港区无尽夜班' : this.chapter.title,
+            chapterTitle: this.endlessMode ? '港区无尽' : this.chapter.title,
             rigId: this.rigId,
             danger: this.danger,
             won,
+            ...(!won && failedReport && !failedReport.cleared
+                ? { failure: failedReport.endHp > 0 ? 'timeout' : 'hp' } as const : {}),
             wavesCleared,
             totalKills,
             creditsEarned,

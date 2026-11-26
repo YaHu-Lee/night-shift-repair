@@ -29,23 +29,23 @@ export interface DailyShiftModifierSpec {
 export const DAILY_SHIFT_MODIFIERS: Readonly<Record<DailyShiftModifierId, DailyShiftModifierSpec>> = {
     bargain_horde: {
         id: 'bargain_horde',
-        name: '老库清仓夜',
-        ruleText: '阿阮清仓料斗 75 折，巡检机多三成',
+        name: '仓库清货',
+        ruleText: '商店打七五折，敌机数量增加 30%。',
     },
     arc_overdrive: {
         id: 'arc_overdrive',
-        name: '零号线漏压',
-        ruleText: '全架出手快 20%，第 4 波起混进干扰机',
+        name: '零号线故障',
+        ruleText: '攻击速度 +20%，第 4 波起出现干扰机。',
     },
     cold_supply: {
         id: 'cold_supply',
-        name: '寒风借料单',
-        ruleText: '开局预支 40 铜件，江风冷得波间只回 18%',
+        name: '寒夜补给',
+        ruleText: '开局获得 40 铜件，每波结束时只回复已损失生命的 18%。',
     },
     turbo_shift: {
         id: 'turbo_shift',
-        name: '抢修加急令',
-        ruleText: '步速 +18% 且增伤 12%，首领也解了限速',
+        name: '紧急抢修',
+        ruleText: '移速 +18%，武器伤害 +12%，首领攻击间隔也更短。',
     },
 };
 
@@ -213,8 +213,8 @@ export function buildEndlessWaveDef(waveNum: number): WaveDefinition {
         eliteWave: isElite,
         bossWave: isBoss,
         hint: isBoss
-            ? `港区无尽第 ${waveNum} 波 · 首领来袭，抓敞开窗口爆发！`
-            : `港区无尽第 ${waveNum} 波 · 火力拉满，撑过就是新纪录。`,
+            ? `港区第 ${waveNum} 波有首领。先躲开攻击，等它露出弱点再打。`
+            : `港区第 ${waveNum} 波。敌机越来越多，留条退路。`,
     };
 }
 

@@ -5,6 +5,7 @@ import {
     MODULE_BY_ID,
     MODULE_CATALOG,
     RIG_CATALOG,
+    SYNERGY_TABLE,
     WEAPON_CATALOG,
     WORKSHOP_TALENTS,
 } from '../roguelite/catalog';
@@ -23,7 +24,6 @@ import {
     CHAPTER_CLEAR_BONUS,
     DANGER_LEVELS,
     DANGER_RULE_TEXT,
-    DANGER_SHORT_LABELS,
     PRE_RUN_SUPPLIES,
     PRE_RUN_SUPPLY_ORDER,
     bonusBanSlotsForProfile,
@@ -44,6 +44,7 @@ import {
     unclaimedFirstClearBonus,
 } from '../roguelite/progression';
 import { PatrolSession, buyPreRunSupply, buyWorkshopTalent, toggleModuleBan } from '../roguelite/session';
+import { hasRefreshableShopSlots, MAX_WEAPONS } from '../roguelite/shop';
 import type { PatrolResult } from '../roguelite/session';
 import {
     DAILY_CHECKIN_CREDITS,
@@ -85,6 +86,7 @@ import { FLOATING_WEAPON_ART } from './FloatingWeaponArt';
 import { PixelJuiceEngine, pxLine, pxRing } from './PixelVfxEngine';
 import type { BattleSkinView } from './BattleSkinView';
 import type { Sound } from './CampaignAudio';
+import { STICK_MARGIN } from '../platform/settings';
 import type { CampaignPreferences } from '../platform/settings';
 
 const WIDTH = 360;
@@ -104,7 +106,7 @@ const TIER_EDGE: Record<Tier, Color> = {
     3: new Color(193, 143, 249),
     4: new Color(251, 199, 108),
 };
-const TIER_NAME: Record<Tier, string> = { 1: 'Ⅰ 常规', 2: 'Ⅱ 精良', 3: 'Ⅲ 稀有', 4: 'Ⅳ 传奇' };
+const TIER_NAME: Record<Tier, string> = { 1: 'Ⅰ 普通', 2: 'Ⅱ 精良', 3: 'Ⅲ 稀有', 4: 'Ⅳ 传奇' };
 const TIER_ROMAN: Record<Tier, string> = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ', 4: 'Ⅳ' };
 
 const GREEN = new Color(115, 224, 174);
@@ -157,12 +159,12 @@ export interface PatrolHost {
     readonly backdropScale: number;
     readonly joystickMode: boolean;
     readonly settings: Readonly<CampaignPreferences>;
-    readonly updateSettings: (patch: Partial<CampaignPreferences>) => void;
+    readonly updateSettings: (patch: Partial<CampaignPreferences>) => boolean;
     readonly play: (sound: Sound) => void;
     readonly setScenery: (key: string | null) => void;
     readonly setBattleOffset: (x: number, y: number) => void;
     readonly clearWorldLayers: () => void;
-    readonly addTouch: (x: number, y: number, w: number, h: number, action: () => void) => boolean;
+    readonly addTouch: (x: number, y: number, w: number, h: number, key: string, action: () => void) => boolean;
     readonly text: (value: string, x: number, y: number, opts?: PatrolTextOptions) => void;
     readonly block: (x: number, y: number, w: number, h: number, color: Color) => void;
     readonly syncMusic: (battle: boolean) => void;
@@ -179,48 +181,48 @@ const RIG_ORDER: readonly RigId[] = ['duty_standard', 'heavy_fitter', 'high_volt
 
 // Plain, self-explanatory Chinese stat names (NO cryptic 1-character jargon!)
 const CARD_STAT: Readonly<Record<StatKey, string>> = {
-    maxHp: '生命',
-    torque: '撬拆',
-    voltage: '电火',
-    overclock: '全架伤',
-    cycleSpeed: '出手',
-    critChance: '重击',
+    maxHp: '生命上限',
+    torque: '物理伤害',
+    voltage: '电热伤害',
+    overclock: '武器伤害',
+    cycleSpeed: '攻击速度',
+    critChance: '暴击率',
     armor: '护甲',
-    repair: '自修',
-    salvage: '拆铜',
-    luck: '手气',
-    moveSpeed: '步速',
-    pickupRadius: '吸件',
+    repair: '回复能力',
+    salvage: '铜件收益',
+    luck: '幸运',
+    moveSpeed: '移动速度',
+    pickupRadius: '拾取范围',
 };
 
 const SPECIAL_DESC: Readonly<Record<string, string>> = {
-    shop_discount: '全店打九折',
-    free_reroll: '每店多翻一箱',
-    double_parts: '两成概率双份零件',
-    crit_heal: '暴击后15%回2血',
-    arc_shock: '感电打死炸电花',
-    burn_spread: '烧死会烧到旁边',
-    armor_thorns: '挨打反震周围',
-    extra_enemies: '场上敌机多18%',
-    breaker_surge: '开波电震，前6秒快出手',
+    shop_discount: '商店价格打九折',
+    free_reroll: '每次进商店多 1 次免费刷新',
+    double_parts: '拾取铜件时有 20% 概率获得双份',
+    crit_heal: '暴击时有 15% 概率回复 2 点生命',
+    arc_shock: '感电敌机被击毁时会放电',
+    burn_spread: '灼烧中的敌机被击毁时会引燃附近敌机',
+    armor_thorns: '受伤时反震附近的敌机',
+    extra_enemies: '敌机数量 +18%',
+    breaker_surge: '每波开始时释放电震，前 6 秒提高攻速',
 };
 
 const SPECIAL_SHORT: Readonly<Record<string, string>> = {
-    shop_discount: '全店九折',
-    free_reroll: '多翻一箱',
-    double_parts: '两成双份',
-    crit_heal: '暴击回2血',
-    arc_shock: '感电炸花',
-    burn_spread: '烧死蔓延',
-    armor_thorns: '挨打反震',
-    extra_enemies: '敌机+18%',
-    breaker_surge: '开波超载',
+    shop_discount: '商店九折',
+    free_reroll: '多 1 次免费刷新',
+    double_parts: '20% 概率双份铜件',
+    crit_heal: '暴击有概率回血',
+    arc_shock: '感电敌机击毁时放电',
+    burn_spread: '击毁后灼烧蔓延',
+    armor_thorns: '受伤反震',
+    extra_enemies: '敌机数量 +18%',
+    breaker_surge: '开场电震',
 };
 
 const SHORT_WEAPON: Readonly<Record<ToolId, string>> = {
-    wrench: '扳手', bypass_wrench: '撬棍', arc_gun: '电枪', riveter: '铆枪',
-    hydraulic_nailer: '钉枪', torch: '焊管', pulse_nozzle: '吹管',
-    induction: '感圈', traction_coil: '抓钩', split_probe: '测针',
+    wrench: '扳手', bypass_wrench: '撬棍', arc_gun: '电弧枪', riveter: '铆枪',
+    hydraulic_nailer: '钉枪', torch: '焊枪', pulse_nozzle: '吹灰枪',
+    induction: '线圈', traction_coil: '抓钩', split_probe: '电击针',
 };
 
 // Distinct 1-to-1 pixel workshop icons for all 32 modules (no duplicate icons on adjacent shop cards!)
@@ -294,7 +296,7 @@ function formatModuleCardLines(mod: ModuleSpec): {
         return {
             line1,
             line1Color: GREEN,
-            line2: `${specialShort} · 代价:${neg.join(' ')}`,
+            line2: `${specialShort} · ${neg.join(' ')}`,
             line2Color: GOLD,
         };
     }
@@ -310,7 +312,7 @@ function formatModuleCardLines(mod: ModuleSpec): {
         return {
             line1,
             line1Color: GREEN,
-            line2: `代价：${neg.join('  ')}`,
+            line2: `${neg.join('  ')}`,
             line2Color: RED,
         };
     }
@@ -325,7 +327,7 @@ function formatModuleCardLines(mod: ModuleSpec): {
 function formatStatPreview(stats: Partial<Record<StatKey, number>>, limit = 3, special?: string): string {
     const { pos, neg } = collectStatTokens(stats);
     const items = [...pos, ...neg];
-    if (special && SPECIAL_SHORT[special]) items.push(`特效:${SPECIAL_SHORT[special]}`);
+    if (special && SPECIAL_SHORT[special]) items.push(`效果：${SPECIAL_SHORT[special]}`);
     return items.slice(0, limit).join(' · ');
 }
 
@@ -342,6 +344,7 @@ export class PatrolCampaignUi {
     private danger: DangerLevel = 0;
     private supplyIdx = 0;
     private prepMode: PrepMode = 'story';
+    private workshopReturn: 'home' | 'prep' | 'result' = 'home';
     private starterByRig: Partial<Record<RigId, ToolId>> = {};
     private workshopTab: 'talents' | 'bans' = 'talents';
     private logTab: 'archive' | 'records' = 'archive';
@@ -349,13 +352,16 @@ export class PatrolCampaignUi {
     private banScroll = 0;
     private inspectWeaponSlot: number | null = null;
     private showStatsDrawer = false;
+    private statsTier: 2 | 4 | 6 = 2;
     private shopFeedback = '';
     private homeNotice = '';
+    private openingSidebar = false;
     private toastText = '';
     private toastLeft = 0;
     private touchGuardUntil = 0;
     private adBusy = false;
     private resultDoubledRunId: string | null = null;
+    private showResultUnlocks = false;
     private tutorialSkipped = false;
     private movedTicksInWave = 0;
     private saving = false;
@@ -389,6 +395,7 @@ export class PatrolCampaignUi {
     private restore(): void {
         this.page = 'home';
         this.result = null;
+        this.showResultUnlocks = false;
         this.paused = false;
         this.retrySave = null;
         this.profile = this.storage.loadProfile(this.legacyProfile);
@@ -455,7 +462,7 @@ export class PatrolCampaignUi {
     }
 
     private adVerb(action: string): string {
-        return this.profile.adFreePass ? `工牌·${action}` : `视频·${action}`;
+        return this.profile.adFreePass ? `用免视频工牌${action}` : `看视频${action}`;
     }
 
     private triggerReward(placement: RewardedPlacement, onReward: () => void, onFail?: () => void): void {
@@ -467,7 +474,7 @@ export class PatrolCampaignUi {
             return;
         }
         if (!engage?.hasRewardedAd) {
-            this.showToast('当前环境暂未开放激励视频');
+            this.showToast('当前无法播放奖励视频。');
             onFail?.();
             return;
         }
@@ -479,24 +486,18 @@ export class PatrolCampaignUi {
             if (ok) {
                 onReward();
             } else {
-                this.shopFeedback = '视频未看完，暂未发放';
-                this.showToast('视频未看完，暂未发放');
+                this.shopFeedback = '看完视频才能领取奖励。';
+                this.showToast('看完视频才能领取奖励。');
                 onFail?.();
             }
             this.host.invalidateUi?.();
         }, () => {
             this.adBusy = false;
-            this.shopFeedback = '视频暂不可用，请稍后再试';
-            this.showToast('视频暂不可用，请稍后再试');
+            this.shopFeedback = '视频暂时播不了，请稍后再试。';
+            this.showToast('视频暂时播不了，请稍后再试。');
             onFail?.();
             this.host.invalidateUi?.();
         });
-    }
-
-    private completeOnboarding(): void {
-        if (this.profile.onboardingDone) return;
-        const next = markOnboardingDone(this.profile);
-        this.saveWorkshop(next);
     }
 
     private drawGuidePulse(x: number, y: number, w: number, h: number, color: Color): void {
@@ -649,6 +650,7 @@ export class PatrolCampaignUi {
             if (!profile) return false;
             this.profile = profile;
             this.result = session.settle(preProfile);
+            this.showResultUnlocks = false;
             this.page = 'result';
             this.guardTouches(280);
             this.juice.reset();
@@ -721,6 +723,7 @@ export class PatrolCampaignUi {
         this.paused = false;
         this.inspectWeaponSlot = null;
         this.showStatsDrawer = false;
+        this.shopFeedback = '';
         this.movedTicksInWave = 0;
         this.syncAudioSerials();
         this.persist(() => {
@@ -739,6 +742,15 @@ export class PatrolCampaignUi {
         this.syncAudioSerials();
         this.page = this.session.phase === 'shop' ? 'shop' : 'battle';
         this.host.syncMusic(this.page === 'battle');
+    }
+
+    private openWorkshop(from: 'home' | 'prep' | 'result'): void {
+        this.workshopReturn = from;
+        this.page = 'workshop';
+    }
+
+    private changeSettings(patch: Partial<CampaignPreferences>): void {
+        if (!this.host.updateSettings(patch)) this.showToast('设置未能保存，请再试一次。');
     }
 
     private syncAudioSerials(): void {
@@ -770,18 +782,18 @@ export class PatrolCampaignUi {
         }
         this.host.skin?.beginUi();
         if (this.saving || this.adBusy) {
-            this.host.text(this.adBusy ? '正在载入激励视频…' : '正在保存进度…', 180, 320, { width: 236, size: 16, color: BENCH.paper });
+            this.host.text(this.adBusy ? '正在载入视频…' : '正在保存进度…', 180, 320, { width: 236, size: 16, color: BENCH.paper });
             this.host.skin?.endUi();
             return;
         }
         if (this.retrySave) {
             this.backdrop();
             const reload = this.storage.needsReload;
-            this.host.text(reload ? '请重新读取本机存档' : '进度尚未保存', 180, 365,
+            this.host.text(reload ? '需要重新读取存档' : '进度尚未保存', 180, 365,
                 { width: 304, size: 22, bold: true, color: BENCH.paper });
-            this.host.text(reload ? '存档已变化或无法读取。' : '请确认本机存储可用，再重试。', 180, 315,
+            this.host.text(reload ? '存档有变化，或暂时读不到。' : '请检查设备的存储空间，再试一次。', 180, 315,
                 { width: 304, size: 14, color: BENCH.muted });
-            this.pixelBtn(reload ? '重新读取' : '重试保存', 180, 254, 236, 50, this.retrySave, true);
+            this.pixelBtn(reload ? '读取存档' : '重试保存', 180, 254, 236, 50, this.retrySave, true);
             this.host.skin?.endUi();
             return;
         }
@@ -933,7 +945,7 @@ export class PatrolCampaignUi {
         if (seals > 0) {
             benchPlate(g, 16, topY - 110, seals === 4 ? 132 : 98, 26, BENCH.recess, GOLD, 5);
             this.host.skin?.uiIcon('ui/medal', 31, topY - 97, 16);
-            this.host.text(seals === 4 ? '全城值守·金章' : `金印 ${seals}/4`, seals === 4 ? 90 : 73, topY - 97,
+            this.host.text(seals === 4 ? '四章金章已集齐' : `金章 ${seals}/4`, seals === 4 ? 90 : 73, topY - 97,
                 { left: true, width: seals === 4 ? 98 : 66, size: 11, bold: true, color: GOLD });
         }
 
@@ -947,27 +959,29 @@ export class PatrolCampaignUi {
         const canCheckIn = canClaimDailyCheckIn(this.profile, dateKey);
         const engage = this.host.engage;
         const needSidebarJump = engage?.platform === 'douyin' && engage.canOpenSidebar && !engage.isDouyinSidebarEntry;
-        const checkInLabel = !canCheckIn
-            ? '今日已打卡 ✓'
-            : needSidebarJump ? '侧边栏领礼' : `打卡 +${DAILY_CHECKIN_CREDITS}凭证`;
-        this.pixelBtn(checkInLabel, 286, topY - 68, 114, 30, () => {
-            if (!canCheckIn) return;
-            if (needSidebarJump) {
-                void engage?.openSidebar().then(ok => {
-                    this.homeNotice = ok ? '从侧边栏重进即可领取今日补给！' : '可直接在首页打卡领取今日补给';
-                    this.showToast(this.homeNotice);
+        if (!canCheckIn || this.openingSidebar) {
+            benchPlate(g, 229, topY - 82, 114, 28, HUD_GLASS, BENCH.edge, 5);
+            this.host.text(canCheckIn ? '正在打开侧边栏…' : '今日已签到 ✓', 286, topY - 68,
+                { width: 114, size: 11, color: BENCH.paper });
+        } else if (needSidebarJump) {
+            this.pixelBtn('打开侧边栏', 286, topY - 68, 114, 30, () => {
+                this.openingSidebar = true;
+                void engage.openSidebar().then(ok => {
+                    this.openingSidebar = false;
+                    this.homeNotice = ok ? '从侧边栏重新进入游戏，就能签到。' : '侧边栏打开失败，请再试一次。';
                     this.host.invalidateUi?.();
                 });
-                return;
-            }
-            const next = claimDailyCheckIn(this.profile, dateKey);
-            if (next) {
-                this.saveWorkshop(next);
-                this.host.play('unlock');
-                this.homeNotice = `打卡到账 +${DAILY_CHECKIN_CREDITS} 凭证 · 送 1 次免费班前特供`;
-                this.showToast(this.homeNotice);
-            }
-        }, canCheckIn, canCheckIn);
+            }, true);
+        } else {
+            this.pixelBtn(`签到 +${DAILY_CHECKIN_CREDITS} 凭证`, 286, topY - 68, 114, 30, () => {
+                const next = claimDailyCheckIn(this.profile, dateKey);
+                if (next) {
+                    this.saveWorkshop(next);
+                    this.host.play('unlock');
+                    this.homeNotice = `签到获得 ${DAILY_CHECKIN_CREDITS} 凭证。下次出发前可免费选 1 次补给。`;
+                }
+            }, true);
+        }
 
         // FIXED: Unified hard-edge pixel bottom bar + P0 Healthy Gaming Notice cleanly inside safe area.
         const bottom = Math.max(this.host.footer + 40, 70);
@@ -975,7 +989,7 @@ export class PatrolCampaignUi {
 
         if (this.homeNotice) {
             benchPlate(g, 16, bottom + 36, 328, 28, HUD_GLASS, GOLD, 5);
-            this.host.text(this.homeNotice, 180, bottom + 50, { width: 312, size: 11, bold: true, color: GOLD });
+            this.host.text(this.homeNotice, 180, bottom + 50, { width: 312, height: 26, size: 11, bold: true, color: GOLD });
         } else if (!hasActive && !isFirstTimePlayer(this.profile)) {
             if (dispatch.radio) {
                 const ry = bottom + 72;
@@ -988,9 +1002,9 @@ export class PatrolCampaignUi {
             const daily = getDailyShift(dateKey);
             const dailyDone = isDailyShiftClearedToday(this.profile, dateKey);
             benchPlate(g, 16, bottom + 36, 328, 30, HUD_GLASS, dailyDone ? GREEN : CYAN, 5);
-            const dailyText = `今日急单 · ${daily.modifier.name}${dailyDone ? ' · 已完成 ✓' : ` · 奖+${daily.bonusCredits}凭证`}`;
+            const dailyText = `今日委托 · ${daily.modifier.name}${dailyDone ? ' · 已完成 ✓' : ` · +${daily.bonusCredits} 凭证`}`;
             this.host.text(dailyText, 152, bottom + 51, { left: true, width: 254, size: 11, bold: true, color: dailyDone ? GREEN : CYAN });
-            this.pixelBtn('去看看', 310, bottom + 51, 56, 22, () => {
+            this.pixelBtn('查看', 310, bottom + 51, 56, 22, () => {
                 this.prepMode = 'daily';
                 this.page = 'prep';
             }, !dailyDone);
@@ -1000,10 +1014,10 @@ export class PatrolCampaignUi {
             const rank = this.profile.talents[t.id] ?? 0;
             return rank < t.maxRank && this.profile.credits >= workshopTalentCost(t, rank);
         });
-        this.pixelBtn('工坊', 52, bottom, 68, 48, () => { this.homeNotice = ''; this.page = 'workshop'; }, false, true, canUpgrade);
+        this.pixelBtn('工坊', 52, bottom, 68, 48, () => { this.homeNotice = ''; this.openWorkshop('home'); }, false, true, canUpgrade);
         this.pixelBtn('日志', 126, bottom, 68, 48, () => { this.homeNotice = ''; this.page = 'log'; });
 
-        const held = this.host.addTouch(256, bottom, 174, 52, () => {
+        const held = this.host.addTouch(256, bottom, 174, 52, 'dispatch', () => {
             this.homeNotice = '';
             if (hasActive) {
                 this.resumeSavedPatrol();
@@ -1016,8 +1030,15 @@ export class PatrolCampaignUi {
             }
         });
         drawDispatchHandle(g, 256, bottom, held);
-        const cta = hasActive ? `继续 · 第${this.session!.waveIndex + 1}波` : UI_COPY.home.startCta;
-        this.host.text(cta, 236, bottom - (held ? 3 : 0), { size: hasActive ? 19 : 23, bold: true, color: BENCH.ink, width: 132 });
+        const activeRun = hasActive ? this.session : null;
+        const cta = activeRun?.phase === 'shop'
+            ? `${activeRun.intermission?.pendingLevelUps ? '继续升级' : '继续整备'}\n第 ${activeRun.waveIndex + 2} 波`
+            : activeRun
+                ? `继续战斗\n第 ${activeRun.waveIndex + 1} 波`
+                : isFirstTimePlayer(this.profile) ? UI_COPY.home.startCta : '出发准备';
+        this.host.text(cta, 236, bottom - (held ? 3 : 0), {
+            size: hasActive ? 14 : 23, height: hasActive ? 40 : 29, bold: true, color: BENCH.ink, width: 108,
+        });
 
         // Required WeChat / Douyin P0 Healthy Gaming Notice cleanly seated below bottom bar
         const noticeY = Math.max(this.host.footer - 12, 18);
@@ -1031,23 +1052,13 @@ export class PatrolCampaignUi {
 
     private drawPrep(): void {
         this.backdrop();
-        const top = this.header('出勤准备', '‹ 值班室', () => { this.page = 'home'; }, '工坊改装', () => { this.page = 'workshop'; });
+        const top = this.header('出发准备', '‹ 值班室', () => { this.page = 'home'; }, '工坊', () => this.openWorkshop('prep'));
         const g = this.host.ui;
         const dateKey = todayDateKey();
         const daily = getDailyShift(dateKey);
         const dailyDone = isDailyShiftClearedToday(this.profile, dateKey);
         const endlessReady = hasEndlessUnlocked(this.profile);
         if (this.prepMode === 'endless' && !endlessReady) this.prepMode = 'story';
-
-        // Carousel indices: 0..3 = Chapters 1..4, 4 = Daily Urgent Shift, 5 = Harbor Endless (after Ch4)
-        const totalCards = endlessReady ? 6 : 5;
-        const cardIndex = this.prepMode === 'daily' ? 4 : this.prepMode === 'endless' ? 5 : this.chapterIdx;
-        const stepCard = (delta: number) => {
-            const next = Math.max(0, Math.min(totalCards - 1, cardIndex + delta));
-            if (next <= 3) { this.prepMode = 'story'; this.chapterIdx = next; }
-            else if (next === 4) { this.prepMode = 'daily'; }
-            else { this.prepMode = 'endless'; }
-        };
 
         const isDaily = this.prepMode === 'daily';
         const isEndless = this.prepMode === 'endless';
@@ -1073,32 +1084,46 @@ export class PatrolCampaignUi {
         const maxChDanger = this.profile.maxDangerCleared[chapter.id];
 
         // Section A: Chapter / Daily Shift / Endless banner
-        const chTop = top - 8;
-        const chH = 122;
+        const modes: { id: PrepMode; label: string }[] = [
+            { id: 'story', label: '战役' }, { id: 'daily', label: '今日委托' },
+        ];
+        if (endlessReady) modes.push({ id: 'endless', label: '港区无尽' });
+        const modeWidth = 328 / modes.length;
+        modes.forEach(({ id, label }, i) => {
+            const active = id === this.prepMode;
+            this.pixelBtn(label, 16 + modeWidth * (i + 0.5), top - 15, modeWidth - 5, 25,
+                active ? null : () => { this.prepMode = id; }, active);
+        });
+
+        const chTop = top - 34;
+        const chH = 105;
         const chBot = chTop - chH;
         const chEdge = isDaily ? CYAN : isEndless ? GOLD : (chUnlocked ? BENCH.edge : BENCH.steel);
         benchPlate(g, 16, chBot, 328, chH, chUnlocked ? BENCH.steel : BENCH.recess, chEdge, 8);
         this.host.block(17, chTop - 3, 326, 3, isDaily ? CYAN : chUnlocked ? GOLD : BENCH.edge);
 
-        this.pixelBtn('‹', 38, chTop - 28, 32, 32, () => stepCard(-1), false, cardIndex > 0);
-        this.pixelBtn('›', 322, chTop - 28, 32, 32, () => stepCard(1), false, cardIndex < totalCards - 1);
+        if (!isDaily && !isEndless) {
+            if (this.chapterIdx > 0) this.pixelBtn('‹', 38, chTop - 32, 32, 32, () => { this.chapterIdx--; });
+            if (this.chapterIdx + 1 < CHAPTER_CATALOG.length) {
+                this.pixelBtn('›', 322, chTop - 32, 32, 32, () => { this.chapterIdx++; });
+            }
+        }
 
         if (isDaily) {
-            this.host.text(`今日夜班急单 · ${dateKey}${dailyDone ? ' · 已领奖 ✓' : ''}`, 180, chTop - 16,
+            this.host.text(`今日委托 · ${dateKey}${dailyDone ? ' · 已领奖 ✓' : ''}`, 180, chTop - 16,
                 { width: 244, size: 11, bold: true, color: dailyDone ? GREEN : CYAN });
             this.host.text(daily.modifier.name, 180, chTop - 38, { width: 244, size: 20, bold: true, color: BENCH.paper });
-            this.host.text(`线路：${chapter.title} · 体验工装：${rig.name}`, 180, chTop - 60, { width: 304, size: 11, color: GOLD });
-            benchPlate(g, 24, chTop - 92, 312, 22, BENCH.recess, CYAN, 4);
-            this.host.text(daily.modifier.ruleText, 180, chTop - 81, { width: 300, size: 11, bold: true, color: CYAN });
-            this.host.text(dailyDone ? '今日额外凭证已领，仍可重复冲分练手' : `今日首通额外奖励 +${daily.bonusCredits} 凭证（未解锁工装也能免费用）`,
-                180, chTop - 107, { width: 304, size: 10, color: BENCH.muted });
+            this.host.text(`章节：${chapter.title}`, 180, chTop - 58, { width: 304, size: 11, color: BENCH.paper });
+            this.host.text(daily.modifier.ruleText, 180, chTop - 77, { width: 304, size: 11, bold: true, color: CYAN });
+            this.host.text(dailyDone ? '今天的额外奖励已领过，仍可再挑战。' : `今天首次完成额外获得 ${daily.bonusCredits} 凭证。`,
+                180, chTop - 93, { width: 304, size: 10, color: GOLD });
         } else if (isEndless) {
             const best = this.profile.bestEndlessWave ?? 0;
-            this.host.text('港区急电 · 无尽夜班', 180, chTop - 16, { width: 244, size: 11, bold: true, color: GOLD });
-            this.host.text('老马码头抢修', 180, chTop - 38, { width: 244, size: 20, bold: true, color: BENCH.paper });
-            this.host.text(best > 0 ? `历史最高：撑过第 ${best} 波` : '尚未留下无尽纪录 · 12 波后持续叠波',
+            this.host.text('港区无尽', 180, chTop - 16, { width: 244, size: 11, bold: true, color: GOLD });
+            this.host.text('老码头抢修', 180, chTop - 38, { width: 244, size: 20, bold: true, color: BENCH.paper });
+            this.host.text(best > 0 ? `最高纪录：完成 ${best} 波` : '暂无纪录。第 12 波后还会不断出现敌机。',
                 180, chTop - 62, { width: 304, size: 11, bold: true, color: CYAN });
-            this.host.text('每 5 波首领压境，看看你的六臂构筑极限能修到第几波！', 180, chTop - 96,
+            this.host.text('第 12 波后每 5 波有一名首领。能撑多久，就打多久。', 180, chTop - 85,
                 { width: 304, height: 32, size: 11, color: BENCH.muted });
         } else {
             const cleared = this.profile.clearedChapters.includes(chapter.id);
@@ -1116,49 +1141,33 @@ export class PatrolCampaignUi {
                 this.host.text(chapterUnlockHint(chapter.id), 180, chTop - 59, { width: 304, size: 11, bold: true, color: GOLD });
             }
 
-            // 5 Danger Stamp pills (标 / 寒 / 过 / 封 / 极)
-            const pillW = 56;
-            const pillGap = 6;
-            const pillStartX = 180 - (5 * pillW + 4 * pillGap) / 2;
-            const pillY = chTop - 87;
-            for (const d of DANGER_LEVELS) {
-                const px = pillStartX + d * (pillW + pillGap);
-                const done = maxChDanger !== undefined && d <= maxChDanger;
-                const targeted = chUnlocked && dangerUnlocked && d === activeDanger;
-                benchPlate(
-                    g, px, pillY, pillW, 17,
-                    done ? BENCH.weapon.fill : BENCH.recess,
-                    done ? DANGER_COLOR[d] : targeted ? GOLD : BENCH.edge,
-                    3,
-                );
-                this.host.text(
-                    `${DANGER_SHORT_LABELS[d]}${done ? '✓' : ''}`,
-                    px + pillW / 2, pillY + 9,
-                    { width: pillW - 4, size: 10, bold: done || targeted, color: done ? DANGER_COLOR[d] : targeted ? GOLD : BENCH.muted },
-                );
+            if (chUnlocked) {
+                this.host.text(`${narrative.opener.speaker}：${narrative.opener.line}`,
+                    180, chTop - 83, { width: 304, height: 30, left: true, size: 10, color: BENCH.muted });
             }
-
-            const chFootLine = chUnlocked
-                ? `${narrative.opener.speaker}：${narrative.opener.line}`
-                : '首通可开启下一章，并带回新工装与工具入库。';
-            this.host.text(chFootLine, 180, chTop - 105, { width: 304, height: 26, left: true, size: 10, color: BENCH.muted });
         }
+        if (!chUnlocked) return;
 
         // Section B: Danger level selector (D0-D4) with rule twist + first-clear bonus
         const dTop = chBot - 8;
-        const dH = 52;
+        const dH = 70;
         const dBot = dTop - dH;
         benchPlate(g, 16, dBot, 328, dH, BENCH.recess, dangerUnlocked ? BENCH.edge : BENCH.steel, 6);
         const dm = DANGER_MULTIPLIERS[activeDanger];
-        this.pixelBtn('‹', 38, dBot + 26, 30, 32, () => { if (this.danger > 0) this.danger = (this.danger - 1) as DangerLevel; }, false, !isDaily && this.danger > 0);
-        this.pixelBtn('›', 322, dBot + 26, 30, 32, () => { if (this.danger < 4) this.danger = (this.danger + 1) as DangerLevel; }, false, !isDaily && this.danger < 4);
+        if (!isDaily) {
+            for (const d of DANGER_LEVELS) {
+                const cleared = !isEndless && maxChDanger !== undefined && d <= maxChDanger;
+                const label = `难度 ${d}${cleared ? ' ✓' : ''}`;
+                this.pixelBtn(label, 56 + d * 62, dTop - 15, 58, 21,
+                    d === activeDanger ? null : () => { this.danger = d; }, d === activeDanger);
+            }
+        }
         const baseWinCredits = 24 + CHAPTER_CLEAR_BONUS[chapter.id] + dm.creditBonus;
-        const firstBonus = !isDaily && !isEndless && chUnlocked && dangerUnlocked ? unclaimedFirstClearBonus(this.profile, chapter.id, activeDanger) : 0;
-        const dangerHead = isDaily
-            ? `急单定级：${dm.label}`
-            : dangerUnlocked
-                ? `${dm.label} · 通关${baseWinCredits}凭证`
-                : `${dm.label} · 未解锁`;
+        const firstBonus = !isDaily && !isEndless && dangerUnlocked ? unclaimedFirstClearBonus(this.profile, chapter.id, activeDanger) : 0;
+        const dangerHead = isDaily ? `固定难度 ${activeDanger} · ${dm.label}`
+            : !dangerUnlocked ? `难度 ${activeDanger} · ${dm.label} · 未解锁`
+                : isEndless ? `难度 ${activeDanger} · ${dm.label}`
+                    : `${dm.label} · 通关得 ${baseWinCredits} 凭证`;
         this.host.text(dangerHead, 180, dBot + 36, {
             width: 244, size: 12, bold: true,
             color: !dangerUnlocked ? RED : DANGER_COLOR[activeDanger],
@@ -1166,24 +1175,25 @@ export class PatrolCampaignUi {
         const dangerSub = !dangerUnlocked
             ? dangerUnlockHint(activeDanger)
             : isDaily
-                ? '急单固定种子，所有夜班同图竞技'
+                ? '今天的委托对所有玩家使用相同的关卡和随机配置。'
                 : isEndless
-                    ? `${DANGER_RULE_TEXT[activeDanger]} · 按撑过波次发凭证`
-                    : `${DANGER_RULE_TEXT[activeDanger]}${firstBonus > 0 ? ` · 首通+${firstBonus}` : ' · 本格已通'}`;
-        this.host.text(dangerSub, 180, dBot + 14, {
-            width: 246, size: 10,
+                    ? `${DANGER_RULE_TEXT[activeDanger]} 完成的波次越多，获得的凭证越多。`
+                    : `${DANGER_RULE_TEXT[activeDanger]} ${firstBonus > 0 ? `首通另得 ${firstBonus} 凭证` : '此难度已通关'}`;
+        this.host.text(dangerSub, 180, dBot + 13, {
+            width: 310, height: 24, size: 10,
             color: !dangerUnlocked ? GOLD : firstBonus > 0 ? CYAN : GREEN,
         });
 
         // Section C: 5 Mechanic Rigs selector (with lock & best-danger stamp!)
         const tabY = dBot - 24;
         const tabW = 62;
-        RIG_ORDER.forEach((id, idx) => {
+        if (isDaily) this.host.text('本次委托指定工装，可免费使用', 180, tabY, { width: 328, size: 11, color: CYAN });
+        else RIG_ORDER.forEach((id, idx) => {
             const tx = 16 + idx * 66.5 + tabW / 2;
-            const active = isDaily ? id === daily.rigId : idx === this.rigIdx;
-            const unlocked = isDaily ? id === daily.rigId : isRigUnlocked(this.profile, id);
-            const label = unlocked ? RIG_CATALOG[id].name.slice(0, 2) : `${RIG_CATALOG[id].name.slice(0, 2)}锁`;
-            this.pixelBtn(label, tx, tabY, tabW, 30, () => { if (!isDaily) this.rigIdx = idx; }, active, !isDaily || id === daily.rigId);
+            const active = idx === this.rigIdx;
+            const unlocked = isRigUnlocked(this.profile, id);
+            const label = unlocked ? RIG_CATALOG[id].name.slice(0, 2) : `${RIG_CATALOG[id].name.slice(0, 2)} · 锁定`;
+            this.pixelBtn(label, tx, tabY, tabW, 30, active ? null : () => { this.rigIdx = idx; }, active);
             const rigBest = this.profile.maxDangerByRig?.[id];
             if (isRigUnlocked(this.profile, id) && rigBest !== undefined) {
                 this.host.block(tx + tabW / 2 - 9, tabY + 7, 6, 6, DANGER_COLOR[rigBest]);
@@ -1203,20 +1213,20 @@ export class PatrolCampaignUi {
         benchPlate(g, 26, cardTop - 58, 50, 50, BENCH.recess, BENCH.edge, 6);
         this.host.skin?.uiIcon(activeStarter, 51, cardTop - 33, 38);
         const rigBest = this.profile.maxDangerByRig?.[rigId];
-        const rigHeader = `${rig.name} · ${rig.title}${rigBest !== undefined ? ` (${DANGER_SHORT_LABELS[rigBest]})` : ''}`;
+        const rigHeader = `${rig.name} · ${rig.title}${rigBest !== undefined ? ` · 最高 ${rigBest}` : ''}`;
         this.host.text(rigHeader, 208, cardTop - 18, { left: true, width: 244, size: 15, bold: true, color: rigUnlocked ? BENCH.paper : BENCH.muted });
         const canSwapStarter = !isDaily && rigUnlocked && hasCustomStarterUnlock(this.profile) && legalStarters.length > 1;
-        this.host.text(`起手：${WEAPON_CATALOG[activeStarter].name}`, canSwapStarter ? 168 : 208, cardTop - 37,
+        this.host.text(`初始武器：${WEAPON_CATALOG[activeStarter].name}`, canSwapStarter ? 168 : 208, cardTop - 37,
             { left: true, width: canSwapStarter ? 164 : 244, size: 11, color: CYAN });
         if (canSwapStarter) {
-            this.pixelBtn('换起手', 298, cardTop - 37, 68, 22, () => {
+            this.pixelBtn('换武器', 298, cardTop - 37, 68, 22, () => {
                 const cur = legalStarters.indexOf(activeStarter);
                 this.starterByRig[rigId] = legalStarters[(cur + 1) % legalStarters.length];
             });
         }
-        this.host.text(formatStatPreview(rig.stats, 4) || '全属性均衡', 208, cardTop - 55, { left: true, width: 244, size: 10, color: GOLD });
+        this.host.text(formatStatPreview(rig.stats, 4) || '属性均衡', 208, cardTop - 55, { left: true, width: 244, size: 10, color: GOLD });
         this.host.text(RIG_FLAVOR[rig.id], 180, cardTop - 80, { left: true, width: 304, height: 22, size: 11, color: rigUnlocked ? GREEN : BENCH.muted });
-        const rigBottomLine = rigUnlocked ? `代价：${rig.tradeoff}` : `解锁：${rigUnlockHint(rigId)}`;
+        const rigBottomLine = rigUnlocked ? `${rig.tradeoff}` : `解锁：${rigUnlockHint(rigId)}`;
         this.host.text(rigBottomLine, 180, cardTop - 106, { left: true, width: 304, height: 24, size: 11, color: rigUnlocked ? BENCH.muted : GOLD });
 
         // Section D: Pre-run Supply bar (班前特供 - credits, daily check-in free charge, or rewarded ad!)
@@ -1231,8 +1241,8 @@ export class PatrolCampaignUi {
             this.supplyIdx = (this.supplyIdx + 1) % PRE_RUN_SUPPLY_ORDER.length;
         });
         const supplyTitle = supplySpec.cost > 0
-            ? (useCheckInCharge ? `班前特供：${supplySpec.name} · 打卡白送(${freeCharges})` : `班前特供：${supplySpec.name} · ${supplySpec.cost}凭证`)
-            : `班前特供：${supplySpec.name}（凭证 ${this.profile.credits}）`;
+            ? (useCheckInCharge ? `出发补给：${supplySpec.name} · 签到免费（剩 ${freeCharges} 次）` : `出发补给：${supplySpec.name} · ${supplySpec.cost} 凭证`)
+            : `出发补给：${supplySpec.name}（持有 ${this.profile.credits} 凭证）`;
         this.host.text(supplyTitle, 180, sBot + 31, {
             width: 244, size: 11, bold: true,
             color: supplySpec.cost > 0 ? (useCheckInCharge ? GREEN : canAffordSupply ? GOLD : RED) : BENCH.paper,
@@ -1241,8 +1251,8 @@ export class PatrolCampaignUi {
         const supplySub = canAffordSupply
             ? supplySpec.detail
             : canAdSupply
-                ? `凭证不够，可看视频免凭证带走（今日剩 ${prepAdsLeft} 次）`
-                : `还差 ${supplySpec.cost - this.profile.credits} 凭证，切回不带特供即可出发`;
+                ? `凭证不足。看视频可领取补给（今天剩 ${prepAdsLeft} 次）。`
+                : `还差 ${supplySpec.cost - this.profile.credits} 凭证。`;
         this.host.text(supplySub, 180, sBot + 12, { width: 246, size: 10, color: canAffordSupply ? BENCH.muted : canAdSupply ? GOLD : RED });
 
         // Section E: Dedicated bottom CTA (with ad-trial rig / ad-free supply options when eligible)
@@ -1252,10 +1262,10 @@ export class PatrolCampaignUi {
             ...(isDaily ? { dailyShiftKey: daily.dateKey, dailyMod: daily.modifier.id, fixedSeed: daily.seed } : {}),
             ...(isEndless ? { endlessMode: true } : {}),
         };
-        const canAdTrialRig = !isDaily && !rigUnlocked && chUnlocked && dangerUnlocked && canAffordSupply && this.canOfferAd() && prepAdsLeft > 0;
+        const canAdTrialRig = !isDaily && !rigUnlocked && dangerUnlocked && canAffordSupply && this.canOfferAd() && prepAdsLeft > 0;
 
         if (canAdTrialRig) {
-            this.pixelBtn(`${this.adVerb(`试用${rig.name}一班`)} ›`, 180, ctaY, 328, 46, () => {
+            this.pixelBtn(`${this.adVerb(`试用${rig.name}`)} ›`, 180, ctaY, 328, 46, () => {
                 this.triggerReward('prep_supply', () => {
                     this.startNewPatrol(chapter.id, rigId, activeDanger, supplyId, activeStarter, {
                         ...launchOpts,
@@ -1267,8 +1277,8 @@ export class PatrolCampaignUi {
             return;
         }
 
-        if (chUnlocked && dangerUnlocked && rigUnlocked && canAdSupply && !canAffordSupply) {
-            this.pixelBtn(`${this.adVerb('免费带特供出发')} ›`, 180, ctaY, 328, 46, () => {
+        if (dangerUnlocked && rigUnlocked && canAdSupply && !canAffordSupply) {
+            this.pixelBtn(`${this.adVerb('领取补给并出发')} ›`, 180, ctaY, 328, 46, () => {
                 this.triggerReward('prep_supply', () => {
                     this.startNewPatrol(chapter.id, rigId, activeDanger, supplyId, activeStarter, {
                         ...launchOpts,
@@ -1280,12 +1290,12 @@ export class PatrolCampaignUi {
             return;
         }
 
-        const canStart = chUnlocked && dangerUnlocked && rigUnlocked && canAffordSupply;
+        const canStart = dangerUnlocked && rigUnlocked && canAffordSupply;
         if (canStart && canAdSupply) {
-            this.pixelBtn(`花${supplySpec.cost}凭证出发`, 96, ctaY, 156, 46, () => {
+            this.pixelBtn(`花 ${supplySpec.cost} 凭证出发`, 96, ctaY, 156, 46, () => {
                 this.startNewPatrol(chapter.id, rigId, activeDanger, supplyId, activeStarter, launchOpts);
             }, false, true);
-            this.pixelBtn(this.adVerb('白带特供出发'), 264, ctaY, 156, 46, () => {
+            this.pixelBtn(this.adVerb('领补给出发'), 264, ctaY, 156, 46, () => {
                 this.triggerReward('prep_supply', () => {
                     this.startNewPatrol(chapter.id, rigId, activeDanger, supplyId, activeStarter, {
                         ...launchOpts,
@@ -1297,22 +1307,16 @@ export class PatrolCampaignUi {
             return;
         }
 
-        const ctaLabel = !chUnlocked
-            ? '先通前一章开启'
-            : !dangerUnlocked
-                ? '先通前一档危急'
-                : !rigUnlocked
-                    ? '先解锁这套工装'
-                    : !canAffordSupply
-                        ? '凭证不足 · 换掉特供'
-                        : isDaily
-                            ? `开跑今日急单 · ${daily.modifier.name} ›`
-                            : isEndless
-                                ? '进驻港区 · 无尽夜班 ›'
-                                : `出发抢修 · ${chapter.title} ›`;
+        if (!dangerUnlocked || !rigUnlocked) return;
+        const selectedSupply = canAffordSupply ? supplyId : 'none';
+        const ctaLabel = !canAffordSupply ? '不带补给出发'
+            : useCheckInCharge ? '用签到补给出发'
+                : supplySpec.cost > 0 ? `花 ${supplySpec.cost} 凭证出发`
+                    : isDaily ? '开始今日委托'
+                        : isEndless ? '开始港区无尽' : `开始抢修 · ${chapter.title}`;
         this.pixelBtn(ctaLabel, 180, ctaY, 328, 46, () => {
-            this.startNewPatrol(chapter.id, rigId, activeDanger, supplyId, activeStarter, launchOpts);
-        }, canStart, canStart);
+            this.startNewPatrol(chapter.id, rigId, activeDanger, selectedSupply, activeStarter, launchOpts);
+        }, true);
     }
 
     // ─────────────────────────── PAGE 3: BATTLE HUD (BOSS ON TOP!) ───────────────────────────
@@ -1333,40 +1337,40 @@ export class PatrolCampaignUi {
         const g = this.host.ui;
         const top = Math.min(this.host.top, this.host.capsuleCeiling - 24);
 
-        // Top-left: Solid HP bar + numeric HP + Armor badge + XP Level strip
-        benchPlate(g, 16, top - 34, 144, 58, BENCH.recess, BENCH.edge, 6);
+        benchPlate(g, 16, top - 34, 148, 58, BENCH.recess, BENCH.edge, 6);
         const hpRatio = Math.max(0, Math.min(1, battle.player.hp / Math.max(1, battle.player.maxHp)));
         const lowHp = hpRatio <= 0.3;
-        this.host.text(`血${battle.player.hp}/${battle.player.maxHp}`, 24, top + 12,
+        this.host.text(`生命 ${battle.player.hp}/${battle.player.maxHp}`, 65, top + 12,
             { left: true, width: 86, size: 11, bold: true, color: lowHp ? RED : BENCH.paper });
-        this.host.text(`甲${battle.build.stats.armor}`, 132, top + 12,
+        this.host.text(`护甲 ${battle.build.stats.armor}`, 132, top + 12,
             { width: 40, size: 11, bold: true, color: CYAN });
-        this.host.block(22, top - 4, 132, 7, BENCH.steel);
-        this.host.block(22, top - 4, Math.round(132 * hpRatio), 7, lowHp ? RED : GREEN);
+        this.host.block(22, top - 3, 136, 7, BENCH.steel);
+        this.host.block(22, top - 3, Math.round(136 * hpRatio), 7, lowHp ? RED : GREEN);
 
         // XP bar directly below HP bar
         const nextXp = xpRequiredForLevel(session.level + 1);
         const xpRatio = Math.min(1, (session.xp + battle.xpGained) / Math.max(1, nextXp));
-        this.host.block(22, top - 16, 94, 4, BENCH.steel);
-        this.host.block(22, top - 16, Math.round(94 * xpRatio), 4, CYAN);
-        this.host.text(`${session.level}级`, 138, top - 16, { width: 38, size: 11, bold: true, color: CYAN });
-        if (battle.isJammed) {
-            this.host.text('攻速减慢', 88, top - 28, { width: 132, size: 10, bold: true, color: PURPLE });
-        } else {
-            this.host.text(battle.stationName, 88, top - 28, { width: 132, size: 11, color: BENCH.muted });
-        }
+        this.host.block(22, top - 14, 100, 4, BENCH.steel);
+        this.host.block(22, top - 14, Math.round(100 * xpRatio), 4, CYAN);
+        this.host.text(`${session.level}级`, 140, top - 12, { width: 32, size: 10, bold: true, color: CYAN });
+        const totalParts = session.parts + battle.partsCollected;
+        const copperText = battle.bagRemaining > 0
+            ? `铜件 ${totalParts} · 待回收 ${battle.bagRemaining}`
+            : `铜件 ${totalParts}`;
+        this.host.text(copperText, 90, top - 25, { left: true, width: 134, size: 10, color: GOLD });
 
         // Top-center: Wave & Countdown timer
-        benchPlate(g, 166, top - 34, 108, 58, BENCH.recess, BENCH.edge, 6);
+        benchPlate(g, 170, top - 34, 104, 58, BENCH.recess, BENCH.edge, 6);
         const waveHeader = session.endlessMode ? `无尽 · 第 ${battle.waveDef.wave} 波` : `第 ${battle.waveDef.wave}/12 波`;
-        this.host.text(waveHeader, 220, top + 12, { width: 100, size: 12, bold: true, color: session.endlessMode ? GOLD : BENCH.paper });
+        this.host.text(waveHeader, 222, top + 12, { width: 94, size: 12, bold: true, color: session.endlessMode ? GOLD : BENCH.paper });
         const secs = battle.remainingSeconds;
         const clock = `${Math.floor(secs / 60)}:${('0' + (secs % 60)).slice(-2)}`;
-        this.host.text(clock, 220, top - 10, { width: 100, size: 20, bold: true, color: secs <= 8 ? RED : GOLD });
-        this.host.text(`击倒 ${battle.kills}`, 220, top - 27, { width: 100, size: 10, color: BENCH.muted });
+        this.host.text(clock, 222, top - 7, { width: 94, size: 22, bold: true, color: secs <= 8 ? RED : GOLD });
+        this.host.text(`击毁 ${battle.kills} 台`, 222, top - 25, { width: 94, size: 10, color: BENCH.muted });
 
-        // Top-right: Pause button
-        this.pixelBtn('暂停', 312, top - 5, 64, 46, () => { this.suspend(); });
+        this.pixelBtn('暂停', 312, top + 3, 64, 42, () => { this.suspend(); });
+        this.host.text(battle.isJammed ? '攻速降低' : battle.stationName, 312, top - 25,
+            { width: 62, size: 10, bold: battle.isJammed, color: battle.isJammed ? PURPLE : BENCH.muted });
 
         // FIXED: Boss HP bar & live story radio anchored cleanly at TOP of playfield (never covered by bottom thumb!)
         const boss = battle.bossView;
@@ -1374,12 +1378,12 @@ export class PatrolCampaignUi {
         if (boss) {
             const by = FIELD.top - 48;
             benchPlate(g, 24, by, 312, 44, HUD_GLASS, boss.vulnerable ? GOLD : RED, 6);
-            this.host.text(`${boss.title} · 第${boss.stage}段${boss.vulnerable ? ' · 外壳敞开' : ''}`, 180, by + 32,
+            this.host.text(`${boss.title} · 阶段 ${boss.stage}`, 180, by + 33,
                 { width: 296, size: 12, bold: true, color: boss.vulnerable ? GOLD : BENCH.paper });
-            this.host.block(34, by + 18, 292, 6, BENCH.steel);
-            this.host.block(34, by + 18, Math.round(292 * Math.max(0, boss.hp / boss.maxHp)), 6, boss.vulnerable ? GOLD : RED);
+            this.host.block(34, by + 19, 292, 5, BENCH.steel);
+            this.host.block(34, by + 19, Math.round(292 * Math.max(0, boss.hp / boss.maxHp)), 5, boss.vulnerable ? GOLD : RED);
             if (boss.instruction) {
-                this.host.text(boss.instruction, 180, by + 8, { width: 296, size: 11, bold: true, color: boss.vulnerable ? GREEN : GOLD });
+                this.host.text(boss.instruction, 180, by + 10, { width: 296, size: 11, bold: true, color: boss.vulnerable ? GREEN : GOLD });
             }
             // Show pivotal Wave-5 midTurn or Wave-12 bossIntro radio cleanly beneath Boss bar for first 4.5 seconds!
             if (battle.tick < 135 && !session.endlessMode && (battle.waveDef.wave === 5 || battle.waveDef.wave === 12)) {
@@ -1403,27 +1407,14 @@ export class PatrolCampaignUi {
             }
         }
 
-        // Bottom-right compact tray (bottom-left stays completely clear for thumb joystick!)
-        const botY = Math.max(this.host.footer + 18, 52);
-        benchPlate(g, 194, botY - 14, 150, 32, BENCH.recess, BENCH.edge, 5);
-        this.host.skin?.uiIcon('scrap', 210, botY + 2, 16);
-        const totalParts = session.parts + battle.partsCollected;
-        const bagTxt = battle.bagRemaining > 0 ? ` (+${battle.bagRemaining}袋)` : '';
-        this.host.text(`铜件 ${totalParts}${bagTxt}`, 280, botY + 2, { width: 122, size: 12, bold: true, color: GOLD });
-
-        const activeSyns = battle.build.synergies.filter(s => s.activeTier > 0).slice(0, 3);
-        if (activeSyns.length) {
-            const label = activeSyns.map(s => `${s.name.slice(0, 2)}${s.activeTier}`).join(' · ');
-            benchPlate(g, 194, botY + 22, 150, 22, BENCH.recess, BENCH.edge, 4);
-            this.host.text(label, 269, botY + 33, { width: 142, size: 11, bold: true, color: GREEN });
-        }
-
         // Lightweight Wave-1 onboarding tip in A-Ruan's voice: disappears once player starts moving!
         if (battle.waveDef.wave === 1 && needsShopOnboarding(this.profile) && this.movedTicksInWave < 20 && !boss) {
             const tipY = FIELD.bottom + 36;
             benchPlate(g, 24, tipY - 16, 312, 32, HUD_GLASS, GOLD, 5);
-            this.host.text('阿阮：拖屏幕走位，六臂架自动拆怪，靠过去吸铜件', 180, tipY,
-                { width: 300, size: 11, bold: true, color: GOLD });
+            this.host.text(this.host.joystickMode
+                ? '拖动摇杆移动，武器会自动攻击。\n靠近铜件即可拾取。撑到倒计时结束。'
+                : '点按战场移动，武器会自动攻击。\n靠近铜件即可拾取。撑到倒计时结束。', 180, tipY,
+                { width: 300, height: 30, size: 10, bold: true, color: GOLD });
         }
     }
 
@@ -1434,17 +1425,17 @@ export class PatrolCampaignUi {
         this.host.block(0, -HEIGHT, WIDTH, HEIGHT * 3, DARK_SCRIM);
         const cy = 320;
         benchPlate(g, 24, cy - 126, 312, 252, BENCH.steel, GOLD, 10);
-        this.host.text('差点顶不住了', 180, cy + 90, { width: 280, size: 22, bold: true, color: GOLD });
+        this.host.text('是否复活？', 180, cy + 90, { width: 280, size: 22, bold: true, color: GOLD });
         const waveNum = session.currentWaveDef.wave;
         this.host.text(
             `${session.chapter.title} · 第 ${waveNum} 波`,
             180, cy + 58, { width: 280, size: 12, color: CYAN },
         );
         const rescueDesc = session.isBossRevive
-            ? '原地清屏、回 60% 血并护体 2 秒，\n保留首领当前剩余血量继续打！'
-            : '满血回到本波开头重来，\n身上装备与零件全部保留！';
+            ? '原地复活，回复 60% 生命并免伤 2 秒。\n清除敌弹和普通敌机，首领保留当前血量。'
+            : '满血重打本波，保留已有装备和铜件。';
         this.host.text(rescueDesc, 180, cy + 16, { width: 280, height: 42, size: 12, color: BENCH.paper });
-        this.pixelBtn(this.adVerb('急救续班'), 180, cy - 42, 256, 48, () => {
+        this.pixelBtn(this.adVerb('复活'), 180, cy - 42, 256, 48, () => {
             this.triggerReward('revive', () => {
                 if (session.applyRevive()) {
                     this.host.play('unlock');
@@ -1455,7 +1446,7 @@ export class PatrolCampaignUi {
                 }
             });
         }, true);
-        this.pixelBtn('直接结算', 180, cy - 96, 256, 40, () => {
+        this.pixelBtn('结束本局', 180, cy - 96, 256, 40, () => {
             this.finalizeRun();
         });
     }
@@ -1467,12 +1458,13 @@ export class PatrolCampaignUi {
         benchPlate(g, 28, cy - 140, 304, 280, BENCH.steel, BENCH.edge, 10);
         this.host.text('歇口气 · 已暂停', 180, cy + 102, { size: 24, bold: true, color: BENCH.paper });
         const b = this.session!.battle!;
-        this.host.text(`${b.chapter.title} · 第 ${b.waveDef.wave}/12 波 · ${b.stationName}`, 180, cy + 68, { width: 276, size: 12, color: BENCH.muted });
-        this.pixelBtn('接着干', 180, cy + 18, 250, 48, () => { this.paused = false; }, true);
-        this.pixelBtn(this.host.settings.sound ? '音效 · 开' : '音效 · 关', 180, cy - 42, 250, 44, () => {
-            this.host.updateSettings({ sound: !this.host.settings.sound });
+        const wave = this.session?.endlessMode ? `第 ${b.waveDef.wave} 波` : `第 ${b.waveDef.wave}/12 波`;
+        this.host.text(`${this.session?.endlessMode ? '港区无尽' : b.chapter.title} · ${wave} · ${b.stationName}`, 180, cy + 68, { width: 276, size: 12, color: BENCH.muted });
+        this.pixelBtn('继续战斗', 180, cy + 18, 250, 48, () => { this.paused = false; }, true);
+        this.pixelBtn(this.host.settings.sound ? '关闭音效' : '开启音效', 180, cy - 42, 250, 44, () => {
+            this.changeSettings({ sound: !this.host.settings.sound });
         });
-        this.pixelBtn('回值班室（保留进度）', 180, cy - 100, 250, 44, () => {
+        this.pixelBtn('返回值班室 · 保存进度', 180, cy - 100, 250, 44, () => {
             if (this.session) this.saveRun(this.session);
             this.paused = false;
             this.page = 'home';
@@ -1502,40 +1494,26 @@ export class PatrolCampaignUi {
 
         this.backdrop();
         const top = this.header(
-            `${UI_COPY.shop.heading}·第${view.wave + 1}波`,
-            '‹ 首页',
+            `${UI_COPY.shop.heading} · 第 ${view.wave + 1} 波前`,
+            '‹ 值班室',
             () => { this.saveRun(session); this.page = 'home'; },
-            '属性/羁绊',
-            () => { this.showStatsDrawer = true; this.inspectWeaponSlot = null; },
+            '属性与羁绊',
+            () => { this.showStatsDrawer = true; this.statsTier = 2; this.inspectWeaponSlot = null; },
         );
         const g = this.host.ui;
 
-        // Wallet + HP + optional Emergency Shop Aid (rewarded ad / ad-free pass, max 2/run)
+        // Wallet and health keep the same width with or without shop aid.
         const barY = top - 22;
         benchPlate(g, 16, barY - 14, 158, 30, BENCH.recess, BENCH.edge, 5);
         this.host.skin?.uiIcon('scrap', 32, barY + 1, 17);
-        this.host.text(`铜件 ${view.parts}${session.bagParts ? ` · 袋${session.bagParts}` : ''}`, 106, barY + 1,
-            { left: true, width: 132, size: 13, bold: true, color: GOLD });
+        this.host.text(session.bagParts
+            ? `可用铜件 ${view.parts}\n下波拾取时回收 ${session.bagParts}`
+            : `可用铜件 ${view.parts}`, 106, barY + 1,
+            { left: true, width: 116, height: 27, size: session.bagParts ? 10 : 13, bold: true, color: GOLD });
 
-        const showShopAid = session.shopAidRemaining > 0 && this.canOfferAd();
-        if (showShopAid) {
-            benchPlate(g, 182, barY - 14, 86, 30, BENCH.recess, BENCH.edge, 5);
-            this.host.text(`血${session.currentHp}/${view.build.stats.maxHp}`, 225, barY + 1,
-                { width: 80, size: 11, bold: true, color: GREEN });
-            this.pixelBtn(this.adVerb(`+${SHOP_EMERGENCY_PARTS}件`), 308, barY + 1, 72, 30, () => {
-                this.triggerReward('shop_supply', () => {
-                    if (session.grantShopAid()) {
-                        this.host.play('purchase');
-                        this.shopFeedback = `应急调拨到账：+${SHOP_EMERGENCY_PARTS} 零件，再送 1 次免费翻箱`;
-                        this.saveRun(session);
-                    }
-                });
-            }, true);
-        } else {
-            benchPlate(g, 182, barY - 14, 162, 30, BENCH.recess, BENCH.edge, 5);
-            this.host.text(`血${session.currentHp}/${view.build.stats.maxHp}·${view.level}级`, 263, barY + 1,
-                { width: 152, size: 12, bold: true, color: GREEN });
-        }
+        benchPlate(g, 182, barY - 14, 162, 30, BENCH.recess, BENCH.edge, 5);
+        this.host.text(`生命 ${session.currentHp}/${view.build.stats.maxHp} · ${view.level} 级`, 263, barY + 1,
+            { width: 152, size: 12, bold: true, color: GREEN });
 
         // Lightweight non-blocking 3-step onboarding banner (Buy weapon -> Merge 2-in-1 -> Start Wave 2!)
         const showGuide = needsShopOnboarding(this.profile) && !this.tutorialSkipped;
@@ -1553,31 +1531,32 @@ export class PatrolCampaignUi {
                 const inspected = this.inspectWeaponSlot !== null ? view.weapons[this.inspectWeaponSlot] : undefined;
                 if (inspected && inspected.canMergeWith !== null) {
                     guideStep = 'tap_merge';
-                    guideText = '阿阮 2/3 · 点「并机升阶」合出Ⅱ阶，或留着两把齐挥';
+                    guideText = '点「合成升阶」，也可以保留两把。';
                 } else {
                     guideStep = 'tap_slot';
-                    guideText = '阿阮 2/3 · 底部绿点是同款工具，点它试试并机升阶！';
+                    guideText = '点下方带绿点的武器，查看合成。';
                 }
             } else if (view.weapons.length === 1 && anyAffordableWeaponIdx >= 0) {
                 guideStep = 'buy';
-                guideText = '阿阮 1/3 · 点亮框把家伙买下来，六臂架能同时挥！';
+                guideText = '可以买高亮的武器。装备的武器会一起攻击。';
             } else {
                 guideStep = 'ready';
-                guideText = '阿阮 3/3 · 齐活！点「压」留货，点「出勤」进第 2 波';
+                guideText = '买不起可以先留货，准备好就开始下一波。';
             }
             const gy = barY - 34;
             benchPlate(g, 16, gy - 12, 328, 26, BENCH.weapon.fill, GOLD, 5);
-            this.host.text(guideText, 152, gy + 1, { left: true, width: 266, size: 10, bold: true, color: GOLD });
-            this.pixelBtn('跳过', 318, gy + 1, 44, 20, () => {
+            this.host.text(guideText, 148, gy + 1, { left: true, width: 252, size: 10, bold: true, color: GOLD });
+            this.pixelBtn('关闭提示', 310, gy + 1, 60, 20, () => {
                 this.tutorialSkipped = true;
-                this.completeOnboarding();
+                this.saveWorkshop(markOnboardingDone(this.profile));
             });
         }
 
-        // 2x2 Wide Shop Grid (compact cardH=100 while onboarding ribbon is visible so zero overlap!)
+        const botY = Math.max(this.host.footer + 24, 48);
+        const showShopAid = session.shopAidRemaining > 0 && this.canOfferAd();
         const gridTop = showGuide ? barY - 52 : barY - 22;
         const cardW = 158;
-        const cardH = showGuide ? 100 : 112;
+        const cardH = showGuide ? 106 : 114;
         const rowGap = showGuide ? 8 : 10;
         view.slots.forEach((slot, idx) => {
             const col = idx % 2;
@@ -1587,7 +1566,7 @@ export class PatrolCampaignUi {
 
             if (slot.sold) {
                 benchPlate(g, x, y, cardW, cardH, BENCH.recess, BENCH.steel, 6);
-                this.host.text('已装上', x + cardW / 2, y + cardH / 2, { size: 13, color: BENCH.muted });
+                this.host.text('已购买', x + cardW / 2, y + cardH / 2, { size: 13, color: BENCH.muted });
                 return;
             }
             const isWeapon = slot.kind === 'weapon';
@@ -1596,11 +1575,11 @@ export class PatrolCampaignUi {
             const name = weapon?.name ?? mod?.name ?? slot.itemId;
             const modLines = mod ? formatModuleCardLines(mod) : null;
             const line1 = weapon
-                ? weapon.tags.map(t => TAG_LABELS[t].slice(0, 2)).join('/') + ` · 基础伤害 ${weapon.tiers[slot.tier - 1].damage}`
+                ? weapon.tags.map(t => TAG_LABELS[t]).join('/') + ` · 基础伤害 ${weapon.tiers[slot.tier - 1].damage}`
                 : (modLines?.line1 ?? '');
             const line1Color = weapon ? CYAN : (modLines?.line1Color ?? GREEN);
             const line2 = weapon
-                ? (slot.tier >= 3 ? (weapon.tiers[slot.tier - 1].perkText ?? weapon.roleText) : weapon.roleText).split(/[，。！]/)[0]
+                ? (slot.tier >= 3 ? (weapon.tiers[slot.tier - 1].perkText ?? weapon.roleText) : weapon.roleText)
                 : (modLines?.line2 ?? '');
             const line2Color = weapon ? (slot.tier >= 3 ? GOLD : BENCH.muted) : (modLines?.line2Color ?? BENCH.muted);
 
@@ -1609,48 +1588,56 @@ export class PatrolCampaignUi {
             // Top strip: tier badge + Lock toggle button
             this.host.text(isWeapon ? `武器 ${TIER_ROMAN[slot.tier]}` : TIER_NAME[slot.tier], x + 44, y + cardH - 12,
                 { left: true, width: 78, size: 11, bold: true, color: TIER_EDGE[slot.tier] });
-            this.pixelBtn(slot.locked ? '已压' : '压', x + cardW - 22, y + cardH - 13, 36, 20, () => {
-                if (session.toggleLock(idx)) {
-                    this.shopFeedback = slot.locked ? '已松开该货位' : '已压货 · 下波不涨价';
-                    this.saveRun(session);
-                } else {
-                    this.shopFeedback = `最多同时压住 ${view.maxLocks} 件（回工坊加压货牌）`;
-                }
-            }, slot.locked);
+            if (slot.locked || view.lockCount < view.maxLocks) {
+                this.pixelBtn(slot.locked ? '取消留货' : UI_COPY.shop.lock, x + cardW - 36, y + cardH - 13, 64, 20, () => {
+                    if (session.toggleLock(idx)) {
+                        this.shopFeedback = slot.locked ? '已取消留货。' : '已留货。刷新后仍保留，下波不涨价。';
+                        this.saveRun(session);
+                    }
+                }, false, true, false, `留货:${slot.itemId}:${slot.tier}:${slot.locked}`);
+            } else {
+                this.host.text('留货已满', x + cardW - 36, y + cardH - 13, { width: 64, size: 10, color: BENCH.muted });
+            }
 
             // Row 1: Icon + Item Name; Row 2 & 3: Full-width plain-Chinese Gain & Special/Cost lines!
             const iconKey = isWeapon ? slot.itemId : (MODULE_ICON[slot.itemId] ?? 'gear/pulse');
-            const nameY = showGuide ? y + 68 : y + 75;
-            const line1Y = showGuide ? y + 49 : y + 54;
-            const line2Y = showGuide ? y + 35 : y + 38;
+            const nameY = y + cardH - 32;
+            const line1Y = y + 55;
+            const line2Y = y + 38;
             this.host.skin?.uiIcon(iconKey, x + 22, nameY, showGuide ? 22 : 26);
             this.host.text(name, x + 96, nameY, { left: true, width: 114, size: 13, bold: true, color: BENCH.paper });
             this.host.text(line1, x + cardW / 2, line1Y, { width: cardW - 10, height: 14, size: line1.length > 14 ? 9 : 10, bold: !weapon, color: line1Color });
-            this.host.text(line2, x + cardW / 2, line2Y, { width: cardW - 10, height: 14, size: line2.length > 14 ? 9 : 10, color: line2Color });
+            this.host.text(line2, x + cardW / 2, line2Y, { width: cardW - 10, height: 18, size: 10, color: line2Color });
 
             // Bottom one-tap Buy / Auto-merge button!
             const affordable = view.parts >= slot.price;
+            const weaponBarFull = isWeapon && view.weapons.length >= MAX_WEAPONS && !slot.canAutoMerge;
+            const canBuy = affordable && !weaponBarFull;
             const buyLabel = slot.canAutoMerge ? UI_COPY.shop.mergeBuy(slot.price) : UI_COPY.shop.buy(slot.price);
             const guideBuyTarget = guideStep === 'buy' && idx === anyAffordableWeaponIdx;
-            this.pixelBtn(buyLabel, x + cardW / 2, y + 16, cardW - 10, 24, () => {
+            if (canBuy) this.pixelBtn(buyLabel, x + cardW / 2, y + 16, cardW - 10, 24, () => {
                 const res = session.buySlot(idx);
                 if (res.ok) {
                     this.host.play('purchase');
                     this.shopFeedback = res.merged
-                        ? `两把合成，${name}升到${TIER_ROMAN[(slot.tier + 1) as Tier]}阶`
-                        : res.freeBuyoutReroll ? '这排买空了，白送一次翻箱' : `已装上 ${name}`;
+                        ? `合成成功：${name}升到 ${TIER_ROMAN[(slot.tier + 1) as Tier]} 阶。`
+                        : res.freeBuyoutReroll ? '本轮商品已买完，货架已免费补货。' : `已装备：${name}`;
                     this.saveRun(session);
                 } else if (res.reason) {
                     this.shopFeedback = res.reason;
                 }
-            }, (slot.canAutoMerge || guideBuyTarget) && affordable, affordable);
+            }, slot.canAutoMerge || guideBuyTarget, true, false, `买:${slot.itemId}:${slot.tier}:${buyLabel}`);
+            else this.host.text(
+                weaponBarFull ? `${slot.price} 铜件 · 武器栏已满` : `${slot.price} 铜件 · 还差 ${slot.price - view.parts}`,
+                x + cardW / 2, y + 16, { width: cardW - 14, size: 11, color: BENCH.muted },
+            );
             if (guideBuyTarget) this.drawGuidePulse(x, y, cardW, cardH, GOLD);
         });
 
         // 6 Weapon Slots Row with Tier Badges & Quick Merge/Sell Tray
         const rowY = gridTop - cardH * 2 - rowGap - 38;
         const slotW = 50;
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < MAX_WEAPONS; i++) {
             const w = view.weapons[i];
             const sx = 16 + i * 55.6 + slotW / 2;
             const focused = this.inspectWeaponSlot === i;
@@ -1665,82 +1652,107 @@ export class PatrolCampaignUi {
                     this.host.block(sx - 20, rowY + 14, 6, 6, GREEN);
                     if (guideStep === 'tap_slot') this.drawGuidePulse(sx - slotW / 2, rowY - 24, slotW, 48, GREEN);
                 }
-                this.host.addTouch(sx, rowY, slotW, 48, () => {
+                this.host.addTouch(sx, rowY, slotW, 48, 'weapon-' + w.uid, () => {
+                    this.shopFeedback = '';
                     this.inspectWeaponSlot = focused ? null : i;
                 });
             } else {
-                this.host.text('+', sx, rowY, { width: slotW, size: 18, color: BENCH.muted });
+                this.host.text('空槽', sx, rowY, { width: slotW, size: 10, color: BENCH.muted });
             }
         }
 
         // Active Synergies Strip OR Selected Weapon Quick Action Bar
-        const infoY = rowY - 48;
+        const infoY = rowY - 56;
         if (this.inspectWeaponSlot !== null && view.weapons[this.inspectWeaponSlot]) {
             const w = view.weapons[this.inspectWeaponSlot];
             const spec = WEAPON_CATALOG[w.id];
             benchPlate(g, 16, infoY - 16, 328, 42, BENCH.steel, TIER_EDGE[w.tier], 6);
-            this.host.text(`${w.name} ${TIER_ROMAN[w.tier]} · 伤${spec.tiers[w.tier - 1].damage}`, 96, infoY + 12,
+            this.host.text(`${w.name} ${TIER_ROMAN[w.tier]} · 伤害 ${spec.tiers[w.tier - 1].damage}`, 96, infoY + 12,
                 { left: true, width: 148, size: 12, bold: true, color: BENCH.paper });
             this.host.text(spec.tags.map(t => TAG_LABELS[t].slice(0, 2)).join('+'), 96, infoY - 5,
                 { left: true, width: 148, size: 10, color: CYAN });
             if (w.canMergeWith !== null) {
-                this.pixelBtn('并机升阶', 216, infoY + 5, 72, 30, () => {
+                this.pixelBtn('合成升阶', 216, infoY + 5, 72, 30, () => {
                     if (session.mergeWeapons(this.inspectWeaponSlot!, w.canMergeWith!)) {
                         this.host.play('unlock');
-                        this.shopFeedback = `并机改接成功，${w.name} 升至 ${TIER_ROMAN[(w.tier + 1) as Tier]} 阶！`;
+                        this.shopFeedback = `合成成功：${w.name}升到 ${TIER_ROMAN[(w.tier + 1) as Tier]} 阶。`;
                         this.inspectWeaponSlot = null;
                         this.saveRun(session);
                     }
-                }, true);
+                }, true, true, false, 'merge-' + w.uid);
                 if (guideStep === 'tap_merge') this.drawGuidePulse(180, infoY - 10, 72, 30, GOLD);
             }
             const canSell = view.weapons.length > 1;
-            this.pixelBtn(UI_COPY.shop.sell(w.sellRefund), 298, infoY + 5, 76, 30, () => {
+            if (canSell) this.pixelBtn(UI_COPY.shop.sell(w.sellRefund), 298, infoY + 5, 76, 30, () => {
                 const refund = session.sellWeapon(this.inspectWeaponSlot!);
                 if (refund > 0) {
-                    this.shopFeedback = `拆解 ${w.name}，换回 ${refund} 零件`;
+                    this.shopFeedback = `已拆解${w.name}，获得 ${refund} 铜件。`;
                     this.inspectWeaponSlot = null;
                     this.saveRun(session);
                 }
-            }, false, canSell);
+            }, false, true, false, 'sell-' + w.uid);
+            else this.host.text('须保留一把武器', 274, infoY + 5, { width: 126, size: 10, color: BENCH.muted });
+            if (this.shopFeedback) {
+                this.host.text(this.shopFeedback, 180, infoY - 28, { width: 308, size: 10, color: GOLD });
+            }
         } else {
             const synText = view.build.synergies
                 .filter(s => s.count > 0)
-                .map(s => `${s.name}${s.count}${s.activeTier ? '亮' : ''}`)
+                .map(s => `${s.name} ${s.count} 把${s.activeTier ? ' ✓' : ''}`)
                 .join('  ·  ');
             benchPlate(g, 16, infoY - 12, 328, 36, BENCH.recess, BENCH.edge, 5);
-            this.host.text(synText || '凑两把同系武器，这一系就亮', 180, infoY + 11, { width: 312, size: 11, bold: true, color: GREEN });
+            this.host.text(synText || '装备两把同系武器即可激活羁绊。', 180, infoY + 11, { width: 312, size: 11, bold: true, color: GREEN });
             const hasManualMerge = view.weapons.some(w => w.canMergeWith !== null);
             const storyBeat = !session.endlessMode ? shopStoryBeatHint(session.chapter.id, view.wave + 1) : null;
             const upcomingHint = session.endlessMode && session.waveIndex + 1 >= session.chapter.waves.length
-                ? `老马码头第 ${session.waveIndex + 2} 波即将顶上来`
+                ? `下一波是港区第 ${session.waveIndex + 2} 波。`
                 : storyBeat || session.chapter.waves[session.waveIndex + 1]?.hint || '';
-            const nextHint = this.shopFeedback
-                || (hasManualMerge ? '绿点是同款工具，点它能并机升阶' : upcomingHint);
-            this.host.text(nextHint, 180, infoY - 4, { width: 312, size: 10, color: this.shopFeedback || hasManualMerge || storyBeat ? GOLD : BENCH.muted });
+            const hintMerge = hasManualMerge && !showGuide;
+            const nextHint = this.shopFeedback || (hintMerge ? '点带绿点的武器，可以合成升阶。' : upcomingHint);
+            this.host.text(nextHint, 180, infoY - 4, { width: 312, size: 10, color: this.shopFeedback || hintMerge || storyBeat ? GOLD : BENCH.muted });
+        }
+
+        if (showShopAid) {
+            this.pixelBtn(this.adVerb(`领 ${SHOP_EMERGENCY_PARTS} 铜件`), 180, botY + 51, 192, 27, () => {
+                this.triggerReward('shop_supply', () => {
+                    if (session.grantShopAid()) {
+                        this.host.play('purchase');
+                        this.shopFeedback = `已领取 ${SHOP_EMERGENCY_PARTS} 铜件和 1 次免费刷新。`;
+                        this.saveRun(session);
+                    }
+                });
+            });
         }
 
         // Bottom Actions: Reroll (escalating/free) + Next Wave primary CTA
-        const botY = Math.max(this.host.footer + 24, 48);
         const rerollLabel = UI_COPY.shop.reroll(view.nextRerollCost);
-        const canReroll = view.freeRerollsLeft > 0 || view.parts >= view.nextRerollCost;
-        this.pixelBtn(rerollLabel, 88, botY, 144, 48, () => {
+        const refreshable = hasRefreshableShopSlots(view.slots);
+        const canReroll = refreshable && (view.freeRerollsLeft > 0 || view.parts >= view.nextRerollCost);
+        if (canReroll) this.pixelBtn(rerollLabel, 88, botY, 144, 48, () => {
             if (session.reroll()) {
-                this.shopFeedback = '又翻了一箱新货';
+                this.shopFeedback = '商品已刷新。';
                 this.saveRun(session);
             }
-        }, view.freeRerollsLeft > 0, canReroll);
+        }, view.freeRerollsLeft > 0);
+        else this.host.text(refreshable ? `刷新还差 ${view.nextRerollCost - view.parts} 铜件` : '全已留货\n取消一件后可刷新',
+            88, botY, { width: 140, height: 34, size: 11, color: BENCH.muted });
 
         const nextWaveNum = view.wave + 1;
         const isBossNext = session.endlessMode ? (nextWaveNum % 5 === 0 && nextWaveNum >= 15) || nextWaveNum === 12 : nextWaveNum === 12;
         this.pixelBtn(UI_COPY.shop.nextWave(nextWaveNum, isBossNext), 255, botY, 178, 48, () => {
-            if (showGuide && !this.profile.onboardingDone) {
-                this.completeOnboarding();
-            }
             if (session.startNextWave()) {
                 this.movedTicksInWave = 0;
                 this.syncAudioSerials();
-                this.saveRun(session);
+                if (showGuide && !this.profile.onboardingDone) {
+                    const next = markOnboardingDone(this.profile);
+                    this.persist(() => {
+                        if (!this.profile.onboardingDone) {
+                            if (!this.storage.saveProfile(next)) return false;
+                            this.profile = next;
+                        }
+                        return this.storage.saveActiveRun(session);
+                    });
+                } else this.saveRun(session);
                 this.page = 'battle';
                 this.host.syncMusic(true);
             }
@@ -1750,11 +1762,14 @@ export class PatrolCampaignUi {
 
     private drawLevelUpOverlay(view: NonNullable<PatrolSession['shopView']>): void {
         this.backdrop();
-        const top = this.header(`手艺涨了 · ${view.level}级`, '', undefined, `铜件 ${view.parts}`, undefined);
+        const top = this.header(`${UI_COPY.shop.levelUpHeading} · ${view.level} 级`, '‹ 值班室', () => {
+            this.saveRun(this.session!);
+            this.page = 'home';
+        }, `铜件 ${view.parts}`);
         const g = this.host.ui;
         const levelHint = needsShopOnboarding(this.profile)
-            ? '阿阮：手艺涨了！白挑一项顺手的，挑完放料斗买家伙'
-            : `还要选 ${view.pendingLevelUps} 项。5 级和 10 级选项更好`;
+            ? `阿阮：还可免费选 ${view.pendingLevelUps} 项，选完就能进商店。`
+            : `还可选 ${view.pendingLevelUps} 项。5 级和 10 级的选项品质更高。`;
         this.host.text(levelHint, 180, top - 16,
             { width: 320, size: 11, color: needsShopOnboarding(this.profile) ? GOLD : CYAN });
 
@@ -1766,7 +1781,7 @@ export class PatrolCampaignUi {
             this.host.text(TIER_NAME[opt.tier], 74, y + h - 18, { left: true, width: 100, size: 11, bold: true, color: TIER_EDGE[opt.tier] });
             this.host.text(opt.detail, 130, y + 36, { left: true, width: 210, size: 18, bold: true, color: BENCH.paper });
             this.host.text(STAT_LABELS[opt.stat].hint, 130, y + 16, { left: true, width: 210, size: 11, color: BENCH.muted });
-            this.pixelBtn('选它', 292, y + h / 2, 76, 44, () => {
+            this.pixelBtn('选择', 292, y + h / 2, 76, 44, () => {
                 if (this.session!.chooseLevelUp(idx)) {
                     this.host.play('purchase');
                     this.saveRun(this.session!);
@@ -1777,11 +1792,17 @@ export class PatrolCampaignUi {
         const botY = Math.max(this.host.footer + 26, 52);
         const canRoll = view.parts >= view.levelUpRerollCost;
         const canBonusPick = this.session!.canUseLevelUpBonus && this.canOfferAd();
-        if (canBonusPick) {
-            this.pixelBtn(UI_COPY.shop.levelUpReroll(view.levelUpRerollCost), 96, botY, 156, 46, () => {
+        const rerollX = canBonusPick ? 96 : 180;
+        if (canRoll) {
+            this.pixelBtn(UI_COPY.shop.levelUpReroll(view.levelUpRerollCost), rerollX, botY, canBonusPick ? 156 : 220, 46, () => {
                 if (this.session!.rerollLevelUpOptions()) this.saveRun(this.session!);
-            }, false, canRoll);
-            this.pixelBtn(this.adVerb('再多挑一项'), 264, botY, 156, 46, () => {
+            });
+        } else {
+            this.host.text(`换一批还差 ${view.levelUpRerollCost - view.parts} 铜件`,
+                rerollX, botY, { width: 150, size: 11, color: BENCH.muted });
+        }
+        if (canBonusPick) {
+            this.pixelBtn(this.adVerb('多选一项'), 264, botY, 156, 46, () => {
                 this.triggerReward('levelup_extra', () => {
                     if (this.session!.grantLevelUpBonus()) {
                         this.host.play('unlock');
@@ -1789,64 +1810,73 @@ export class PatrolCampaignUi {
                     }
                 });
             }, true);
-        } else {
-            this.pixelBtn(UI_COPY.shop.levelUpReroll(view.levelUpRerollCost), 180, botY, 220, 46, () => {
-                if (this.session!.rerollLevelUpOptions()) this.saveRun(this.session!);
-            }, false, canRoll);
         }
     }
 
     private drawStatsDrawer(view: NonNullable<PatrolSession['shopView']>): void {
         this.backdrop();
-        const top = this.header('面板与羁绊', '‹ 回商店', () => { this.showStatsDrawer = false; }, `${view.level}级`, undefined);
+        const top = this.header('属性与羁绊', '‹ 回商店', () => { this.showStatsDrawer = false; }, `${view.level}级`, undefined);
         const g = this.host.ui;
 
         const s = view.build.stats;
         const dr = Math.round((1 - armorDamageMultiplier(s.armor)) * 100);
         const rows: [string, string][] = [
-            ['生命上限', `${s.maxHp}`], ['护甲减伤', `${s.armor} (减${dr}%)`],
-            ['物理伤害', `${s.torque}`], ['电火伤害', `${s.voltage}`],
-            ['全队增伤', `${s.overclock >= 0 ? '+' : ''}${s.overclock}%`], ['攻击速度', `${s.cycleSpeed >= 0 ? '+' : ''}${s.cycleSpeed}%`],
+            ['生命上限', `${s.maxHp}`], ['护甲', `${s.armor}（减伤 ${dr}%）`],
+            ['物理伤害', `${s.torque}`], ['电热伤害', `${s.voltage}`],
+            ['武器伤害', `${s.overclock >= 0 ? '+' : ''}${s.overclock}%`], ['攻击速度', `${s.cycleSpeed >= 0 ? '+' : ''}${s.cycleSpeed}%`],
             ['暴击率', `${s.critChance}%`], ['自动回血', `${(s.repair * 0.25).toFixed(1)}/秒`],
-            ['每波零件', `+${s.salvage}零件`], ['幸运/移速', `${s.luck} / ${s.moveSpeed >= 0 ? '+' : ''}${s.moveSpeed}%`],
+            ['铜件收益', String(s.salvage)], ['幸运', String(s.luck)],
+            ['移动速度', `${s.moveSpeed >= 0 ? '+' : ''}${s.moveSpeed}%`],
+            ['拾取范围', `${s.pickupRadius >= 0 ? '+' : ''}${s.pickupRadius}%`],
         ];
         rows.forEach(([k, v], i) => {
             const col = i % 2;
             const row = Math.floor(i / 2);
             const rx = 16 + col * 168;
-            const ry = top - 28 - row * 34;
-            benchPlate(g, rx, ry - 14, 160, 28, BENCH.steel, BENCH.edge, 5);
+            const ry = top - 25 - row * 30;
+            benchPlate(g, rx, ry - 12, 160, 24, BENCH.steel, BENCH.edge, 5);
             this.host.text(k, rx + 42, ry, { left: true, width: 72, size: 11, color: BENCH.muted });
             this.host.text(v, rx + 116, ry, { width: 78, size: 11, bold: true, color: BENCH.paper });
         });
 
-        const synTop = top - 208;
-        this.host.text('同系武器两把、四把、六把会亮', 180, synTop, { width: 328, size: 12, bold: true, color: GOLD });
+        const synTop = top - 207;
+        this.host.text('同系武器装备 2／4／6 把，激活对应羁绊', 180, synTop, { width: 328, size: 12, bold: true, color: GOLD });
+        ([2, 4, 6] as const).forEach((tier, idx) => {
+            this.pixelBtn(`${tier} 把效果`, 68 + idx * 112, synTop - 22, 96, 20, this.statsTier === tier ? null : () => {
+                this.statsTier = tier;
+            }, this.statsTier === tier);
+        });
         view.build.synergies.forEach((syn, idx) => {
-            const cardH = 44;
-            const y = synTop - 16 - (idx + 1) * cardH - idx * 6;
-            const active = syn.activeTier > 0;
+            const cardH = 46;
+            const y = synTop - 39 - (idx + 1) * cardH - idx * 5;
+            const active = syn.activeTier === this.statsTier;
+            const entry = SYNERGY_TABLE[syn.tag].find(item => item.count === this.statsTier)!;
+            const current = syn.activeTier ? `已激活 ${syn.activeTier} 把档` : '未激活';
             benchPlate(g, 16, y, 328, cardH, active ? BENCH.weapon.fill : BENCH.recess, active ? GREEN : BENCH.edge, 5);
-            this.host.text(`${syn.name} · ${syn.count}把${active ? ' · 已亮' : ''}`, 180, y + 31,
-                { left: true, width: 308, size: 12, bold: true, color: active ? GOLD : BENCH.paper });
-            this.host.text(syn.summary, 180, y + 13,
-                { left: true, width: 308, height: 18, size: 11, color: active ? GREEN : BENCH.muted });
+            this.host.text(`${syn.name} · ${syn.count} 把`, 112, y + 36,
+                { left: true, width: 170, size: 12, bold: true, color: active ? GOLD : BENCH.paper });
+            this.host.text(current, 281, y + 36, { width: 108, size: 10, color: active ? GREEN : BENCH.muted });
+            this.host.text(formatStatPreview(entry.stats, 4), 180, y + 22,
+                { left: true, width: 308, height: 14, size: 10, color: active ? GREEN : BENCH.paper });
+            this.host.text(entry.summary, 180, y + 9,
+                { left: true, width: 308, height: 16, size: 10, color: active ? GREEN : BENCH.muted });
         });
 
-        const botY = Math.max(this.host.footer + 24, 48);
-        this.pixelBtn('返回整备台', 180, botY, 328, 46, () => { this.showStatsDrawer = false; }, true);
     }
 
     // ─────────────────────────── PAGE 5: WORKSHOP (FLAT, ZERO COLLISION!) ───────────────────────────
 
     private drawWorkshop(): void {
         this.backdrop();
-        const top = this.header('工坊改装', '‹ 返回', () => { this.page = 'home'; }, `凭证 ${this.profile.credits}`, undefined);
+        const backLabel = this.workshopReturn === 'prep' ? '‹ 出发准备'
+            : this.workshopReturn === 'result' ? '‹ 战报' : '‹ 值班室';
+        const top = this.header('工坊', backLabel, () => { this.page = this.workshopReturn; }, `凭证 ${this.profile.credits}`);
         const g = this.host.ui;
 
         const tabY = top - 22;
-        this.pixelBtn('工装改装', 102, tabY, 168, 34, () => { this.workshopTab = 'talents'; }, this.workshopTab === 'talents');
-        this.pixelBtn('排除货品', 262, tabY, 144, 34, () => { this.workshopTab = 'bans'; }, this.workshopTab === 'bans');
+        const inTalents = this.workshopTab === 'talents';
+        this.pixelBtn('永久升级', 102, tabY, 168, 34, inTalents ? null : () => { this.workshopTab = 'talents'; }, inTalents);
+        this.pixelBtn('排除配件', 262, tabY, 144, 34, inTalents ? () => { this.workshopTab = 'bans'; } : null, !inTalents);
 
         if (this.workshopTab === 'talents') {
             WORKSHOP_TALENTS.forEach((talent, idx) => {
@@ -1861,22 +1891,26 @@ export class PatrolCampaignUi {
                 benchPlate(g, 16, y, 328, cardH, BENCH.steel, maxed ? GREEN : BENCH.edge, 6);
                 this.host.text(`${talent.name}  ${rank}/${talent.maxRank}`, 124, y + 48,
                     { left: true, width: 196, size: 14, bold: true, color: BENCH.paper });
-                this.host.text(rank === 0 ? `升一级：${talent.detail(1)}` : talent.detail(rank), 124, y + 22,
+                this.host.text(maxed ? talent.detail(rank) : `升至 ${rank + 1} 级：${talent.detail(rank + 1)}`, 124, y + 22,
                     { left: true, width: 196, height: 30, size: 11, color: BENCH.muted });
-                this.pixelBtn(maxed ? '已满级' : `升级 · ${cost}`, 286, y + cardH / 2, 92, 40, () => {
+                if (canBuy) this.pixelBtn(`升级 · ${cost} 凭证`, 286, y + cardH / 2, 92, 40, () => {
                     const next = buyWorkshopTalent(this.profile, talent.id);
                     if (next) {
                         this.saveWorkshop(next);
                         this.host.play('purchase');
                     }
-                }, canBuy, canBuy);
+                }, true);
+                else this.host.text(maxed ? '已满级' : `还差 ${cost - this.profile.credits} 凭证`,
+                    286, y + cardH / 2, { width: 92, size: 11, color: maxed ? GREEN : BENCH.muted });
             });
         } else {
             const limit = totalBanSlots(this.profile);
             const bonusBan = bonusBanSlotsForProfile(this.profile);
-            const banHead = bonusBan > 0
-                ? `可排除 ${this.profile.bannedModules.length}/${limit} 件（含危急二赠+${bonusBan}）`
-                : `可封掉 ${this.profile.bannedModules.length}/${limit} 件。先升「废件封条」`;
+            const used = this.profile.bannedModules.length;
+            const suffix = !limit ? ' · 在永久升级中解锁排除许可'
+                : used >= limit ? ' · 取消一项后可继续排除'
+                    : bonusBan > 0 ? ` · 含难度奖励 +${bonusBan}` : '';
+            const banHead = `已排除 ${used}/${limit} 件${suffix}`;
             this.host.text(banHead, 180, tabY - 34,
                 { width: 320, size: 11, color: limit ? CYAN : GOLD });
             const pageSize = 6;
@@ -1896,23 +1930,23 @@ export class PatrolCampaignUi {
                 this.host.text(`${mod.name} (${TIER_ROMAN[mod.tier]})`, 124, y + 42,
                     { left: true, width: 196, size: 13, bold: true, color: !unlocked || banned ? BENCH.muted : BENCH.paper });
                 const sub = !unlocked && reqDanger !== null
-                    ? `首通任意章危急${'零一二三四'[reqDanger]}入库`
+                    ? `通关任意一章的难度 ${reqDanger} 后解锁`
                     : (formatStatPreview(mod.stats, 3, mod.special) || mod.flavor.slice(0, 18));
                 this.host.text(sub, 124, y + 18,
                     { left: true, width: 196, size: 10, color: !unlocked ? GOLD : BENCH.muted });
-                const btnLabel = !unlocked && reqDanger !== null
-                    ? `危急${'零一二三四'[reqDanger]}解`
-                    : banned ? '已禁用' : '禁用';
-                this.pixelBtn(btnLabel, 290, y + cardH / 2, 82, 36, () => {
+                const canChange = unlocked && (banned || this.profile.bannedModules.length < limit);
+                if (canChange) this.pixelBtn(banned ? '取消排除' : '排除', 290, y + cardH / 2, 82, 36, () => {
                     const next = toggleModuleBan(this.profile, mod.id);
                     if (next) this.saveWorkshop(next);
-                }, unlocked && banned, unlocked && (banned || this.profile.bannedModules.length < limit));
+                });
             });
             const botY = Math.max(this.host.footer + 20, 44);
-            this.pixelBtn('上一页', 92, botY, 120, 38, () => { this.banScroll = Math.max(0, this.banScroll - pageSize); }, false, this.banScroll > 0);
-            this.pixelBtn('下一页', 268, botY, 120, 38, () => {
-                if (this.banScroll + pageSize < MODULE_CATALOG.length) this.banScroll += pageSize;
-            }, false, this.banScroll + pageSize < MODULE_CATALOG.length);
+            if (this.banScroll > 0) this.pixelBtn('上一页', 82, botY, 104, 38, () => { this.banScroll -= pageSize; });
+            if (this.banScroll + pageSize < MODULE_CATALOG.length) {
+                this.pixelBtn('下一页', 278, botY, 104, 38, () => { this.banScroll += pageSize; });
+            }
+            this.host.text(`${Math.floor(this.banScroll / pageSize) + 1} / ${Math.ceil(MODULE_CATALOG.length / pageSize)} 页`,
+                180, botY, { width: 76, size: 11, color: BENCH.muted });
         }
     }
 
@@ -1920,11 +1954,12 @@ export class PatrolCampaignUi {
 
     private drawLog(): void {
         this.backdrop();
-        const top = this.header('值班记录', '‹ 返回', () => { this.page = 'home'; });
+        const top = this.header('值班日志', '‹ 返回', () => { this.page = 'home'; });
         const g = this.host.ui;
         const tabY = top - 22;
-        this.pixelBtn('巡线档案', 100, tabY, 152, 34, () => { this.logTab = 'archive'; }, this.logTab === 'archive');
-        this.pixelBtn('通班战绩', 260, tabY, 152, 34, () => { this.logTab = 'records'; }, this.logTab === 'records');
+        const inArchive = this.logTab === 'archive';
+        this.pixelBtn('章节档案', 100, tabY, 152, 34, inArchive ? null : () => { this.logTab = 'archive'; }, inArchive);
+        this.pixelBtn('通关记录', 260, tabY, 152, 34, inArchive ? () => { this.logTab = 'records'; } : null, !inArchive);
 
         if (this.logTab === 'archive') {
             const chapter = CHAPTER_CATALOG[this.archiveIdx];
@@ -1932,72 +1967,64 @@ export class PatrolCampaignUi {
             const unlocked = this.profile.clearedChapters.includes(chapter.id);
             const secretUnlocked = isSecretArchiveUnlocked(this.profile, chapter.id);
             const cardTop = tabY - 28;
-            const cardH = 382;
-            benchPlate(g, 16, cardTop - cardH, 328, cardH, BENCH.steel, secretUnlocked ? GOLD : BENCH.edge, 8);
+            const hasEndingArt = unlocked && chapter.id === '04' && !!this.host.skin;
+            const cardH = hasEndingArt ? 282 : unlocked ? 222 : 100;
+            benchPlate(g, 16, cardTop - cardH, 328, cardH, BENCH.steel, BENCH.edge, 8);
             this.host.text(`第${'一二三四'[this.archiveIdx]}章 · ${chapter.title}`, 180, cardTop - 22,
                 { width: 300, size: 17, bold: true, color: GOLD });
             this.host.text(narr.archiveTitle, 180, cardTop - 46, { width: 300, size: 13, bold: true, color: CYAN });
 
-            if (unlocked && chapter.id === '04') {
-                this.host.skin?.dispatchArt(180, cardTop - 94, 'ending', 'stage-20', 68);
-                const body = `${narr.archiveNote}\n${narr.clearOutro.speaker}：${narr.clearOutro.line}${narr.epilogueHook ? `\n${narr.epilogueHook.speaker}：${narr.epilogueHook.line}` : ''}`;
-                this.host.text(body, 180, cardTop - 196, { left: true, width: 296, height: 122, size: 11, color: BENCH.paper });
+            if (unlocked) {
+                if (hasEndingArt) this.host.skin?.dispatchArt(180, cardTop - 87, 'ending', 'stage-20', 56);
+                const body = `${narr.archiveNote}\n\n${narr.clearOutro.speaker}：${narr.clearOutro.line}${narr.epilogueHook ? `\n${narr.epilogueHook.speaker}：${narr.epilogueHook.line}` : ''}`;
+                this.host.text(body, 180, cardTop - (hasEndingArt ? 197 : 137),
+                    { left: true, width: 296, height: 150, size: 11, color: BENCH.paper });
             } else {
-                const body = unlocked
-                    ? `${narr.archiveNote}\n\n${narr.clearOutro.speaker}：${narr.clearOutro.line}`
-                    : '打通本章后解锁完整夜班现场记录。';
-                this.host.text(body, 180, cardTop - 156, { left: true, width: 296, height: 186, size: 12, color: BENCH.paper });
+                this.host.text('通关本章后可阅读完整记录。', 180, cardTop - 75,
+                    { width: 296, size: 12, color: BENCH.paper });
             }
 
-            // Encrypted high-danger secret memo box (unlocked at Danger >= 2 per chapter)
-            const secTop = cardTop - 270;
-            this.host.block(28, secTop, 304, 1, BENCH.edge);
-            benchPlate(g, 24, cardTop - cardH + 10, 312, 92, BENCH.recess, secretUnlocked ? GOLD : BENCH.edge, 5);
+            const secTop = cardTop - cardH - 10;
+            const secH = secretUnlocked ? 94 : 64;
+            benchPlate(g, 16, secTop - secH, 328, secH, BENCH.recess, secretUnlocked ? GOLD : BENCH.edge, 5);
             if (secretUnlocked) {
-                this.host.text(narr.secretTitle, 180, secTop - 16, { width: 292, size: 11, bold: true, color: GOLD });
-                this.host.text(narr.secretNote, 180, secTop - 58, { left: true, width: 292, height: 60, size: 11, color: CYAN });
+                this.host.text(narr.secretTitle, 180, secTop - 17, { width: 296, size: 12, bold: true, color: GOLD });
+                this.host.text(narr.secretNote, 180, secTop - 57, { left: true, width: 296, height: 62, size: 11, color: CYAN });
             } else {
-                this.host.text('加班密件 · 未解密', 180, secTop - 26, { width: 292, size: 12, bold: true, color: BENCH.muted });
-                this.host.text('通本章「清退加急（危急二）」及以上解锁加密附页', 180, secTop - 56,
-                    { width: 292, height: 36, size: 11, color: GOLD });
+                this.host.text('加密附件 · 未解锁', 180, secTop - 19, { width: 296, size: 12, bold: true, color: BENCH.muted });
+                this.host.text('以难度 2（清退加急）或以上通关本章后解锁。', 180, secTop - 43,
+                    { width: 296, height: 27, size: 11, color: GOLD });
             }
 
             const botY = Math.max(this.host.footer + 24, 52);
-            this.pixelBtn('上一章', 92, botY, 130, 42, () => { if (this.archiveIdx > 0) this.archiveIdx--; }, false, this.archiveIdx > 0);
-            this.pixelBtn('下一章', 268, botY, 130, 42, () => { if (this.archiveIdx < 3) this.archiveIdx++; }, false, this.archiveIdx < 3);
+            if (this.archiveIdx > 0) this.pixelBtn('上一章', 82, botY, 112, 42, () => { this.archiveIdx--; });
+            if (this.archiveIdx + 1 < CHAPTER_CATALOG.length) {
+                this.pixelBtn('下一章', 278, botY, 112, 42, () => { this.archiveIdx++; });
+            }
+            this.host.text(`${this.archiveIdx + 1} / ${CHAPTER_CATALOG.length} 章`, 180, botY, { width: 80, size: 11, color: BENCH.muted });
         } else {
-            // 4 Chapter seal rows (each displaying all 5 Danger stamp pills)
+            const rowH = 59;
+            const rowGap = 7;
             CHAPTER_CATALOG.forEach((ch, idx) => {
-                const rowH = 66;
-                const y = tabY - 26 - (idx + 1) * rowH - idx * 7;
+                const y = tabY - 26 - (idx + 1) * rowH - idx * rowGap;
                 const cleared = this.profile.clearedChapters.includes(ch.id);
                 const maxD = this.profile.maxDangerCleared[ch.id];
                 benchPlate(g, 16, y, 328, rowH, BENCH.steel, maxD === 4 ? GOLD : cleared ? GREEN : BENCH.edge, 6);
-                this.host.text(`第${'一二三四'[idx]}章 · ${ch.title}`, 132, y + 48, { left: true, width: 214, size: 14, bold: true, color: BENCH.paper });
+                this.host.text(`第${'一二三四'[idx]}章 · ${ch.title}`, 180, y + 41,
+                    { left: true, width: 308, size: 14, bold: true, color: BENCH.paper });
                 this.host.text(
-                    maxD !== undefined ? `最高：${DANGER_MULTIPLIERS[maxD].label}` : isChapterUnlocked(this.profile, ch.id) ? '未通关' : '未开启',
-                    290, y + 48,
-                    { width: 92, size: 11, bold: true, color: maxD !== undefined ? DANGER_COLOR[maxD] : BENCH.muted },
+                    maxD !== undefined ? `最高通关 · 难度 ${maxD} · ${DANGER_MULTIPLIERS[maxD].label}`
+                        : isChapterUnlocked(this.profile, ch.id) ? '未通关' : '未解锁',
+                    180, y + 18,
+                    { left: true, width: 308, size: 11, color: maxD !== undefined ? DANGER_COLOR[maxD] : BENCH.muted },
                 );
-                const pillW = 54;
-                const pillGap = 6;
-                const startX = 28;
-                for (const d of DANGER_LEVELS) {
-                    const px = startX + d * (pillW + pillGap);
-                    const done = maxD !== undefined && d <= maxD;
-                    benchPlate(g, px, y + 10, pillW, 20, done ? BENCH.weapon.fill : BENCH.recess, done ? DANGER_COLOR[d] : BENCH.edge, 3);
-                    this.host.text(`${DANGER_SHORT_LABELS[d]}${done ? '✓' : ''}`, px + pillW / 2, y + 20,
-                        { width: pillW - 4, size: 10, bold: done, color: done ? DANGER_COLOR[d] : BENCH.muted });
-                }
             });
 
-            // 5 Rig mastery strip (tracks highest Danger cleared by each Rig!)
-            const rigCardTop = tabY - 26 - 4 * 66 - 3 * 7 - 12;
+            const rigCardTop = tabY - 26 - CHAPTER_CATALOG.length * rowH - (CHAPTER_CATALOG.length - 1) * rowGap - 12;
             const rigCardH = 74;
             benchPlate(g, 16, rigCardTop - rigCardH, 328, rigCardH, BENCH.recess, BENCH.edge, 6);
             const endlessBest = this.profile.bestEndlessWave ?? 0;
-            const rigTitle = endlessBest > 0 ? `工装印记 · 港区无尽最高第 ${endlessBest} 波` : '工装值守印记';
-            this.host.text(rigTitle, 180, rigCardTop - 16, { width: 308, size: 11, bold: true, color: GOLD });
+            this.host.text('工装通关记录', 180, rigCardTop - 16, { width: 308, size: 12, bold: true, color: GOLD });
             RIG_ORDER.forEach((id, idx) => {
                 const bw = 58;
                 const bx = 22 + idx * 64;
@@ -2008,11 +2035,16 @@ export class PatrolCampaignUi {
                 this.host.text(RIG_CATALOG[id].name.slice(0, 2), bx + bw / 2, by + 25,
                     { width: bw - 4, size: 11, bold: true, color: unlocked ? BENCH.paper : BENCH.muted });
                 this.host.text(
-                    !unlocked ? '未解锁' : best !== undefined ? `${DANGER_SHORT_LABELS[best]}✓` : '未通',
+                    !unlocked ? '未解锁' : best !== undefined ? `难度 ${best} ✓` : '未通关',
                     bx + bw / 2, by + 10,
                     { width: bw - 4, size: 10, bold: best !== undefined, color: best !== undefined ? DANGER_COLOR[best] : BENCH.muted },
                 );
             });
+            if (endlessBest > 0) {
+                const recordY = rigCardTop - rigCardH - 27;
+                benchPlate(g, 16, recordY - 16, 328, 32, BENCH.recess, BENCH.edge, 6);
+                this.host.text(`港区无尽 · 最高完成 ${endlessBest} 波`, 180, recordY, { width: 308, size: 12, color: GOLD });
+            }
         }
     }
 
@@ -2023,16 +2055,40 @@ export class PatrolCampaignUi {
         const top = this.header('设置', '‹ 返回', () => { this.page = 'home'; });
         const s = this.host.settings;
         const g = this.host.ui;
+        this.host.text('声音', 80, top - 17, { left: true, width: 120, size: 15, bold: true, color: GOLD });
         const row = (label: string, on: boolean, y: number, toggle: () => void) => {
             benchPlate(g, 16, y - 24, 328, 48, BENCH.steel, BENCH.edge, 6);
-            this.host.text(label, 110, y, { left: true, width: 160, size: 16, bold: true, color: BENCH.paper });
-            this.pixelBtn(on ? '开' : '关', 292, y, 78, 36, toggle, on);
+            this.host.text(label, 110, y + 7, { left: true, width: 160, size: 15, bold: true, color: BENCH.paper });
+            this.host.text(on ? '已开启' : '已关闭', 110, y - 11, { left: true, width: 160, size: 10, color: BENCH.muted });
+            this.pixelBtn(on ? '关闭' : '开启', 292, y, 78, 36, toggle);
         };
-        row('背景音乐', s.music, top - 56, () => this.host.updateSettings({ music: !s.music }));
-        row('战斗音效', s.sound, top - 118, () => this.host.updateSettings({ sound: !s.sound }));
+        row('背景音乐', s.music, top - 56, () => this.changeSettings({ music: !s.music }));
+        row('战斗音效', s.sound, top - 118, () => this.changeSettings({ sound: !s.sound }));
         this.host.text('移动方式', 80, top - 180, { left: true, width: 120, size: 15, bold: true, color: GOLD });
-        this.pixelBtn('浮动摇杆', 96, top - 224, 152, 48, () => this.host.updateSettings({ movement: 'joystick' }), s.movement === 'joystick');
-        this.pixelBtn('触屏点按', 264, top - 224, 152, 48, () => this.host.updateSettings({ movement: 'touch' }), s.movement === 'touch');
+        this.pixelBtn('固定摇杆', 96, top - 224, 152, 48,
+            s.movement === 'joystick' ? null : () => this.changeSettings({ movement: 'joystick' }), s.movement === 'joystick');
+        this.pixelBtn('点按战场', 264, top - 224, 152, 48,
+            s.movement === 'touch' ? null : () => this.changeSettings({ movement: 'touch' }), s.movement === 'touch');
+        if (s.movement !== 'joystick') return;
+        this.host.text('摇杆位置', 80, top - 273, { left: true, width: 120, size: 15, bold: true, color: GOLD });
+        const placements = [['left', '靠左'], ['center', '居中'], ['right', '靠右']] as const;
+        placements.forEach(([placement, label], index) => {
+            this.pixelBtn(label, 66 + index * 114, top - 310, 100, 42,
+                s.stickPlacement === placement ? null : () => this.changeSettings({ stickPlacement: placement }), s.stickPlacement === placement);
+        });
+        const marginRow = (label: string, key: 'sideMargin' | 'bottomMargin', y: number, max: number) => {
+            const value = s[key];
+            this.host.text(label, 66, y, { width: 96, left: true, size: 14, color: BENCH.paper });
+            if (value > STICK_MARGIN.min) this.pixelBtn('−', 169, y, 50, 42,
+                () => this.changeSettings({ [key]: Math.max(STICK_MARGIN.min, value - STICK_MARGIN.step) }));
+            this.host.text(String(value), 236, y, { width: 60, size: 15, color: GOLD });
+            if (value < max) this.pixelBtn('＋', 309, y, 50, 42,
+                () => this.changeSettings({ [key]: Math.min(max, value + STICK_MARGIN.step) }));
+        };
+        marginRow('距底边', 'bottomMargin', top - 371, STICK_MARGIN.bottomMax);
+        if (s.stickPlacement !== 'center') {
+            marginRow(s.stickPlacement === 'left' ? '距左边' : '距右边', 'sideMargin', top - 424, STICK_MARGIN.sideMax);
+        }
     }
 
     // ─────────────────────────── PAGE 8: RESULT WITH WEAPON DPS CHART ───────────────────────────
@@ -2041,12 +2097,28 @@ export class PatrolCampaignUi {
         const res = this.result;
         if (!res) return;
         this.backdrop();
-        const ending = res.won && res.chapterId === '04';
+        if (this.showResultUnlocks) {
+            const top = this.header('本局解锁', '‹ 回结算', () => { this.showResultUnlocks = false; });
+            const rowH = Math.min(38, Math.floor((top - this.host.footer - 16) / Math.max(1, res.unlocks.length)));
+            res.unlocks.forEach((unlock, idx) => {
+                const y = top - 10 - (idx + 1) * rowH;
+                benchPlate(this.host.ui, 16, y, 328, rowH - 4, BENCH.steel, BENCH.edge, 5);
+                this.host.text(unlock, 180, y + (rowH - 4) / 2, {
+                    left: true, width: 304, height: rowH - 6, size: 12, color: BENCH.paper,
+                });
+            });
+            return;
+        }
+        const ending = res.won && !res.dailyShiftKey && res.chapterId === '04';
+        const title = res.endlessMode ? '港区抢修结束'
+            : ending ? UI_COPY.result.endingHeading
+                : res.won ? res.dailyShiftKey ? '今日委托完成' : UI_COPY.result.wonHeading
+                    : res.failure === 'timeout' ? '首领战超时' : UI_COPY.result.lostHeading;
         const top = this.header(
-            ending ? UI_COPY.result.endingHeading : res.won ? UI_COPY.result.wonHeading : UI_COPY.result.lostHeading,
-            '工坊改装',
-            () => { this.page = 'workshop'; },
-            `凭证 ${this.profile.credits}`,
+            title,
+            '',
+            undefined,
+            `余额 ${this.profile.credits}`,
             undefined,
         );
         const g = this.host.ui;
@@ -2055,16 +2127,17 @@ export class PatrolCampaignUi {
         const sumTop = top - 8;
         const sumH = 62;
         benchPlate(g, 16, sumTop - sumH, 328, sumH, BENCH.recess, res.won ? GREEN : RED, 6);
-        const mins = Math.floor(res.totalDurationSeconds / 60);
-        const secs = Math.round(res.totalDurationSeconds % 60);
+        const elapsed = Math.round(res.totalDurationSeconds);
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
         const runKey = this.session?.runId ?? `${res.chapterId}:${res.wavesCleared}:${res.totalKills}`;
         const alreadyDoubled = this.resultDoubledRunId === runKey;
         const shownCredits = res.creditsEarned + (alreadyDoubled ? res.baseCreditsForDouble : 0);
         const cols: [string, string][] = [
-            ['推进波次', res.endlessMode ? `第${res.wavesCleared}波` : `${res.wavesCleared}/12`],
-            ['总击倒', `${res.totalKills}`],
+            ['已完成波次', res.endlessMode ? `${res.wavesCleared} 波` : `${res.wavesCleared}/12`],
+            ['击毁敌机', `${res.totalKills}`],
             ['用时', `${mins}分${secs}秒`],
-            ['维修凭证', `+${shownCredits}`],
+            ['本局凭证', `+${shownCredits}`],
         ];
         cols.forEach(([k, v], i) => {
             const cx = 16 + (i + 0.5) * 82;
@@ -2072,53 +2145,62 @@ export class PatrolCampaignUi {
             this.host.text(v, cx, sumTop - 23, { width: 78, size: 16, bold: true, color: i === 3 ? GOLD : BENCH.paper });
         });
 
-        // First-clear rewards & unlocks callout banner
-        const hasUnlockBanner = res.unlocks.length > 0 || res.firstClearBonus > 0;
-        let nextTop = sumTop - sumH - 8;
-        if (hasUnlockBanner) {
-            const bannerH = 54;
-            benchPlate(g, 16, nextTop - bannerH, 328, bannerH, BENCH.weapon.fill, GOLD, 6);
-            const title = res.firstClearBonus > 0
-                ? `本班首通收获 · 含里程碑 +${res.firstClearBonus} 凭证`
-                : '本班新解锁';
-            this.host.text(title, 180, nextTop - 15, { width: 310, size: 11, bold: true, color: GOLD });
-            const items = res.unlocks.length ? res.unlocks.join(' · ') : `${DANGER_MULTIPLIERS[res.danger].label}印章已点亮`;
-            this.host.text(items, 180, nextTop - 37, { width: 308, height: 28, size: 11, color: BENCH.paper });
-            nextTop -= bannerH + 8;
-        }
-
-        // Weapon Damage Breakdown Chart ("这班谁最出力")
         const dateKey = todayDateKey();
         const doubleLeft = remainingDailyAdUses(this.profile, 'double', dateKey);
         const canDouble = !alreadyDoubled && res.baseCreditsForDouble > 0 && this.canOfferAd() && doubleLeft > 0;
-        const chartTop = nextTop;
-        const chartH = hasUnlockBanner ? 148 : 192;
-        const rowStep = hasUnlockBanner ? 20 : 26;
-        benchPlate(g, 16, chartTop - chartH, 328, chartH, BENCH.steel, BENCH.edge, 8);
-        this.host.text(UI_COPY.result.damageChartTitle, 96, chartTop - 16, { left: true, width: 150, size: 12, bold: true, color: GOLD });
-        if (canDouble) {
-            this.pixelBtn(this.adVerb(`再领+${res.baseCreditsForDouble}凭证`), 274, chartTop - 16, 126, 22, () => {
-                this.triggerReward('result_double', () => {
-                    const consumed = consumeDailyAdUse(this.profile, 'double', dateKey);
-                    if (!consumed) return;
-                    const awarded: WorkshopProfile = { ...consumed, credits: consumed.credits + res.baseCreditsForDouble };
-                    this.resultDoubledRunId = runKey;
-                    this.saveWorkshop(awarded);
-                    this.host.play('unlock');
+        const hasUnlocks = res.unlocks.length > 0;
+        const hasUnlockRow = hasUnlocks || res.firstClearBonus > 0;
+        const hasCreditRow = canDouble || alreadyDoubled;
+        const rewardRows = Number(hasUnlockRow) + Number(hasCreditRow);
+        let nextTop = sumTop - sumH - 8;
+        if (rewardRows > 0) {
+            const rewardH = 9 + rewardRows * 28;
+            benchPlate(g, 16, nextTop - rewardH, 328, rewardH, BENCH.weapon.fill, BENCH.edge, 6);
+            if (hasUnlockRow) {
+                const summary = res.firstClearBonus > 0 ? `首通额外 +${res.firstClearBonus} 凭证` : '本局解锁';
+                this.host.text(summary, 109, nextTop - 19, { left: true, width: 166, size: 12, bold: true, color: GOLD });
+                if (hasUnlocks) {
+                    this.pixelBtn(`解锁 ${res.unlocks.length} 项 ›`, 272, nextTop - 19, 120, 22,
+                        () => { this.showResultUnlocks = true; });
+                }
+            }
+            const creditY = nextTop - (hasUnlockRow ? 47 : 19);
+            if (canDouble) {
+                this.host.text('基础奖励可翻倍', 109, creditY, { left: true, width: 166, size: 11, color: BENCH.muted });
+                this.pixelBtn(this.adVerb(`再领 ${res.baseCreditsForDouble} 凭证`), 252, creditY, 160, 22, () => {
+                    this.triggerReward('result_double', () => {
+                        const consumed = consumeDailyAdUse(this.profile, 'double', dateKey);
+                        if (!consumed) return;
+                        const awarded: WorkshopProfile = { ...consumed, credits: consumed.credits + res.baseCreditsForDouble };
+                        this.resultDoubledRunId = runKey;
+                        this.saveWorkshop(awarded);
+                        this.host.play('unlock');
+                    });
                 });
-            }, true);
-        } else if (alreadyDoubled) {
-            this.host.text(`基础凭证已翻倍 ✓`, 276, chartTop - 16, { width: 124, size: 10, bold: true, color: GREEN });
+            } else if (alreadyDoubled) {
+                this.host.text('基础奖励已翻倍', 109, creditY, { left: true, width: 166, size: 11, bold: true, color: GREEN });
+            }
+            nextTop -= rewardH + 8;
+        }
+
+        const chartTop = nextTop;
+        const weaponRows = res.damageByWeapon.slice(0, 6);
+        const rowStep = weaponRows.length > 4 ? 19 : 24;
+        const chartH = 30 + Math.max(1, weaponRows.length) * rowStep + 6;
+        benchPlate(g, 16, chartTop - chartH, 328, chartH, BENCH.steel, BENCH.edge, 8);
+        this.host.text(UI_COPY.result.damageChartTitle, 102, chartTop - 16, { left: true, width: 150, size: 13, bold: true, color: GOLD });
+        if (!weaponRows.length) {
+            this.host.text('本局暂无武器伤害记录', 180, chartTop - 41, { width: 304, size: 11, color: BENCH.muted });
         }
         const totalDmg = Math.max(1, res.damageByWeapon.reduce((s, w) => s + w.totalDamage, 0));
-        res.damageByWeapon.slice(0, 6).forEach((w, idx) => {
-            const wy = chartTop - 36 - idx * rowStep;
+        weaponRows.forEach((w, idx) => {
+            const wy = chartTop - 30 - rowStep * (idx + 0.5);
             const share = w.totalDamage / totalDmg;
-            this.host.skin?.uiIcon(w.id, 34, wy, hasUnlockBanner ? 17 : 20);
-            this.host.text(`${WEAPON_CATALOG[w.id].name}${TIER_ROMAN[w.tier]}`, 88, wy,
-                { left: true, width: 82, size: 11, color: BENCH.paper });
-            this.host.block(136, wy - 4, 134, 8, BENCH.recess);
-            this.host.block(136, wy - 4, Math.max(3, Math.round(134 * share)), 8, TIER_EDGE[w.tier]);
+            this.host.skin?.uiIcon(w.id, 34, wy, 17);
+            this.host.text(`${WEAPON_CATALOG[w.id].name} ${TIER_ROMAN[w.tier]}`, 97, wy,
+                { left: true, width: 102, size: 11, color: BENCH.paper });
+            this.host.block(154, wy - 4, 116, 8, BENCH.recess);
+            if (share > 0) this.host.block(154, wy - 4, Math.max(2, Math.round(116 * share)), 8, TIER_EDGE[w.tier]);
             this.host.text(`${Math.round(share * 100)}%`, 306, wy, { width: 58, size: 11, bold: true, color: TIER_EDGE[w.tier] });
         });
 
@@ -2138,7 +2220,8 @@ export class PatrolCampaignUi {
 
         // Bottom CTA: Seamless push to Next Chapter, Next Danger tier, or instant Retry!
         const botY = Math.max(this.host.footer + 22, 48);
-        const nextIdx = CHAPTER_CATALOG.findIndex(c => c.id === res.chapterId) + 1;
+        const currentIdx = CHAPTER_CATALOG.findIndex(c => c.id === res.chapterId);
+        const nextIdx = currentIdx + 1;
         const nextChapter = !res.endlessMode && !res.dailyShiftKey && res.won
             && nextIdx < CHAPTER_CATALOG.length && isChapterUnlocked(this.profile, CHAPTER_CATALOG[nextIdx].id)
             ? CHAPTER_CATALOG[nextIdx]
@@ -2147,42 +2230,54 @@ export class PatrolCampaignUi {
             && res.danger < 4 && isDangerUnlocked(this.profile, (res.danger + 1) as DangerLevel)
             ? ((res.danger + 1) as DangerLevel)
             : undefined;
-        if (nextChapter) {
+        const selectPrep = (chapterIdx: number, danger: DangerLevel, mode: PrepMode) => {
+            this.chapterIdx = chapterIdx;
+            this.danger = danger;
+            this.prepMode = mode;
+            this.rigIdx = RIG_ORDER.indexOf(res.rigId);
+            this.supplyIdx = 0;
+            if (this.session && !res.dailyShiftKey) this.starterByRig[res.rigId] = this.session.starterWeapon;
+            this.page = 'prep';
+        };
+        if (res.dailyShiftKey) {
+            this.pixelBtn('返回今日委托', 180, botY + 48, 328, 44,
+                () => selectPrep(currentIdx, res.danger, 'daily'), true);
+        } else if (nextChapter) {
             this.pixelBtn(UI_COPY.result.nextChapter(nextChapter.title) + ' ›', 180, botY + 48, 328, 44, () => {
-                this.prepMode = 'story';
-                this.chapterIdx = nextIdx;
-                this.page = 'prep';
+                selectPrep(nextIdx, res.danger, 'story');
             }, true);
         } else if (nextDanger !== undefined) {
             this.pixelBtn(`挑战 · ${DANGER_MULTIPLIERS[nextDanger].label} ›`, 180, botY + 48, 328, 44, () => {
-                this.prepMode = 'story';
-                this.danger = nextDanger;
-                this.page = 'prep';
+                selectPrep(currentIdx, nextDanger, 'story');
             }, true);
+        } else if (!isRigUnlocked(this.profile, res.rigId)) {
+            this.pixelBtn('重新整备', 180, botY + 48, 328, 44,
+                () => selectPrep(currentIdx, res.danger, res.endlessMode ? 'endless' : 'story'), true);
         } else {
-            this.pixelBtn(UI_COPY.result.retry, 180, botY + 48, 328, 44, () => {
-                if (res.endlessMode) {
-                    this.startNewPatrol('04', res.rigId, res.danger, 'none', undefined, { endlessMode: true });
-                } else {
-                    this.startNewPatrol(res.chapterId, res.rigId, res.danger);
-                }
+            this.pixelBtn(res.endlessMode ? '再挑战港区无尽' : UI_COPY.result.retry, 180, botY + 48, 328, 44, () => {
+                this.startNewPatrol(res.chapterId, res.rigId, res.danger, 'none', this.session?.starterWeapon,
+                    { endlessMode: res.endlessMode });
             }, true);
         }
 
         if (this.host.engage?.canShare) {
-            const topWep = res.damageByWeapon[0] ? WEAPON_CATALOG[res.damageByWeapon[0].id].name : '电弧扳手';
-            this.pixelBtn('回值班室', 68, botY, 104, 40, () => { this.page = 'home'; });
-            this.pixelBtn('工坊改装', 180, botY, 104, 40, () => { this.page = 'workshop'; });
-            this.pixelBtn('晒战报', 292, botY, 104, 40, () => {
+            const firstWeapon = res.damageByWeapon[0];
+            const weaponLine = firstWeapon ? ` 主力武器：${WEAPON_CATALOG[firstWeapon.id].name}` : '';
+            this.pixelBtn('返回值班室', 68, botY, 104, 40, () => { this.page = 'home'; });
+            this.pixelBtn('工坊', 180, botY, 104, 40, () => this.openWorkshop('result'));
+            this.pixelBtn('分享战报', 292, botY, 104, 40, () => {
                 const title = res.endlessMode
-                    ? `夜班修理局：港区无尽我撑过第 ${res.wavesCleared} 波！主力 ${topWep}`
-                    : `夜班修理局：用 ${topWep} 带队修亮了「${res.chapterTitle}」！`;
-                this.host.engage?.shareResult(title, `击倒 ${res.totalKills} 台暴走敌机 · ${DANGER_MULTIPLIERS[res.danger].label}`);
-                this.showToast('战报已拉起分享');
+                    ? `我在《夜班修理局》的港区无尽完成了 ${res.wavesCleared} 波。`
+                    : res.won
+                        ? `我在《夜班修理局》打通了「${res.chapterTitle}」。`
+                        : `我在《夜班修理局》的「${res.chapterTitle}」完成了 ${res.wavesCleared} 波。`;
+                const shared = this.host.engage?.shareResult(title + weaponLine,
+                    `击毁 ${res.totalKills} 台敌机 · 难度 ${res.danger}`);
+                if (!shared) this.showToast('暂时无法打开分享。');
             });
         } else {
-            this.pixelBtn('回值班室', 96, botY, 156, 40, () => { this.page = 'home'; });
-            this.pixelBtn(UI_COPY.result.backWorkshop, 264, botY, 156, 40, () => { this.page = 'workshop'; });
+            this.pixelBtn('返回值班室', 96, botY, 156, 40, () => { this.page = 'home'; });
+            this.pixelBtn('工坊', 264, botY, 156, 40, () => this.openWorkshop('result'));
         }
     }
 
@@ -2216,12 +2311,13 @@ export class PatrolCampaignUi {
         y: number,
         w: number,
         h: number,
-        action: () => void,
+        action: (() => void) | null,
         primary = false,
         enabled = true,
         badge = false,
+        key = label,
     ): void {
-        const held = enabled && this.host.addTouch(x, y, w, h, () => {
+        const held = enabled && action && this.host.addTouch(x, y, w, h, key, () => {
             if (Date.now() < this.touchGuardUntil) return;
             action();
         });
