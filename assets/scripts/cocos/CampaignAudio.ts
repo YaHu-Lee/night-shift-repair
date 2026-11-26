@@ -141,6 +141,15 @@ export class CampaignAudio {
         return this.active;
     }
 
+    /** Resume active BGM cleanly after iOS/WeChat/Douyin audio interruption ends (phone call / alarm / voice msg). */
+    resumeAfterInterruption(): void {
+        if (this.disposed || !this.active) return;
+        const track = this.tracks[this.active];
+        if (!track?.source.clip) return;
+        track.requestedAt = undefined;
+        this.startTrack(this.active, true);
+    }
+
     dispose(): void {
         this.disposed = true;
         this.syncMusic(undefined);

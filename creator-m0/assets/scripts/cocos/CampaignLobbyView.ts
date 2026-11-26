@@ -1,4 +1,5 @@
 import { Color, Graphics } from 'cc';
+import { scratchColor } from './PixelVfxEngine';
 
 const BLACK = new Color(11, 17, 20);
 const DARK_STEEL = new Color(26, 35, 35);
@@ -9,31 +10,36 @@ const GOLD_DOWN = new Color(186, 125, 44);
 const GOLD_SHADE = new Color(120, 74, 32);
 const STEEL_TEXT = new Color(218, 220, 197);
 
+const SCRIM_BOT = new Color(9, 17, 20, 226);
+const SCRIM_TOP = new Color(11, 20, 23, 167);
+const TICKET_BG = new Color(9, 16, 19, 219);
+const HANDLE_BG = new Color(63, 43, 26);
+
 export type LobbyShortcut = 'equipment' | 'role' | 'settings';
 
 export function drawLobbyScrim(g: Graphics, width: number, height: number, padding: number): void {
     if (padding > 0) {
-        g.fillColor = new Color(9, 17, 20, 226);
+        g.fillColor = SCRIM_BOT;
         g.rect(0, -padding, width, padding);
         g.fill();
-        g.fillColor = new Color(11, 20, 23, 167);
+        g.fillColor = SCRIM_TOP;
         g.rect(0, height, width, padding);
         g.fill();
     }
     const band = 9;
     for (let i = 0; i < 14; i++) {
         const weight = 1 - i / 14;
-        g.fillColor = new Color(9, 17, 20, Math.round(226 * weight * weight));
+        g.fillColor = scratchColor(9, 17, 20, Math.round(226 * weight * weight));
         g.rect(0, i * band, width, band + 0.5);
         g.fill();
-        g.fillColor = new Color(11, 20, 23, Math.round(167 * weight * weight));
+        g.fillColor = scratchColor(11, 20, 23, Math.round(167 * weight * weight));
         g.rect(0, height - (i + 1) * band, width, band + 0.5);
         g.fill();
     }
 }
 
 export function drawCreditTicket(g: Graphics, x: number, y: number): void {
-    g.fillColor = new Color(9, 16, 19, 219);
+    g.fillColor = TICKET_BG;
     g.roundRect(x - 15, y - 15, 116, 30, 6);
     g.fill();
     g.fillColor = GOLD_EDGE;
@@ -78,7 +84,7 @@ export function drawDispatchHandle(g: Graphics, x: number, y: number, held: bool
     g.lineTo(right - 26, y - 19 + depth);
     g.stroke();
 
-    g.fillColor = new Color(63, 43, 26);
+        g.fillColor = HANDLE_BG;
     g.roundRect(x + 39, y - 12 + depth, 28, 25, 4);
     g.fill();
     g.strokeColor = GOLD_EDGE;

@@ -10,6 +10,8 @@ import { createRewardedRevive } from '../platform/rewardedRevive';
 import type { RewardedRevive } from '../platform/rewardedRevive';
 import { createMiniGameEngage } from '../platform/miniGameEngage';
 import type { MiniGameEngage } from '../platform/miniGameEngage';
+import { createMiniGameRuntime } from '../platform/miniGameRuntime';
+import type { MiniGameRuntime } from '../platform/miniGameRuntime';
 import { CampaignSettings } from '../platform/settings';
 import type { CampaignPreferences } from '../platform/settings';
 import { PIXEL_MENU_ART } from './CampaignArt';
@@ -18,6 +20,7 @@ import { BattleSkinView } from './BattleSkinView';
 import { CampaignAudio } from './CampaignAudio';
 import type { Sound } from './CampaignAudio';
 import { PatrolCampaignUi } from './PatrolCampaignUi';
+import { scratchColor } from './PixelVfxEngine';
 import { BENCH } from './WorkshopBench';
 
 const { ccclass, property, requireComponent } = _decorator;
@@ -30,6 +33,7 @@ const STICK_KNOB_RADIUS = 12;
 const STICK_DEAD_ZONE = 5;
 const STICK_ENTRY_DEPTH = 108;
 const PAPER = new Color(226, 237, 241);
+const STICK_BG = new Color(22, 29, 27, 238);
 
 const qaHost = globalThis as typeof globalThis & { __nightShiftCampaignState?: () => unknown };
 
@@ -41,6 +45,21 @@ interface HitArea {
     action: () => void;
 }
 interface TextOptions { size?: number; color?: Color; width?: number; height?: number; left?: boolean; bold?: boolean }
+
+interface CachedLabelSlot {
+    readonly label: Label;
+    readonly transform: UITransform;
+    active: boolean;
+    value: string;
+    x: number;
+    y: number;
+    size: number;
+    colorKey: number;
+    width: number;
+    height: number;
+    left: boolean;
+    bold: boolean;
+}
 
 function queryParams(): URLSearchParams | null {
     const search = (globalThis as { location?: { search?: string } }).location?.search;
@@ -75,12 +94,15 @@ export class M1Bootstrap extends Component {
     cloudServiceId = '';
 
     private platform!: Platform;
+    private runtime!: MiniGameRuntime;
     private settings!: CampaignSettings;
     private audio?: CampaignAudio;
     private reviveAd: RewardedRevive | null = null;
     private engage: MiniGameEngage | null = null;
     private patrol!: PatrolCampaignUi;
     private skin?: BattleSkinView;
+    private stopMemWarning?: () => void;
+    private stopAudioInterrupt?: () => void;
 
     private surface!: UITransform;
     private skinFloor!: Node;
@@ -95,7 +117,7 @@ export class M1Bootstrap extends Component {
     private stickView!: Graphics;
     private labelLayer!: Node;
 
-    private readonly labels: Label[] = [];
+    private readonly labels: CachedLabelSlot[] = [];
     private readonly actions: HitArea[] = [];
     private readonly scenery: Partial<Record<string, SpriteFrame>> = {};
     private readonly pendingScenery = new Set<string>();
@@ -117,6 +139,9 @@ export class M1Bootstrap extends Component {
     private backdropScale = 1;
     private layout = '';
     private emberTime = 0;
+    private lastEmberStep = -1;
+    private pulseAccum = 0;
+    private uiDirty = true;
     private background = false;
     private musicSuspended = false;
     private soundEnabled = true;
@@ -125,6 +150,12 @@ export class M1Bootstrap extends Component {
         this.surface = this.getComponent(UITransform)!;
         this.surface.setContentSize(WIDTH, HEIGHT);
         this.platform = makePlatform();
+        this.runtime = createMiniGameRuntime();
+        if (this.runtime.isLowEndDevice) {
+            // Lower render cadence slightly on low-end mini-game phones to curb heat & CPU throttling (sim stays 30Hz).
+            game.frameRate = 45;
+            this.runtime.hintFrameRate(45);
+        }
         this.settings = new CampaignSettings();
         this.soundEnabled = this.settings.current.sound;
 
@@ -153,7 +184,7 @@ export class M1Bootstrap extends Component {
         this.labelLayer = this.layer('Labels');
 
         if (this.skinRoot) {
-            this.skin = new BattleSkinView(this.skinRoot, floor, this.actorSprites, uiSprites, () => {});
+            this.skin = new BattleSkinView(this.skinRoot, floor, this.actorSprites, uiSprites, () => { this.uiDirty = true; });
         }
         this.loadScenery('night-depot');
 
@@ -162,6 +193,28 @@ export class M1Bootstrap extends Component {
         this.engage = createMiniGameEngage(this.reviveAd, { mockAds: DEBUG && query?.get('mockAd') === '1' });
         this.audio = new CampaignAudio(this.node, sys.isBrowser, retry => this.scheduleOnce(retry, 1));
         this.patrol = this.createPatrolUi();
+
+        this.stopMemWarning = this.runtime.onMemoryWarning(() => {
+            this.skin?.trimMemory();
+            this.patrol.trimMemory();
+            this.runtime.triggerGC();
+            this.uiDirty = true;
+        });
+        this.stopAudioInterrupt = this.runtime.onAudioInterruption(
+            () => {
+                this.musicSuspended = true;
+                this.syncMusic();
+                this.suspend();
+                this.uiDirty = true;
+            },
+            () => {
+                if (this.background) return;
+                this.musicSuspended = false;
+                this.syncMusic();
+                this.audio?.resumeAfterInterruption();
+                this.uiDirty = true;
+            },
+        );
 
         const dbg = query?.get('patrolDebug');
         if (DEBUG && dbg) this.patrol.jumpDebugState(dbg);
@@ -181,6 +234,7 @@ export class M1Bootstrap extends Component {
         this.node.on(Node.EventType.TOUCH_CANCEL, this.touchCancel, this);
         game.on(Game.EVENT_HIDE, this.onGameHide, this);
         game.on(Game.EVENT_SHOW, this.onGameShow, this);
+        this.uiDirty = true;
     }
 
     onDisable(): void {
@@ -196,6 +250,8 @@ export class M1Bootstrap extends Component {
     }
 
     onDestroy(): void {
+        this.stopMemWarning?.();
+        this.stopAudioInterrupt?.();
         this.engage?.dispose();
         this.reviveAd?.dispose();
         this.audio?.dispose();
@@ -205,10 +261,45 @@ export class M1Bootstrap extends Component {
     }
 
     update(dt: number): void {
-        if (this.patrol.page === 'home') this.emberTime += dt;
-        if ((!this.patrol.inBattle || this.background) && this.movementTouch !== null) this.cancelMovement();
-        if (!this.background) this.patrol.update(dt, this.stickAxis.x, this.stickAxis.y);
-        this.draw();
+        if (this.background) return;
+        const clampedDt = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 0.1) : 0;
+
+        if ((!this.patrol.inBattle) && this.movementTouch !== null) this.cancelMovement();
+        if (this.patrol.tickToast(clampedDt)) this.uiDirty = true;
+
+        if (this.patrol.inBattle) {
+            this.patrol.update(clampedDt, this.stickAxis.x, this.stickAxis.y);
+            this.draw();
+            return;
+        }
+
+        const frame = screen.windowSize;
+        const scale = Math.max(1e-6, view.getScaleY());
+        if (`patrol:${frame.width}:${frame.height}:${scale}` !== this.layout) this.uiDirty = true;
+
+        // Home screen: only update floating embers at 15 Hz without rebuilding UI labels 60x/s!
+        if (this.patrol.page === 'home') {
+            this.emberTime += clampedDt;
+            const step = Math.floor(this.emberTime * 15);
+            if (step !== this.lastEmberStep) {
+                this.lastEmberStep = step;
+                if (!this.uiDirty) {
+                    this.drawMotes();
+                    return;
+                }
+            }
+        }
+
+        // Onboarding pulse on shop: refresh at 4 Hz instead of 60 Hz to keep phone cool.
+        if (this.patrol.needsPulseDraw) {
+            this.pulseAccum += clampedDt;
+            if (this.pulseAccum >= 0.25) {
+                this.pulseAccum = 0;
+                this.uiDirty = true;
+            }
+        }
+
+        if (this.uiDirty) this.draw();
     }
 
     private onGameHide(): void {
@@ -217,6 +308,7 @@ export class M1Bootstrap extends Component {
         this.engage?.cancel();
         this.syncMusic();
         this.suspend();
+        this.uiDirty = true;
     }
 
     private onGameShow(): void {
@@ -224,11 +316,14 @@ export class M1Bootstrap extends Component {
         this.suspend();
         this.musicSuspended = false;
         this.syncMusic();
+        this.audio?.resumeAfterInterruption();
+        this.uiDirty = true;
     }
 
     private suspend(): void {
         this.clearInput();
         this.patrol?.suspend();
+        this.uiDirty = true;
     }
 
     private play(sound: Sound): void {
@@ -246,6 +341,7 @@ export class M1Bootstrap extends Component {
         this.soundEnabled = this.settings.current.sound;
         if (patch.movement) this.cancelMovement();
         this.syncMusic();
+        this.uiDirty = true;
         return true;
     }
 
@@ -260,6 +356,7 @@ export class M1Bootstrap extends Component {
 
     private clearInput(): void {
         this.cancelMovement();
+        if (this.press) this.uiDirty = true;
         this.press = null;
     }
 
@@ -307,6 +404,7 @@ export class M1Bootstrap extends Component {
         const area = this.actions.find(candidate => this.contains(candidate, p.x, p.y));
         if (area && !this.press) {
             this.press = { id: event.getID(), area, inside: true };
+            this.uiDirty = true;
             return;
         }
         if (!this.patrol.inBattle || this.movementTouch !== null) return;
@@ -326,7 +424,11 @@ export class M1Bootstrap extends Component {
     private touchMove(event: EventTouch): void {
         if (this.press?.id === event.getID()) {
             const p = this.point(event);
-            this.press.inside = this.contains(this.press.area, p.x, p.y);
+            const inside = this.contains(this.press.area, p.x, p.y);
+            if (inside !== this.press.inside) {
+                this.press.inside = inside;
+                this.uiDirty = true;
+            }
             return;
         }
         if (event.getID() !== this.movementTouch || !this.patrol.inBattle || this.background) return;
@@ -350,6 +452,7 @@ export class M1Bootstrap extends Component {
         if (this.press?.id !== event.getID()) return;
         const area = this.press.area;
         this.press = null;
+        this.uiDirty = true;
         const p = this.point(event);
         if (!this.background && this.contains(area, p.x, p.y)) {
             area.action();
@@ -360,7 +463,10 @@ export class M1Bootstrap extends Component {
 
     private touchCancel(event: EventTouch): void {
         if (event.getID() === this.movementTouch) this.cancelMovement();
-        if (this.press?.id === event.getID()) this.press = null;
+        if (this.press?.id === event.getID()) {
+            this.press = null;
+            this.uiDirty = true;
+        }
     }
 
     private battleViewport(): Node {
@@ -385,27 +491,78 @@ export class M1Bootstrap extends Component {
         return node;
     }
 
+    /** Diff-guarded pooled Label renderer: only mutates Cocos Label when props actually change (prevents iOS Canvas texture churn). */
     private text(value: string, x: number, y: number, options: TextOptions = {}): void {
-        let label = this.labels[this.labelIndex++];
-        if (!label) {
+        const idx = this.labelIndex++;
+        let slot = this.labels[idx];
+        if (!slot) {
             const node = new Node('Text');
             node.layer = this.node.layer;
             this.labelLayer.addChild(node);
-            label = node.addComponent(Label);
+            const label = node.addComponent(Label);
             label.fontFamily = '"Microsoft YaHei", "PingFang SC", sans-serif';
-            this.labels.push(label);
+            const transform = node.getComponent(UITransform)!;
+            slot = {
+                label,
+                transform,
+                active: true,
+                value: '',
+                x: Number.NaN,
+                y: Number.NaN,
+                size: -1,
+                colorKey: -1,
+                width: -1,
+                height: -1,
+                left: false,
+                bold: false,
+            };
+            this.labels.push(slot);
         }
-        label.node.active = true;
-        label.node.setPosition(x, y, 0);
+        if (!slot.active) {
+            slot.label.node.active = true;
+            slot.active = true;
+        }
+        const rx = Math.round(x);
+        const ry = Math.round(y);
+        if (slot.x !== rx || slot.y !== ry) {
+            slot.label.node.setPosition(rx, ry, 0);
+            slot.x = rx;
+            slot.y = ry;
+        }
         const size = options.size ?? 14;
-        label.fontSize = size;
-        label.lineHeight = size + 5;
-        label.color = options.color ?? PAPER;
-        label.isBold = !!options.bold;
-        label.horizontalAlign = options.left ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.CENTER;
-        label.overflow = options.width ? Label.Overflow.SHRINK : Label.Overflow.NONE;
-        if (options.width) label.node.getComponent(UITransform)!.setContentSize(options.width, options.height ?? 29);
-        label.string = value;
+        if (slot.size !== size) {
+            slot.label.fontSize = size;
+            slot.label.lineHeight = size + 5;
+            slot.size = size;
+        }
+        const color = options.color ?? PAPER;
+        const colorKey = ((color.r << 24) | (color.g << 16) | (color.b << 8) | color.a) >>> 0;
+        if (slot.colorKey !== colorKey) {
+            slot.label.color = color;
+            slot.colorKey = colorKey;
+        }
+        const bold = !!options.bold;
+        if (slot.bold !== bold) {
+            slot.label.isBold = bold;
+            slot.bold = bold;
+        }
+        const left = !!options.left;
+        if (slot.left !== left) {
+            slot.label.horizontalAlign = left ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.CENTER;
+            slot.left = left;
+        }
+        const width = options.width ?? 0;
+        const height = width ? (options.height ?? 29) : 0;
+        if (slot.width !== width || slot.height !== height) {
+            slot.label.overflow = width ? Label.Overflow.SHRINK : Label.Overflow.NONE;
+            if (width) slot.transform.setContentSize(width, height);
+            slot.width = width;
+            slot.height = height;
+        }
+        if (slot.value !== value) {
+            slot.label.string = value;
+            slot.value = value;
+        }
     }
 
     private block(left: number, bottom: number, width: number, height: number, color: Color): void {
@@ -436,6 +593,7 @@ export class M1Bootstrap extends Component {
             } else {
                 this.missingScenery.add(asset);
             }
+            this.uiDirty = true;
         };
         const bundle = PIXEL_MENU_ART[asset];
         if (bundle) {
@@ -473,7 +631,7 @@ export class M1Bootstrap extends Component {
             const cycle = (this.emberTime * 0.11 + i * 0.381) % 1;
             const x = 257 + (i * 31) % 88 - 19 * cycle + 3 * Math.sin(6 * cycle + i);
             const y = 379 + (i * 17) % 55 - 64 * cycle;
-            g.fillColor = new Color(255, 213, 142, Math.round(150 * Math.sin(cycle * Math.PI)));
+            g.fillColor = scratchColor(255, 213, 142, Math.round(150 * Math.sin(cycle * Math.PI)));
             g.circle(x, y, i % 3 ? 0.8 : 1.25);
             g.fill();
         }
@@ -485,7 +643,7 @@ export class M1Bootstrap extends Component {
         if (!active || !this.stickOrigin) return;
         const y = this.stickY;
         const x = this.stickX;
-        g.fillColor = new Color(22, 29, 27, 238);
+        g.fillColor = STICK_BG;
         g.circle(x, y, STICK_RADIUS + 2); g.fill();
         g.strokeColor = BENCH.weapon.accent; g.lineWidth = 2;
         g.circle(x, y, STICK_RADIUS); g.stroke();
@@ -538,10 +696,14 @@ export class M1Bootstrap extends Component {
             syncMusic: () => self.syncMusic(),
             onBattleStopped: () => self.clearInput(),
             get engage() { return self.engage; },
+            get isLowEndDevice() { return self.runtime.isLowEndDevice; },
+            invalidateUi: () => { self.uiDirty = true; },
+            triggerGC: () => { self.runtime.triggerGC(); },
         });
     }
 
     private draw(): void {
+        this.uiDirty = false;
         const frame = screen.windowSize;
         const scale = Math.max(1e-6, view.getScaleY());
         const layout = `patrol:${frame.width}:${frame.height}:${scale}`;
@@ -569,6 +731,12 @@ export class M1Bootstrap extends Component {
         this.patrol.draw();
         if (this.patrol.page === 'home') this.drawMotes();
         this.drawStick(this.joystickMode && this.patrol.inBattle && !this.background);
-        for (let index = this.labelIndex; index < this.labels.length; index++) this.labels[index].node.active = false;
+        for (let index = this.labelIndex; index < this.labels.length; index++) {
+            const slot = this.labels[index];
+            if (slot.active) {
+                slot.label.node.active = false;
+                slot.active = false;
+            }
+        }
     }
 }

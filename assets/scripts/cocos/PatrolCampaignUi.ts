@@ -113,8 +113,11 @@ const CYAN = new Color(103, 198, 243);
 const PURPLE = new Color(193, 143, 249);
 const GOLD = new Color(251, 199, 108);
 const DARK_SCRIM = new Color(8, 13, 17, 214);
+const HUD_GLASS = new Color(14, 22, 29, 226);
 const HEAL_GREEN = new Color(98, 232, 152);
-const JAM_PURPLE = new Color(190, 128, 255, 110);
+const JAM_ACTIVE_RING = new Color(192, 128, 255, 220);
+const JAM_WARN_RING = new Color(251, 199, 108, 175);
+const HEALTH_TEXT = new Color(168, 184, 192, 195);
 const DANGER_COLOR: Record<DangerLevel, Color> = {
     0: new Color(172, 188, 198),
     1: new Color(230, 154, 92),
@@ -165,6 +168,9 @@ export interface PatrolHost {
     readonly syncMusic: (battle: boolean) => void;
     readonly onBattleStopped: () => void;
     readonly engage?: MiniGameEngage | null;
+    readonly isLowEndDevice?: boolean;
+    readonly invalidateUi?: () => void;
+    readonly triggerGC?: () => void;
 }
 
 type PatrolPage = 'home' | 'prep' | 'workshop' | 'log' | 'settings' | 'battle' | 'revive' | 'shop' | 'result';
@@ -345,11 +351,13 @@ export class PatrolCampaignUi {
     private showStatsDrawer = false;
     private shopFeedback = '';
     private homeNotice = '';
+    private toastText = '';
+    private toastLeft = 0;
+    private touchGuardUntil = 0;
     private adBusy = false;
     private resultDoubledRunId: string | null = null;
     private tutorialSkipped = false;
     private movedTicksInWave = 0;
-    private uiTick = 0;
     private saving = false;
     private retrySave: (() => void) | null = null;
     private lastArena = '';
@@ -374,6 +382,7 @@ export class PatrolCampaignUi {
         storage?: PatrolStorage,
     ) {
         this.storage = storage ?? new PatrolStorage();
+        if (this.host.isLowEndDevice) this.juice.setBudgetScale(0.5);
         this.restore();
     }
 
@@ -411,6 +420,36 @@ export class PatrolCampaignUi {
         return !this.saving && !this.adBusy && !this.retrySave && this.page === 'battle' && !!this.session?.battle && !this.paused;
     }
 
+    /** True when the current static UI page shows an animated onboarding highlight ring (throttled to 4 Hz). */
+    get needsPulseDraw(): boolean {
+        return this.page === 'shop' && !this.showStatsDrawer && needsShopOnboarding(this.profile) && !this.tutorialSkipped;
+    }
+
+    trimMemory(): void {
+        this.juice.trimMemory();
+    }
+
+    showToast(text: string, durationSec = 2.4): void {
+        this.toastText = text;
+        this.toastLeft = durationSec;
+        this.host.invalidateUi?.();
+    }
+
+    tickToast(dt: number): boolean {
+        if (this.toastLeft <= 0) return false;
+        this.toastLeft -= dt;
+        if (this.toastLeft <= 0) {
+            this.toastLeft = 0;
+            this.toastText = '';
+            return true;
+        }
+        return false;
+    }
+
+    private guardTouches(ms = 260): void {
+        this.touchGuardUntil = Date.now() + ms;
+    }
+
     private canOfferAd(): boolean {
         return this.profile.adFreePass === true || this.host.engage?.hasRewardedAd === true;
     }
@@ -424,26 +463,33 @@ export class PatrolCampaignUi {
         const engage = this.host.engage;
         if (this.profile.adFreePass) {
             onReward();
+            this.host.invalidateUi?.();
             return;
         }
         if (!engage?.hasRewardedAd) {
+            this.showToast('当前环境暂未开放激励视频');
             onFail?.();
             return;
         }
         this.adBusy = true;
         this.host.onBattleStopped();
+        this.host.invalidateUi?.();
         void engage.requestReward(placement, { adFreePass: this.profile.adFreePass }).then(ok => {
             this.adBusy = false;
             if (ok) {
                 onReward();
             } else {
                 this.shopFeedback = '视频未看完，暂未发放';
+                this.showToast('视频未看完，暂未发放');
                 onFail?.();
             }
+            this.host.invalidateUi?.();
         }, () => {
             this.adBusy = false;
             this.shopFeedback = '视频暂不可用，请稍后再试';
+            this.showToast('视频暂不可用，请稍后再试');
             onFail?.();
+            this.host.invalidateUi?.();
         });
     }
 
@@ -455,7 +501,7 @@ export class PatrolCampaignUi {
 
     private drawGuidePulse(x: number, y: number, w: number, h: number, color: Color): void {
         const g = this.host.ui;
-        const pulse = Math.floor(this.uiTick / 16) % 2 === 0;
+        const pulse = Math.floor(Date.now() / 360) % 2 === 0;
         const pad = pulse ? 3 : 2;
         g.strokeColor = color;
         g.lineWidth = pulse ? 3 : 2;
@@ -545,10 +591,14 @@ export class PatrolCampaignUi {
             this.showStatsDrawer = false;
             this.shopFeedback = '';
             this.page = 'shop';
+            this.guardTouches(260);
             this.host.syncMusic(false);
+            this.host.invalidateUi?.();
         } else if (this.session.phase === 'lost' && this.session.canRevive && this.canOfferAd()) {
             this.page = 'revive';
+            this.guardTouches(320);
             this.host.syncMusic(false);
+            this.host.invalidateUi?.();
         } else if (this.session.phase === 'won' || this.session.phase === 'lost') {
             this.finalizeRun();
         }
@@ -560,9 +610,13 @@ export class PatrolCampaignUi {
         if (!locks) { attempt(); return; }
         // Serialise the read/compare/write across tabs on Web origins supporting Web Locks.
         this.saving = true;
+        this.host.invalidateUi?.();
         void locks.request('night-shift.patrol.save', attempt).catch(() => {
             this.retrySave = () => this.persist(write);
-        }).finally(() => { this.saving = false; });
+        }).finally(() => {
+            this.saving = false;
+            this.host.invalidateUi?.();
+        });
     }
 
     private finishWrite(write: () => boolean): void {
@@ -596,8 +650,13 @@ export class PatrolCampaignUi {
             this.profile = profile;
             this.result = session.settle(preProfile);
             this.page = 'result';
+            this.guardTouches(280);
+            this.juice.reset();
+            this.host.skin?.trimMemory();
+            this.host.triggerGC?.();
             this.host.play(this.result.won ? 'unlock' : 'hit');
             this.host.syncMusic(false);
+            this.host.invalidateUi?.();
             return true;
         });
     }
@@ -699,7 +758,6 @@ export class PatrolCampaignUi {
     }
 
     draw(): void {
-        this.uiTick++;
         const isBattle = !this.retrySave && (this.page === 'battle' || this.page === 'revive') && !!this.session?.battle;
         if (!isBattle) {
             this.host.clearWorldLayers();
@@ -737,6 +795,11 @@ export class PatrolCampaignUi {
             case 'revive': this.drawReviveOffer(); break;
             case 'shop': this.drawShop(); break;
             case 'result': this.drawResult(); break;
+        }
+        if (this.toastText) {
+            const ty = Math.min(this.host.top - 36, this.host.capsuleCeiling - 56);
+            benchPlate(this.host.ui, 24, ty - 16, 312, 32, HUD_GLASS, GOLD, 5);
+            this.host.text(this.toastText, 180, ty, { width: 298, size: 11, bold: true, color: GOLD });
         }
         this.host.skin?.endUi();
     }
@@ -797,7 +860,7 @@ export class PatrolCampaignUi {
                 drawPixelEnemyAim(art, e.x, e.y, e.vx, e.vy, 64, e.kind, e.next - battle.tick);
             } else if (e.kind === 'jammer' && (e.state === 'warn' || e.state === 'dash')) {
                 const active = e.state === 'dash';
-                art.fillColor = active ? new Color(192, 128, 255, 220) : new Color(251, 199, 108, 175);
+                art.fillColor = active ? JAM_ACTIVE_RING : JAM_WARN_RING;
                 pxRing(art, e.x, e.y, 68, active ? 4 : 2, battle.tick * 0.04, Math.PI * 2, active ? 7 : 10, active ? 4 : 2);
                 art.fill();
             } else if (e.kind === 'ambusher' && e.state === 'warn') {
@@ -892,6 +955,8 @@ export class PatrolCampaignUi {
             if (needSidebarJump) {
                 void engage?.openSidebar().then(ok => {
                     this.homeNotice = ok ? '从侧边栏重进即可领取今日补给！' : '可直接在首页打卡领取今日补给';
+                    this.showToast(this.homeNotice);
+                    this.host.invalidateUi?.();
                 });
                 return;
             }
@@ -900,20 +965,21 @@ export class PatrolCampaignUi {
                 this.saveWorkshop(next);
                 this.host.play('unlock');
                 this.homeNotice = `打卡到账 +${DAILY_CHECKIN_CREDITS} 凭证 · 送 1 次免费班前特供`;
+                this.showToast(this.homeNotice);
             }
         }, canCheckIn, canCheckIn);
 
-        // FIXED: Unified hard-edge pixel bottom bar (no thin vector circles).
-        const bottom = Math.max(this.host.footer + 28, 56);
+        // FIXED: Unified hard-edge pixel bottom bar + P0 Healthy Gaming Notice cleanly inside safe area.
+        const bottom = Math.max(this.host.footer + 40, 70);
         const hasActive = !!this.session && (this.session.phase === 'battle' || this.session.phase === 'shop');
 
         if (this.homeNotice) {
-            benchPlate(g, 16, bottom + 36, 328, 28, new Color(14, 22, 29, 230), GOLD, 5);
+            benchPlate(g, 16, bottom + 36, 328, 28, HUD_GLASS, GOLD, 5);
             this.host.text(this.homeNotice, 180, bottom + 50, { width: 312, size: 11, bold: true, color: GOLD });
         } else if (!hasActive && !isFirstTimePlayer(this.profile)) {
             if (dispatch.radio) {
                 const ry = bottom + 72;
-                benchPlate(g, 16, ry, 328, 38, new Color(14, 22, 29, 218), BENCH.edge, 5);
+                benchPlate(g, 16, ry, 328, 38, HUD_GLASS, BENCH.edge, 5);
                 const portrait = dispatch.radio.speaker === '陈栖' ? 'radio-chenqi' : 'radio-aruan';
                 this.host.skin?.uiIcon(portrait, 36, ry + 19, 28);
                 this.host.text(`${dispatch.radio.speaker}：${dispatch.radio.line}`, 196, ry + 19,
@@ -921,7 +987,7 @@ export class PatrolCampaignUi {
             }
             const daily = getDailyShift(dateKey);
             const dailyDone = isDailyShiftClearedToday(this.profile, dateKey);
-            benchPlate(g, 16, bottom + 36, 328, 30, new Color(14, 22, 29, 224), dailyDone ? GREEN : CYAN, 5);
+            benchPlate(g, 16, bottom + 36, 328, 30, HUD_GLASS, dailyDone ? GREEN : CYAN, 5);
             const dailyText = `今日急单 · ${daily.modifier.name}${dailyDone ? ' · 已完成 ✓' : ` · 奖+${daily.bonusCredits}凭证`}`;
             this.host.text(dailyText, 152, bottom + 51, { left: true, width: 254, size: 11, bold: true, color: dailyDone ? GREEN : CYAN });
             this.pixelBtn('去看看', 310, bottom + 51, 56, 22, () => {
@@ -952,6 +1018,13 @@ export class PatrolCampaignUi {
         drawDispatchHandle(g, 256, bottom, held);
         const cta = hasActive ? `继续 · 第${this.session!.waveIndex + 1}波` : UI_COPY.home.startCta;
         this.host.text(cta, 236, bottom - (held ? 3 : 0), { size: hasActive ? 19 : 23, bold: true, color: BENCH.ink, width: 132 });
+
+        // Required WeChat / Douyin P0 Healthy Gaming Notice cleanly seated below bottom bar
+        const noticeY = Math.max(this.host.footer - 12, 18);
+        this.host.text(
+            '抵制不良游戏，拒绝盗版游戏。注意自我保护，谨防受骗上当。\n适度游戏益脑，沉迷游戏伤身。合理安排时间，享受健康生活。',
+            180, noticeY, { width: 336, height: 24, size: 8, color: HEALTH_TEXT },
+        );
     }
 
     // ─────────────────────────── PAGE 2: PREP / CHAPTER & RIG (FIXED) ───────────────────────────
@@ -1300,7 +1373,7 @@ export class PatrolCampaignUi {
         const chNarr = CHAPTER_NARRATIVES[battle.chapter.id];
         if (boss) {
             const by = FIELD.top - 48;
-            benchPlate(g, 24, by, 312, 44, new Color(14, 22, 29, 224), boss.vulnerable ? GOLD : RED, 6);
+            benchPlate(g, 24, by, 312, 44, HUD_GLASS, boss.vulnerable ? GOLD : RED, 6);
             this.host.text(`${boss.title} · 第${boss.stage}段${boss.vulnerable ? ' · 外壳敞开' : ''}`, 180, by + 32,
                 { width: 296, size: 12, bold: true, color: boss.vulnerable ? GOLD : BENCH.paper });
             this.host.block(34, by + 18, 292, 6, BENCH.steel);
@@ -1312,7 +1385,7 @@ export class PatrolCampaignUi {
             if (battle.tick < 135 && !session.endlessMode && (battle.waveDef.wave === 5 || battle.waveDef.wave === 12)) {
                 const beat = battle.waveDef.wave === 5 ? chNarr.midTurn : chNarr.bossIntro;
                 const ry = by - 40;
-                benchPlate(g, 20, ry, 320, 36, new Color(14, 22, 29, 228), GOLD, 6);
+                benchPlate(g, 20, ry, 320, 36, HUD_GLASS, GOLD, 6);
                 const portrait = beat.speaker === '陈栖' ? 'radio-chenqi' : 'radio-aruan';
                 this.host.skin?.uiIcon(portrait, 40, ry + 18, 28);
                 this.host.text(`${beat.speaker}：${beat.line}`, 196, ry + 18, { left: true, width: 274, height: 32, size: 10, color: BENCH.paper });
@@ -1323,7 +1396,7 @@ export class PatrolCampaignUi {
             const radio = station.waves[0] === battle.waveDef.wave ? station.arriveRadio : undefined;
             if (radio) {
                 const ry = FIELD.top - 42;
-                benchPlate(g, 20, ry, 320, 36, new Color(14, 22, 29, 224), BENCH.edge, 6);
+                benchPlate(g, 20, ry, 320, 36, HUD_GLASS, BENCH.edge, 6);
                 const portrait = radio.startsWith('陈栖') ? 'radio-chenqi' : 'radio-aruan';
                 this.host.skin?.uiIcon(portrait, 40, ry + 18, 28);
                 this.host.text(radio, 196, ry + 18, { left: true, width: 274, height: 32, size: 10, color: BENCH.paper });
@@ -1348,7 +1421,7 @@ export class PatrolCampaignUi {
         // Lightweight Wave-1 onboarding tip in A-Ruan's voice: disappears once player starts moving!
         if (battle.waveDef.wave === 1 && needsShopOnboarding(this.profile) && this.movedTicksInWave < 20 && !boss) {
             const tipY = FIELD.bottom + 36;
-            benchPlate(g, 24, tipY - 16, 312, 32, new Color(14, 22, 29, 230), GOLD, 5);
+            benchPlate(g, 24, tipY - 16, 312, 32, HUD_GLASS, GOLD, 5);
             this.host.text('阿阮：拖屏幕走位，六臂架自动拆怪，靠过去吸铜件', 180, tipY,
                 { width: 300, size: 11, bold: true, color: GOLD });
         }
@@ -1403,6 +1476,8 @@ export class PatrolCampaignUi {
             if (this.session) this.saveRun(this.session);
             this.paused = false;
             this.page = 'home';
+            this.host.skin?.trimMemory();
+            this.host.triggerGC?.();
             this.host.syncMusic(false);
         });
     }
@@ -2103,6 +2178,7 @@ export class PatrolCampaignUi {
                     ? `夜班修理局：港区无尽我撑过第 ${res.wavesCleared} 波！主力 ${topWep}`
                     : `夜班修理局：用 ${topWep} 带队修亮了「${res.chapterTitle}」！`;
                 this.host.engage?.shareResult(title, `击倒 ${res.totalKills} 台暴走敌机 · ${DANGER_MULTIPLIERS[res.danger].label}`);
+                this.showToast('战报已拉起分享');
             });
         } else {
             this.pixelBtn('回值班室', 96, botY, 156, 40, () => { this.page = 'home'; });
@@ -2145,7 +2221,10 @@ export class PatrolCampaignUi {
         enabled = true,
         badge = false,
     ): void {
-        const held = enabled && this.host.addTouch(x, y, w, h, action);
+        const held = enabled && this.host.addTouch(x, y, w, h, () => {
+            if (Date.now() < this.touchGuardUntil) return;
+            action();
+        });
         const fill = !enabled ? BENCH.recess : primary ? (held ? BENCH.paper : GOLD) : (held ? BENCH.edge : BENCH.steel);
         const edge = !enabled ? BENCH.steel : primary ? undefined : BENCH.edge;
         benchPlate(this.host.ui, x - w / 2, y - h / 2, w, h, fill, edge, 5);

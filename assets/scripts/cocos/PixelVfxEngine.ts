@@ -3,6 +3,13 @@ import type { ToolId } from '../roguelite/types';
 
 export type RGB = readonly [number, number, number];
 
+// Reusable scratch Color avoids allocating thousands of temporary Color objects per second on iOS JSC.
+const _scratchColor = new Color(255, 255, 255, 255);
+export function scratchColor(r: number, g: number, b: number, a = 255): Color {
+    _scratchColor.set(r, g, b, a);
+    return _scratchColor;
+}
+
 // Snap coordinates to a clean 2px pixel grid so procedural VFX match the pixel art aesthetic.
 export function snap2(v: number): number {
     return Math.round(v * 0.5) * 2;
@@ -54,12 +61,12 @@ export function pxStarFlash(g: Graphics, x: number, y: number, radius: number, r
     const cx = snap2(x);
     const cy = snap2(y);
     const r = Math.max(4, snap2(radius));
-    g.fillColor = new Color(rim[0], rim[1], rim[2], Math.round(alpha));
+    g.fillColor = scratchColor(rim[0], rim[1], rim[2], Math.round(alpha));
     g.rect(cx - r, cy - 2, r * 2, 4);
     g.rect(cx - 2, cy - r, 4, r * 2);
     g.fill();
     const inner = Math.max(2, snap2(r * 0.55));
-    g.fillColor = new Color(255, 252, 232, Math.round(alpha));
+    g.fillColor = scratchColor(255, 252, 232, Math.round(alpha));
     g.rect(cx - inner, cy - 1, inner * 2, 2);
     g.rect(cx - 1, cy - inner, 2, inner * 2);
     g.rect(cx - 2, cy - 2, 4, 4);
@@ -105,6 +112,8 @@ const MAX_PARTICLES = 96;
 export class PixelJuiceEngine {
     private readonly decals: GroundDecal[] = [];
     private readonly particles: PixelParticle[] = [];
+    private maxDecals = MAX_DECALS;
+    private maxParticles = MAX_PARTICLES;
     private shakeAmp = 0;
     private shakeDuration = 0;
     private shakeElapsed = 0;
@@ -128,6 +137,21 @@ export class PixelJuiceEngine {
         this.shakePriority = 0;
         this.hitstopLeft = 0;
         this.hitstopCooldown = 0;
+    }
+
+    /** Adapt VFX density for low-end mini-game devices (scale 0.4..1.0). */
+    setBudgetScale(scale: number): void {
+        const clamped = Math.max(0.4, Math.min(1, scale));
+        this.maxDecals = Math.max(24, Math.round(MAX_DECALS * clamped));
+        this.maxParticles = Math.max(24, Math.round(MAX_PARTICLES * clamped));
+        if (this.decals.length > this.maxDecals) this.decals.splice(0, this.decals.length - this.maxDecals);
+        if (this.particles.length > this.maxParticles) this.particles.splice(0, this.particles.length - this.maxParticles);
+    }
+
+    /** Emergency purge on platform memory warning. */
+    trimMemory(): void {
+        this.decals.length = 0;
+        this.particles.length = 0;
     }
 
     /** Trigger non-stacking tiered camera shake (priority 1=crit, 2=player hit, 3=boss/elite kill). */
@@ -351,17 +375,17 @@ export class PixelJuiceEngine {
             const sx = snap2(d.x);
             const sy = snap2(d.y + d.z);
             if (d.kind === 'oil' || d.kind === 'scorch') {
-                g.fillColor = new Color(d.color[0], d.color[1], d.color[2], 148);
+                g.fillColor = scratchColor(d.color[0], d.color[1], d.color[2], 148);
                 const r = d.size;
                 g.rect(sx - r, sy - Math.floor(r * 0.5), r * 2, r);
                 g.rect(sx - Math.floor(r * 0.6), sy - Math.floor(r * 0.75), Math.floor(r * 1.2), Math.floor(r * 1.5));
                 g.fill();
             } else if (d.kind === 'shell') {
-                g.fillColor = new Color(d.color[0], d.color[1], d.color[2], d.settled ? 155 : 235);
+                g.fillColor = scratchColor(d.color[0], d.color[1], d.color[2], d.settled ? 155 : 235);
                 g.rect(sx, sy, d.size, 2);
                 g.fill();
             } else {
-                g.fillColor = new Color(d.color[0], d.color[1], d.color[2], d.settled ? 132 : 225);
+                g.fillColor = scratchColor(d.color[0], d.color[1], d.color[2], d.settled ? 132 : 225);
                 g.rect(sx, sy, d.size, d.size);
                 g.fill();
             }
@@ -377,7 +401,7 @@ export class PixelJuiceEngine {
             if (alpha <= 12) continue;
             const sx = snap2(p.x);
             const sy = snap2(p.y);
-            g.fillColor = new Color(p.color[0], p.color[1], p.color[2], alpha);
+            g.fillColor = scratchColor(p.color[0], p.color[1], p.color[2], alpha);
             if (p.kind === 'heal') {
                 g.rect(sx - 2, sy, 6, 2);
                 g.rect(sx, sy - 2, 2, 6);
@@ -389,12 +413,12 @@ export class PixelJuiceEngine {
     }
 
     private pushDecal(d: GroundDecal): void {
-        if (this.decals.length >= MAX_DECALS) this.decals.shift();
+        if (this.decals.length >= this.maxDecals) this.decals.shift();
         this.decals.push(d);
     }
 
     private pushParticle(p: PixelParticle): void {
-        if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
+        if (this.particles.length >= this.maxParticles) this.particles.shift();
         this.particles.push(p);
     }
 }

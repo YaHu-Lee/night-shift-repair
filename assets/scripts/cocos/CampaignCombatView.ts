@@ -1,6 +1,6 @@
 import { Color, Graphics } from 'cc';
 import type { ChapterBossKind, ChapterHazard, RenderBattleView, RenderBullet, RenderEnemy } from '../roguelite/types';
-import { pxLine, pxRing, pxStarFlash, snap2 } from './PixelVfxEngine';
+import { pxLine, pxRing, pxStarFlash, scratchColor, snap2 } from './PixelVfxEngine';
 
 const GOLD = new Color(252, 201, 108);
 const RED = new Color(247, 111, 100);
@@ -13,13 +13,22 @@ const THREAT_BORDER = new Color(18, 12, 18, 245);
 const PLAYER_HIT = new Color(255, 92, 82);
 const QUIET_WARNING = new Color(255, 198, 92, 165);
 const BOSS_SHELL = new Color(255, 74, 196);
+const LASER_OUTER_CORE = new Color(238, 62, 168, 195);
+const LASER_OUTER_STD = new Color(255, 64, 58, 195);
+const LASER_MID_CORE = new Color(255, 146, 232, 235);
+const LASER_MID_STD = new Color(255, 168, 64, 235);
+const STORM_PRI_CORE = new Color(255, 86, 178, 235);
+const STORM_PRI_STD = new Color(196, 114, 255, 235);
+const STORM_ACC_CORE = new Color(255, 198, 92, 235);
+const STORM_ACC_STD = new Color(255, 76, 108, 235);
+const PURSUER_WAKE = new Color(119, 221, 200, 195);
 
 export function drawPixelEnemyAim(g: Graphics, x: number, y: number, dx: number, dy: number,
     reach: number, kind: 'charger' | 'turret', untilAttack: number): void {
     const charge = kind === 'charger';
     const alpha = untilAttack <= 6 ? 193 : 118;
     const end = Math.min(reach, charge ? 40 : 32);
-    g.fillColor = charge ? new Color(255, 137, 102, alpha) : new Color(255, 197, 108, alpha);
+    g.fillColor = charge ? scratchColor(255, 137, 102, alpha) : scratchColor(255, 197, 108, alpha);
     const block = (forward: number, side: number) => {
         g.rect(Math.round(x + dx * forward - dy * side) - 1,
             Math.round(y + dy * forward + dx * side) - 1, 2, 2);
@@ -85,7 +94,7 @@ export function drawPixelEnemyShells(g: Graphics, bullets: readonly RenderBullet
 }
 
 export function drawBossVolleyCue(g: Graphics, x: number, y: number, facing: number, ring: boolean, until: number): void {
-    g.fillColor = new Color(226, 151, 218, until <= 6 ? 201 : 120);
+    g.fillColor = scratchColor(226, 151, 218, until <= 6 ? 201 : 120);
     for (const offset of ring ? [0, Math.PI / 2, Math.PI, -Math.PI / 2] : [-0.3, 0, 0.3]) {
         const angle = facing + offset;
         g.rect(Math.round(x + Math.cos(angle) * 19) - 1, Math.round(y + Math.sin(angle) * 19) - 1, 3, 3);
@@ -99,7 +108,7 @@ export function drawPlayerHit(g: Graphics, x: number, y: number, age: number): v
     y = Math.round(y);
     const extent = 11 + Math.floor(age);
     for (const [size, color] of [[4, THREAT_BORDER], [2, PLAYER_HIT]] as const) {
-        g.fillColor = new Color(color.r, color.g, color.b, Math.round(color.a * (1 - age / 6)));
+        g.fillColor = scratchColor(color.r, color.g, color.b, Math.round(color.a * (1 - age / 6)));
         for (const side of [-1, 1]) {
             const px = x + side * extent - size / 2;
             g.rect(px, y - 2, size, 8);
@@ -114,7 +123,7 @@ export function drawPixelSpawn(g: Graphics, x: number, y: number, untilSpawn: nu
     const r = Math.max(8, Math.round(8 + untilSpawn / 3));
     x = Math.round(x);
     y = Math.round(y);
-    g.fillColor = new Color(color.r, color.g, color.b, untilSpawn <= 6 ? 245 : 176);
+    g.fillColor = scratchColor(color.r, color.g, color.b, untilSpawn <= 6 ? 245 : 176);
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
         g.rect(x + sx * r - (sx > 0 ? 6 : 0), y + sy * r - (sy > 0 ? 2 : 0), 6, 2);
         g.rect(x + sx * r - (sx > 0 ? 2 : 0), y + sy * r - (sy > 0 ? 6 : 0), 2, 6);
@@ -145,7 +154,7 @@ function drawBossHazard(
 ): void {
     const hot = hazard.state === 'active';
     const age = Math.max(0, tick - phaseStartedAt);
-    g.fillColor = hot ? new Color(247, 79, 59, 115) : new Color(255, 181, 61, 55);
+    g.fillColor = hot ? scratchColor(247, 79, 59, 115) : scratchColor(255, 181, 61, 55);
     g.strokeColor = hot ? RED : GOLD;
     g.lineWidth = 2.5;
     switch (hazard.shape) {
@@ -189,7 +198,7 @@ function drawPixelLaneWarningChevrons(g: Graphics, lane: Extract<ChapterHazard, 
     const horiz = width >= height;
     const cx = (left + right) * 0.5, cy = (bottom + top) * 0.5;
     const blink = Math.floor(tick / 4) % 2 === 0 ? 150 : 85;
-    g.fillColor = new Color(255, 198, 92, blink);
+    g.fillColor = scratchColor(255, 198, 92, blink);
     const shift = (tick * 2) % 32;
     if (horiz) {
         for (let x = left + 16 + shift; x < right - 16; x += 32) {
@@ -228,7 +237,7 @@ function drawPixelFireLane(
     const frame = Math.floor(tick / 2);
 
     // 1. Subtle dark charred scorch bed under the roaring flames (keeps exact hitbox clear without looking like a flat red box)
-    g.fillColor = new Color(46, 16, 18, Math.round(135 * ramp));
+    g.fillColor = scratchColor(46, 16, 18, Math.round(135 * ramp));
     g.rect(snap2(left), snap2(bottom), snap2(width), snap2(height));
     g.fill();
 
@@ -238,7 +247,7 @@ function drawPixelFireLane(
     // 3. Roaring 3-tier pixel fire plumes filling the lane!
     const stepX = 16, stepY = 16;
     // Pass A: deep crimson flame base blocks
-    g.fillColor = new Color(214, 42, 42, Math.round(215 * ramp));
+    g.fillColor = scratchColor(214, 42, 42, Math.round(215 * ramp));
     for (let y = bottom + 6; y < top - 4; y += stepY) {
         for (let x = left + 6; x < right - 4; x += stepX) {
             const h = Math.sin(x * 0.13 + y * 0.17 + frame * 1.4);
@@ -251,7 +260,7 @@ function drawPixelFireLane(
     g.fill();
 
     // Pass B: blazing orange flame tongues jumping upward
-    threat.fillColor = new Color(255, 118, 38, Math.round(235 * ramp));
+    threat.fillColor = scratchColor(255, 118, 38, Math.round(235 * ramp));
     for (let y = bottom + 8; y < top - 6; y += stepY) {
         for (let x = left + 8; x < right - 6; x += stepX) {
             const phase = Math.sin(x * 0.19 - y * 0.11 + frame * 1.9);
@@ -264,7 +273,7 @@ function drawPixelFireLane(
     threat.fill();
 
     // Pass C: golden-yellow inner heat cores + rising pixel embers
-    threat.fillColor = new Color(255, 222, 86, Math.round(245 * ramp));
+    threat.fillColor = scratchColor(255, 222, 86, Math.round(245 * ramp));
     for (let y = bottom + 10; y < top - 8; y += stepY) {
         for (let x = left + 10; x < right - 8; x += stepX) {
             const phase = Math.cos(x * 0.23 + y * 0.19 + frame * 2.3);
@@ -280,7 +289,7 @@ function drawPixelFireLane(
 
     // Pass D: white-hot central overload plasma arc whipping across the lane!
     const cx = (left + right) * 0.5, cy = (bottom + top) * 0.5;
-    threat.fillColor = new Color(255, 252, 228, Math.round(240 * ramp));
+    threat.fillColor = scratchColor(255, 252, 228, Math.round(240 * ramp));
     const segs = 12;
     let prevX = horiz ? left + 4 : cx;
     let prevY = horiz ? cy : bottom + 4;
@@ -310,8 +319,8 @@ function drawPixelLaserLane(
     const cx = (left + right) * 0.5, cy = (bottom + top) * 0.5;
     const thickness = horiz ? height : width;
     const pulse = (Math.floor(tick / 2) % 2) === 0 ? 1 : 0.86;
-    const outerCol = isCore ? new Color(238, 62, 168, 195) : new Color(255, 64, 58, 195);
-    const midCol = isCore ? new Color(255, 146, 232, 235) : new Color(255, 168, 64, 235);
+    const outerCol = isCore ? LASER_OUTER_CORE : LASER_OUTER_STD;
+    const midCol = isCore ? LASER_MID_CORE : LASER_MID_STD;
 
     // Outer scorched edge + pulsing plasma mantle
     drawPixelLaneEdges(threat, lane, true);
@@ -330,7 +339,7 @@ function drawPixelLaserLane(
 
     // Pure white-hot core beam + racing shock nodes
     const coreW = Math.max(4, snap2(thickness * (age < 3 ? 0.28 : 0.18)));
-    threat.fillColor = new Color(255, 253, 238, 250);
+    threat.fillColor = scratchColor(255, 253, 238, 250);
     if (horiz) threat.rect(snap2(left), snap2(cy - coreW / 2), snap2(width), coreW);
     else threat.rect(snap2(cx - coreW / 2), snap2(bottom), coreW, snap2(height));
     const speedShift = (tick * 9) % 44;
@@ -358,11 +367,11 @@ function drawPixelStormSector(
     isCore: boolean,
 ): void {
     const { x, y, radius, from, sweep } = hazard;
-    const primary = isCore ? new Color(255, 86, 178, 235) : new Color(196, 114, 255, 235);
-    const accent = isCore ? new Color(255, 198, 92, 235) : new Color(255, 76, 108, 235);
+    const primary = isCore ? STORM_PRI_CORE : STORM_PRI_STD;
+    const accent = isCore ? STORM_ACC_CORE : STORM_ACC_STD;
 
     // Subtle dark purple/crimson static floor tint so exact safe wedge remains unmistakable
-    g.fillColor = isCore ? new Color(68, 18, 42, 92) : new Color(46, 20, 68, 92);
+    g.fillColor = isCore ? scratchColor(68, 18, 42, 92) : scratchColor(46, 20, 68, 92);
     wedge(g, x, y, radius, from, sweep);
     g.fill();
 
@@ -385,7 +394,7 @@ function drawPixelStormSector(
 
     // 6 crackling white-hot radial pixel lightning spokes
     const spokes = 6;
-    threat.fillColor = new Color(255, 250, 232, age < 3 ? 250 : 210);
+    threat.fillColor = scratchColor(255, 250, 232, age < 3 ? 250 : 210);
     for (let i = 0; i < spokes; i++) {
         const u = (i + 0.5) / spokes;
         const a = from + sweep * u + Math.sin(tick * 0.7 + i * 2.1) * 0.06;
@@ -421,14 +430,14 @@ function drawPixelHeavyTether(
     for (let i = 0; i <= links; i++) {
         const u = i / links;
         const lx = snap2(x + dx * u), ly = snap2(y + dy * u);
-        threat.fillColor = i % 2 === 0 ? new Color(255, 198, 92, 245) : new Color(165, 182, 190, 245);
+        threat.fillColor = i % 2 === 0 ? scratchColor(255, 198, 92, 245) : scratchColor(165, 182, 190, 245);
         threat.rect(lx - 2, ly - 2, 4, 4);
     }
     threat.fill();
 
     // 3. High-voltage crimson & white-hot zigzag surge racing along the taut chain
     const frame = Math.floor(tick / 2);
-    threat.fillColor = new Color(255, 74, 88, 240);
+    threat.fillColor = scratchColor(255, 74, 88, 240);
     let px = x, py = y;
     for (let i = 1; i <= 7; i++) {
         const u = i / 7;
@@ -513,7 +522,7 @@ function drawEnemyTelegraphs(g: Graphics, enemies: readonly RenderEnemy[], tick:
         const tether = enemy.tether;
         if (kind === 'pursuer' && state === 'dash') {
             const dx = enemy.vx, dy = enemy.vy;
-            g.strokeColor = new Color(119, 221, 200, 195); g.lineWidth = 2;
+            g.strokeColor = PURSUER_WAKE; g.lineWidth = 2;
             for (const side of [-5, 5]) {
                 g.moveTo(x - dx * 8 - dy * side, y - dy * 8 + dx * side);
                 g.lineTo(x - dx * 25 - dy * side, y - dy * 25 + dx * side);
@@ -536,14 +545,14 @@ function drawEnemyTelegraphs(g: Graphics, enemies: readonly RenderEnemy[], tick:
             }
         } else if (kind === 'jammer' && state !== 'walk') {
             const open = state === 'dash';
-            g.fillColor = new Color(169, 105, 243, open ? 38 : 14);
+            g.fillColor = scratchColor(169, 105, 243, open ? 38 : 14);
             if (open) { g.circle(x, y, 52); g.fill(); }
             g.strokeColor = open ? JAMMED : GOLD; g.lineWidth = 1.5;
             drawPixelArcEdge(threat, x, y, 52, 0, 2 * Math.PI, open ? JAMMED : QUIET_WARNING, open ? 3 : 14);
             g.lineWidth = 2;
             g.moveTo(x, y + 8); g.lineTo(x + 7, y - 4); g.lineTo(x - 7, y - 4); g.close(); g.stroke();
         } else if (kind === 'ambusher' && state === 'warn') {
-            g.fillColor = new Color(252, 198, 112, tick % 17 < 9 ? 255 : 103);
+            g.fillColor = scratchColor(252, 198, 112, tick % 17 < 9 ? 255 : 103);
             g.circle(x - 4, y - 5, 1.8); g.fill();
             g.circle(x + 4, y - 5, 1.8); g.fill();
         }

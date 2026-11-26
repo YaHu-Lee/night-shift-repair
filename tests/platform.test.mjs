@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { makePlatform, miniGamePlatform } from '../assets/scripts/platform/platform.ts';
+import { createMiniGameRuntime } from '../.m0-build/platform/miniGameRuntime.js';
 
 function storageHost() {
   const backing = new Map();
@@ -197,4 +198,55 @@ test('native platform selection does not cross SDKs or accept a browser storage 
   assert.equal(storage.getItem('night-shift.checkpoint.a'), null);
   assert.equal(miniGamePlatform({ ...native, tt: null }), 'wechat');
   assert.equal(makePlatform({ ...host, wx: {} }).writeCheckpoint(1, { wave: 2 }), false);
+});
+
+test('miniGameRuntime detects low-end devices, wires memory warning / audio interruption, and unsubscribes safely', () => {
+  let gcCalls = 0;
+  let fpsHint = 0;
+  let memCb = null;
+  let audioBegin = null;
+  let audioEnd = null;
+  const wx = {
+    getDeviceInfo() { return { platform: 'iOS' }; },
+    getSystemInfoSync() { return { benchmarkLevel: 14, platform: 'ios' }; },
+    triggerGC() { gcCalls++; },
+    setPreferredFramesPerSecond(fps) { fpsHint = fps; },
+    onMemoryWarning(cb) { memCb = cb; },
+    offMemoryWarning(cb) { if (memCb === cb) memCb = null; },
+    onAudioInterruptionBegin(cb) { audioBegin = cb; },
+    offAudioInterruptionBegin(cb) { if (audioBegin === cb) audioBegin = null; },
+    onAudioInterruptionEnd(cb) { audioEnd = cb; },
+    offAudioInterruptionEnd(cb) { if (audioEnd === cb) audioEnd = null; },
+  };
+  const rt = createMiniGameRuntime({ wx });
+  assert.equal(rt.isLowEndDevice, true);
+  assert.equal(rt.isIOS, true);
+
+  rt.triggerGC();
+  rt.hintFrameRate(45);
+  rt.hintFrameRate(5); // Out-of-range FPS ignored
+  assert.equal(gcCalls, 1);
+  assert.equal(fpsHint, 45);
+
+  const events = [];
+  const offMem = rt.onMemoryWarning((lvl) => events.push(`mem:${lvl}`));
+  const offAudio = rt.onAudioInterruption(() => events.push('begin'), () => events.push('end'));
+  memCb({ level: 15 });
+  audioBegin();
+  audioEnd();
+  offMem();
+  offAudio();
+  assert.equal(memCb, null);
+  assert.equal(audioBegin, null);
+  assert.equal(audioEnd, null);
+  assert.deepEqual(events, ['mem:15', 'begin', 'end']);
+
+  // High-end & browser fallback should never flag as low-end
+  const highEnd = createMiniGameRuntime({ wx: { getDeviceInfo: () => ({ benchmarkLevel: 38, platform: 'android' }) } });
+  assert.equal(highEnd.isLowEndDevice, false);
+  assert.equal(highEnd.isIOS, false);
+  const browser = createMiniGameRuntime({});
+  assert.equal(browser.isLowEndDevice, false);
+  browser.triggerGC();
+  browser.hintFrameRate(45);
 });

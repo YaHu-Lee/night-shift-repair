@@ -42,6 +42,9 @@ const exposed = new Color(143, 244, 230);
 const shadowMachine = new Color(167, 183, 200, 58);
 const offlineCore = new Color(108, 123, 134, 223);
 const recovering = new Color(169, 187, 197);
+const warnRingColor = new Color(255, 198, 92, 165);
+const hitRimColor = new Color(255, 252, 232, 235);
+const shutterTint = new Color(115, 144, 155);
 type Actor = Readonly<{ x: number; y: number }>;
 type GunAim = { tool: ToolId; tick: number; time: number; bearing: number; desired: number; lastTarget: number };
 type Pose = 'idle' | 'step-a' | 'step-b' | 'windup' | 'strike' | 'recover' | 'hit';
@@ -936,7 +939,7 @@ export class BattleSkinView {
             : striking ? 'strike' : warning ? 'windup' : recoveringPose ? 'recover' : walkPose(motion);
         // Crisp hit-flash (bright white on frames 0-1, warm flash on 2-4) + squash-and-stretch + directional recoil jitter!
         const hitFlash = impactAge >= 0 && impactAge < 2;
-        const tint = hidden ? shadowMachine : hitFlash ? new Color(255, 255, 255) : impactAge < 5 ? hurt : boss?.vulnerable ? exposed : Color.WHITE;
+        const tint = hidden ? shadowMachine : hitFlash ? Color.WHITE : impactAge < 5 ? hurt : boss?.vulnerable ? exposed : Color.WHITE;
         const size = unitSize[kind];
         const ground = this.machineGround;
         if (!hidden) {
@@ -945,7 +948,7 @@ export class BattleSkinView {
             ground.fill();
             // High-contrast pixel warning ring beneath dark/specialist enemies during windup
             if (warning && !boss) {
-                ground.fillColor = new Color(255, 198, 92, 165);
+                ground.fillColor = warnRingColor;
                 const wr = Math.round(size * 0.42);
                 ground.rect(Math.round(x) - wr, Math.round(y - size * 0.16) - 1, 4, 2);
                 ground.rect(Math.round(x) + wr - 4, Math.round(y - size * 0.16) - 1, 4, 2);
@@ -973,7 +976,7 @@ export class BattleSkinView {
             this.world.put(pixelFrame, drawX, drawY, width * sx, height * sy, 0, tint);
             // Crisp white 4-way pixel hit-core flash on exact hit frame (solves missing white hit sprite!)
             if (hitFlash && !hidden) {
-                ground.fillColor = new Color(255, 252, 232, 235);
+                ground.fillColor = hitRimColor;
                 const cx = Math.round(drawX), cy = Math.round(drawY + size * 0.15);
                 ground.rect(cx - 5, cy - 1, 10, 2);
                 ground.rect(cx - 1, cy - 5, 2, 10);
@@ -1180,7 +1183,7 @@ export class BattleSkinView {
     }
     shopfront(x: number, y: number): void {
         const frame = this.frames.get('shutter');
-        if (frame) this.ui.put(frame, x, y, 330, 110, 0, new Color(115, 144, 155));
+        if (frame) this.ui.put(frame, x, y, 330, 110, 0, shutterTint);
     }
     panel(x: number, y: number, w: number, h: number, active: boolean, accent: boolean, pressed: boolean, primary: boolean): boolean {
         const frame = this.frames.get('panel');
@@ -1189,6 +1192,16 @@ export class BattleSkinView {
             : pressed ? pressedColor : accent ? selectedColor : buttonColor;
         this.ui.put(frame, x, y, w, h, 0, color, true);
         return true;
+    }
+
+    /** Release all off-screen arena & pixel-floor textures on memory warning or run exit. */
+    trimMemory(): void {
+        for (const key of Array.from(this.arenas.keys())) {
+            if (key !== this.arena && key !== this.ticketArena) this.releaseArena(key);
+        }
+        for (const key of Array.from(this.pixelFloors.keys())) {
+            if (key !== this.arena) this.releasePixelFloor(key);
+        }
     }
 
     dispose(): void {

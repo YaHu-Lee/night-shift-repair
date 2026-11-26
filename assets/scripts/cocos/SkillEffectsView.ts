@@ -4,7 +4,7 @@ import type { Attack, CombatBounds, WeaponCast, WeaponImpact } from '../roguelit
 import { sampleMeleeHead } from '../roguelite/weaponMotion';
 import { FLOATING_WEAPON_ART } from './FloatingWeaponArt';
 import type { WeaponMuzzle } from './FloatingWeaponArt';
-import { pxLine, pxRing, pxStarFlash, snap2 } from './PixelVfxEngine';
+import { pxLine, pxRing, pxStarFlash, scratchColor, snap2 } from './PixelVfxEngine';
 import type { RGB } from './PixelVfxEngine';
 
 function ink(r: number, g: number, b: number) {
@@ -138,14 +138,14 @@ export function drawSkillEffects(
                     if (!muzzle) break;
                     const { x: px, y: py } = muzzle.flash ?? muzzle;
                     const heavy = effect.sourceCast?.modified;
-                    g.fillColor = new Color(...art.tint, Math.round(215 * t * detail));
+                    g.fillColor = scratchColor(...art.tint, Math.round(215 * t * detail));
                     const reach = Math.hypot(px - x, py - y) || 1;
                     const dx = (px - x) / reach, dy = (py - y) / reach;
                     for (const side of heavy ? [-3, 3] : [0]) {
                         pxLine(g, px - dy * side, py + dx * side, x - dy * side, y + dx * side, 2, 4);
                     }
                     g.fill();
-                    g.fillColor = new Color(214, 255, 224, Math.round(235 * t));
+                    g.fillColor = scratchColor(214, 255, 224, Math.round(235 * t));
                     for (let i = 1; i <= 3; i++) {
                         const travel = ((i / 3 + (1 - t)) % 1) * reach;
                         g.rect(snap2(x + dx * travel) - 2, snap2(y + dy * travel) - 2, 4, 4);
@@ -175,7 +175,7 @@ function drawMarkFeedback(g: Graphics, hit: Extract<Attack, { shape: 'link' }>, 
     const boosted = hit.mark === 'boosted';
     const x = snap2(hit.x), y = snap2(hit.y + 6);
     const offset = snap2((boosted ? 6 : 4) + elapsed * 0.6);
-    g.fillColor = boosted ? new Color(255, 226, 108, Math.round(248 * fade)) : new Color(121, 229, 255, Math.round(212 * fade));
+    g.fillColor = boosted ? scratchColor(255, 226, 108, Math.round(248 * fade)) : scratchColor(121, 229, 255, Math.round(212 * fade));
     g.rect(x - offset - 2, y - 1, 4, 2);
     g.rect(x + offset - 2, y - 1, 4, 2);
     if (boosted) {
@@ -204,7 +204,7 @@ function drawPixelBolt(g: Graphics, strip: Strip, cast: WeaponCast, muzzle: Weap
     const nx = -uy, ny = ux;
 
     // Quiet pixel tracer dots from barrel to tail
-    g.fillColor = new Color(...accent, Math.round(alpha * 0.42));
+    g.fillColor = scratchColor(...accent, Math.round(alpha * 0.42));
     pxLine(g, muzzle.x + ux * (tail * Math.min(1, 2.5 * t)), muzzle.y + uy * (tail * Math.min(1, 2.5 * t)),
         muzzle.x + ux * head, muzzle.y + uy * head, 2, 6);
     g.fill();
@@ -213,12 +213,12 @@ function drawPixelBolt(g: Graphics, strip: Strip, cast: WeaponCast, muzzle: Weap
     const offsets = nail && cast.modified ? [-4, 4] : [0];
     for (const off of offsets) {
         const bx = muzzle.x + nx * off, by = muzzle.y + ny * off;
-        g.fillColor = new Color(...accent, alpha);
+        g.fillColor = scratchColor(...accent, alpha);
         pxLine(g, bx + ux * tail, by + uy * tail, bx + ux * head, by + uy * head, nail ? 4 : 2, 3);
         g.fill();
         // Bright white pixel core at head
         const hx = snap2(bx + ux * head), hy = snap2(by + uy * head);
-        g.fillColor = new Color(...whiteHot, alpha);
+        g.fillColor = scratchColor(...whiteHot, alpha);
         g.rect(hx - 2, hy - 2, 4, 4);
         if (probe && cast.modified) {
             g.rect(hx + snap2(nx * 4) - 1, hy + snap2(ny * 4) - 1, 2, 2);
@@ -228,7 +228,7 @@ function drawPixelBolt(g: Graphics, strip: Strip, cast: WeaponCast, muzzle: Weap
     }
     // Rivet rotating brass pixel bands
     if (!nail && !probe) {
-        g.fillColor = new Color(...(cast.modified ? oxide : brass), alpha);
+        g.fillColor = scratchColor(...(cast.modified ? oxide : brass), alpha);
         for (let i = 0; i < 3; i++) {
             const at = tail + (head - tail) * ((i + 0.5) / 3);
             const side = cast.modified ? Math.sin(i * 2.5 + t * 8) * 4 : (i % 2 ? 2 : -2);
@@ -255,7 +255,7 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
         const mid: RGB = blueFlame ? [132, 248, 255] : [255, 206, 74];
         const streams = 5;
         // Pass 1: dark pixel smoke puffs at leading edge
-        g.fillColor = new Color(...soot, Math.round(alpha * 0.65));
+        g.fillColor = scratchColor(...soot, Math.round(alpha * 0.65));
         for (let s = 0; s < streams; s++) {
             const a = angle + half * ((s / (streams - 1)) * 2 - 1) * 0.85;
             const d = Math.min(e.radius, front * (0.85 + 0.15 * Math.sin(cast.tick + s * 2)));
@@ -266,7 +266,7 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
         g.fill();
 
         // Pass 2: chunky outer flame pixel squares (size shrinks toward tip)
-        g.fillColor = new Color(...outer, Math.round(alpha * 0.92));
+        g.fillColor = scratchColor(...outer, Math.round(alpha * 0.92));
         for (let s = 0; s < streams; s++) {
             const laneAngle = angle + half * ((s / (streams - 1)) * 2 - 1) * 0.82;
             const lx = Math.cos(laneAngle), ly = Math.sin(laneAngle);
@@ -283,7 +283,7 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
         g.fill();
 
         // Pass 3: bright yellow/cyan inner flame blocks
-        g.fillColor = new Color(...mid, alpha);
+        g.fillColor = scratchColor(...mid, alpha);
         for (let s = 1; s < streams - 1; s++) {
             const laneAngle = angle + half * ((s / (streams - 1)) * 2 - 1) * 0.65;
             for (let step = 1; step <= 3; step++) {
@@ -297,7 +297,7 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
         g.fill();
 
         // Pass 4: white-hot nozzle core + detached pixel embers
-        g.fillColor = new Color(...whiteHot, alpha);
+        g.fillColor = scratchColor(...whiteHot, alpha);
         g.rect(snap2(muzzle.x + ux * 6) - 3, snap2(muzzle.y + uy * 6) - 3, 6, 6);
         for (let i = -1; i <= 1; i++) {
             const a = angle + i * half * 0.55;
@@ -312,12 +312,12 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
     const count = cast.modified ? 4 : 2;
     for (let i = 0; i < count; i++) {
         const radius = Math.max(6, front * (1 - i * 0.19));
-        g.fillColor = i % 2 ? new Color(...whiteHot, alpha) : new Color(...plasma, alpha);
+        g.fillColor = i % 2 ? scratchColor(...whiteHot, alpha) : scratchColor(...plasma, alpha);
         pxRing(g, muzzle.x, muzzle.y, radius, i === 0 ? 4 : 2, angle - half, half * 2, i === 0 ? 5 : 4);
         g.fill();
     }
     if (cast.modified) {
-        g.fillColor = new Color(172, 250, 255, alpha);
+        g.fillColor = scratchColor(172, 250, 255, alpha);
         for (const aOff of [-half * 0.55, 0, half * 0.55]) {
             const a = angle + aOff;
             const d = front * 0.78;
@@ -343,13 +343,13 @@ function drawPixelCoilField(g: Graphics, field: Circle, cast: WeaponCast, muzzle
     for (let ring = 0; ring < rings; ring++) {
         const r = Math.max(4, radius - ring * 10);
         const rot = (ring % 2 ? -1 : 1) * t * 1.8;
-        g.fillColor = ring === 1 ? new Color(...whiteHot, alpha) : new Color(...tint, alpha);
+        g.fillColor = ring === 1 ? scratchColor(...whiteHot, alpha) : scratchColor(...tint, alpha);
         pxRing(g, cx, cy, r, ring === 0 ? 4 : 2, rot, Math.PI * 2, ring === 0 ? 6 : 5, pull ? 4 : 5);
         g.fill();
     }
     // Rotating outer pixel teeth
     const teeth = cast.modified ? 8 : 5;
-    g.fillColor = new Color(...whiteHot, Math.round(alpha * 0.9));
+    g.fillColor = scratchColor(...whiteHot, Math.round(alpha * 0.9));
     for (let i = 0; i < teeth; i++) {
         const a = (i * Math.PI * 2) / teeth + (pull ? -2.2 : 1.6) * t;
         g.rect(snap2(cx + Math.cos(a) * radius) - 2, snap2(cy + Math.sin(a) * radius) - 2, 4, 4);
@@ -376,12 +376,12 @@ function drawPixelSweepTrail(g: Graphics, cast: WeaponCast, age: number, detail:
         const pt = sampleMeleeHead(melee, u);
         const strength = Math.max(0, 1 - (age - u) / linger);
         const size = strength > 0.55 ? (cast.powered ? 8 : 6) : strength > 0.25 ? 4 : 2;
-        g.fillColor = new Color(...(i > samples * 0.55 ? energized : tint), Math.round(225 * strength * detail));
+        g.fillColor = scratchColor(...(i > samples * 0.55 ? energized : tint), Math.round(225 * strength * detail));
         g.rect(snap2(pt.x) - size / 2, snap2(pt.y) - size / 2, size, size);
         g.fill();
     }
     // Pass 2: crisp white-hot leading edge pixel streak (first half of arc)
-    g.fillColor = new Color(...whiteHot, Math.round(240 * detail));
+    g.fillColor = scratchColor(...whiteHot, Math.round(240 * detail));
     const hotStart = Math.max(start, end - 2.2);
     for (let i = 0; i <= 6; i++) {
         const u = hotStart + ((end - hotStart) * i) / 6;
@@ -410,12 +410,12 @@ function drawMeleeSparks(
     const alpha = Math.round(230 * (1 - t) * detail);
     if (hit.sourceCast?.tool === 'bypass_wrench' && hit.sourceCast.powered) {
         const radius = (hit.sourceCast.modified ? 24 : 16) * (0.35 + t * 0.65);
-        g.fillColor = new Color(...brass, alpha);
+        g.fillColor = scratchColor(...brass, alpha);
         pxRing(g, x, y, radius, 4, t, Math.PI * 2, 6, 3);
         g.fill();
     }
     const dir = Math.atan2(y - from.y, x - from.x);
-    g.fillColor = new Color(...tint, alpha);
+    g.fillColor = scratchColor(...tint, alpha);
     for (let i = -1; i <= 1; i++) {
         const a = dir + i * 0.55;
         const travel = 4 + t * 12;
@@ -460,12 +460,12 @@ function drawPixelArc(
     const tint = FLOATING_WEAPON_ART.arc_gun.tint;
     // Frame 0-1: bold pure-white lightning core!
     if (elapsed < 1.6) {
-        traceBolt(1, 4, new Color(...whiteHot, Math.round(248 * detail)));
+        traceBolt(1, 4, scratchColor(...whiteHot, Math.round(248 * detail)));
     } else {
-        traceBolt(1, 2, new Color(...tint, Math.round(225 * fade * detail)));
+        traceBolt(1, 2, scratchColor(...tint, Math.round(225 * fade * detail)));
     }
     if (hit.sourceCast?.modified) {
-        traceBolt(-1.3, 2, new Color(188, 132, 255, Math.round(230 * fade * detail)));
+        traceBolt(-1.3, 2, scratchColor(188, 132, 255, Math.round(230 * fade * detail)));
     }
     // Crisp impact spark at destination node
     if (elapsed < 2.2) pxStarFlash(g, x, y, 6, tint, 235 * fade * detail);
@@ -476,7 +476,7 @@ function drawPixelDischarge(g: Graphics, cast: WeaponCast, muzzle: WeaponMuzzle,
     const { effect, tint } = FLOATING_WEAPON_ART[cast.tool];
     const alpha = Math.round(245 * (1 - t * t) * detail);
     if (effect === 'pull' || effect === 'coil') {
-        g.fillColor = new Color(...tint, alpha);
+        g.fillColor = scratchColor(...tint, alpha);
         pxRing(g, muzzle.x, muzzle.y, 4 + 10 * (1 - t), 2, t * 3, Math.PI * 2, 4);
         g.fill();
         return;
@@ -497,7 +497,7 @@ function drawPixelImpact(g: Graphics, effect: Contact, fraction: number): void {
     }
     const fade = Math.max(0, 1 - elapsed / 7);
     const spread = snap2(elapsed * 1.4);
-    g.fillColor = tint ? new Color(...tint, Math.round(190 * fade)) : new Color(contactCore.r, contactCore.g, contactCore.b, Math.round(190 * fade));
+    g.fillColor = tint ? scratchColor(...tint, Math.round(190 * fade)) : scratchColor(contactCore.r, contactCore.g, contactCore.b, Math.round(190 * fade));
     g.rect(x - spread - 2, y + spread - 2, 2, 2);
     g.rect(x + spread, y - spread, 2, 2);
     g.fill();
@@ -522,12 +522,12 @@ function drawPixelStrike(g: Graphics, hit: WeaponImpact, age: number, detail: nu
 
     if (broken) {
         // Pixel explosion ring + flying shrapnel blocks
-        g.fillColor = new Color(...(cast.tool === 'torch' ? oxide : tint), fade);
+        g.fillColor = scratchColor(...(cast.tool === 'torch' ? oxide : tint), fade);
         pxRing(g, x, y, r, 2, t * 2, Math.PI * 2, 6, 3);
         g.fill();
 
         const pieces = weight === 'boss-break' ? 10 : 5;
-        g.fillColor = new Color(...brass, fade);
+        g.fillColor = scratchColor(...brass, fade);
         for (let i = 0; i < pieces; i++) {
             const a = (i * Math.PI * 2) / pieces + (cast.tick % 7) * 0.35;
             const px = snap2(x + Math.cos(a) * r);
@@ -537,7 +537,7 @@ function drawPixelStrike(g: Graphics, hit: WeaponImpact, age: number, detail: nu
         }
         g.fill();
     } else if (weight === 'armor') {
-        g.fillColor = new Color(...brass, fade);
+        g.fillColor = scratchColor(...brass, fade);
         for (let i = 0; i < 4; i++) {
             const a = Math.atan2(cast.uy, cast.ux) + (i - 1.5) * 0.55;
             g.rect(snap2(x + Math.cos(a) * r * 0.8), snap2(y + Math.sin(a) * r * 0.8 - t * t * 8), 2, 2);
@@ -549,7 +549,7 @@ function drawPixelStrike(g: Graphics, hit: WeaponImpact, age: number, detail: nu
 export function drawBossBreak(g: Graphics, x: number, y: number, elapsed: number, final: boolean, field: CombatBounds): void {
     const pulse = Math.min(1, elapsed / 0.24);
     if (elapsed < 0.32) {
-        g.fillColor = new Color(...whiteHot, 250);
+        g.fillColor = scratchColor(...whiteHot, 250);
         pxRing(g, x, y, 6 + 34 * (1 - pulse), 4, -pulse * 2, Math.PI * 2, 6);
         g.fill();
     }
@@ -560,14 +560,14 @@ export function drawBossBreak(g: Graphics, x: number, y: number, elapsed: number
         const py = snap2(y + Math.sin(i * 2) * 12);
         const radius = (12 + 64 * (1 - (1 - t) * (1 - t))) * (i ? 0.66 : 1);
         const alpha = Math.round(240 * (1 - t));
-        g.fillColor = new Color(...(i % 2 ? plasma : brass), alpha);
+        g.fillColor = scratchColor(...(i % 2 ? plasma : brass), alpha);
         pxRing(g, px, py, radius, 4, t * 2 + i, Math.PI * 2, 8, 4);
         g.fill();
         if (t < 0.35) pxStarFlash(g, px, py, 14 * (1 - t * 2), oxide, alpha);
     }
     const current = Math.min(1, Math.max(0, elapsed - 0.45) / 0.75);
     if (current > 0) {
-        g.fillColor = new Color(134, 229, 209, Math.round(24 * current));
+        g.fillColor = scratchColor(134, 229, 209, Math.round(24 * current));
         g.rect(field.left, field.bottom, field.right - field.left, field.top - field.bottom);
         g.fill();
         for (const side of [-1, 1]) {
@@ -577,7 +577,7 @@ export function drawBossBreak(g: Graphics, x: number, y: number, elapsed: number
                 const bendX = snap2(x + (endX - x) * 0.58);
                 const bendY = snap2(y + (endY - y) * 0.42);
                 const nodes = [[x, y], [bendX, y], [bendX, bendY], [endX, bendY], [endX, endY]];
-                g.fillColor = new Color(98, 240, 212, 185);
+                g.fillColor = scratchColor(98, 240, 212, 185);
                 for (let i = 0; i < 4; i++) {
                     const f = Math.max(0, Math.min(1, current * 4 - i));
                     if (!f) break;
@@ -587,7 +587,7 @@ export function drawBossBreak(g: Graphics, x: number, y: number, elapsed: number
                 g.fill();
             }
         }
-        g.fillColor = new Color(103, 254, 217, Math.round(220 * (1 - current)));
+        g.fillColor = scratchColor(103, 254, 217, Math.round(220 * (1 - current)));
         pxRing(g, x, y, 16 + 170 * current, 4, 0, Math.PI * 2, 10, 5);
         g.fill();
     }
