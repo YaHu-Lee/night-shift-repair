@@ -1,4 +1,3 @@
-import type { ToolId } from '../m1/content';
 import { CHAPTER_CATALOG, RIG_CATALOG, WORKSHOP_TALENTS, getChapter } from './catalog';
 import {
     DAILY_SHIFT_BONUS_CREDITS,
@@ -44,6 +43,7 @@ import type {
     RigId,
     ShopSlot,
     StatDelta,
+    ToolId,
     WaveDefinition,
     WeaponDamageStat,
     WeaponInstance,

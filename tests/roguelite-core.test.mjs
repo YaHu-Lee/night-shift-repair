@@ -70,6 +70,8 @@ import {
     remainingDailyAdUses,
 } from '../.m0-build/roguelite/engagement.js';
 import { createMiniGameEngage } from '../.m0-build/platform/miniGameEngage.js';
+import { circleContact, createMeleeMotion, weaponDock } from '../.m0-build/roguelite/weaponMotion.js';
+import { CAMPAIGN_FIELD } from '../.m0-build/roguelite/constants.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
 
 test('armor follows linear EHP curve without reaching immunity, and negative armor stays bounded', () => {
@@ -775,4 +777,23 @@ test('daily check-in, daily urgent shift, harbor endless waves, and monotonic cl
     assert.equal(merged.talents.capacitor, 3);
     assert.equal(merged.bestEndlessWave, 16);
     assert.equal(merged.adFreePass, true);
+});
+
+test('floating weapons keep even angular ring spacing and continuous swept melee contact', () => {
+    for (const count of [2, 3, 4, 5, 6]) {
+        const angles = Array.from({ length: count }, (_, slot) => {
+            const { x, y } = weaponDock(slot, count);
+            return Math.atan2(y - 20, x);
+        }).sort((a, b) => a - b);
+        const step = (2 * Math.PI) / count;
+        for (let i = 0; i < count; i++) {
+            const next = i + 1 < count ? angles[i + 1] : angles[0] + 2 * Math.PI;
+            assert.ok(Math.abs(next - angles[i] - step) < 0.08, `ring spacing count=${count}`);
+        }
+    }
+    const motion = createMeleeMotion('wrench', 0, weaponDock(0, 6), { x: 180, y: 353 }, 1, 0, 74, CAMPAIGN_FIELD, 50, true);
+    assert.equal(motion.action, '大回扫');
+    assert.ok(motion.points.length > motion.last);
+    assert.ok(circleContact(-10, 0, 20, 0, 5), 'swept segment passing through origin hits target radius');
+    assert.equal(circleContact(-10, 20, 20, 0, 5), undefined, 'parallel miss does not hit');
 });

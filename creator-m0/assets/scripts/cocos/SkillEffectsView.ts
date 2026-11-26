@@ -1,8 +1,7 @@
 import { Color, Graphics } from 'cc';
-import type { Attack, WeaponCast, WeaponImpact } from '../m1/Battle';
-import { IMPACT_TICKS } from '../m1/Battle';
-import type { CombatBounds } from '../m1/content';
-import { sampleMeleeHead } from '../m1/WeaponMotion';
+import { IMPACT_TICKS } from '../roguelite/constants';
+import type { Attack, CombatBounds, WeaponCast, WeaponImpact } from '../roguelite/types';
+import { sampleMeleeHead } from '../roguelite/weaponMotion';
 import { FLOATING_WEAPON_ART } from './FloatingWeaponArt';
 import type { WeaponMuzzle } from './FloatingWeaponArt';
 import { pxLine, pxRing, pxStarFlash, snap2 } from './PixelVfxEngine';

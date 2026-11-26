@@ -1,5 +1,5 @@
 import { Color, Graphics } from 'cc';
-import type { ToolId } from '../m1/content';
+import type { ToolId } from '../roguelite/types';
 
 export type RGB = readonly [number, number, number];
 

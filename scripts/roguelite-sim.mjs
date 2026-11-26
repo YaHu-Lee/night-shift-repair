@@ -2,7 +2,7 @@
 // Run after `npm run build:web`.
 import { CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WEAPON_CATALOG } from '../.m0-build/roguelite/catalog.js';
 import { PatrolSession, buyWorkshopTalent, createDefaultProfile } from '../.m0-build/roguelite/session.js';
-import { TICK_RATE } from '../.m0-build/m1/content.js';
+import { TICK_RATE } from '../.m0-build/roguelite/constants.js';
 
 function steer(battle) {
     const p = battle.player;

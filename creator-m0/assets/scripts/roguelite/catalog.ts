@@ -1,11 +1,12 @@
-import type { RegularEnemyId, ToolId } from '../m1/content';
 import type {
     ChapterDefinition,
     EnemyArchetype,
     ModuleSpec,
+    RegularEnemyId,
     RigId,
     RigSpec,
     SynergyTierBonus,
+    ToolId,
     WaveDefinition,
     WeaponSpec,
     WeaponTag,

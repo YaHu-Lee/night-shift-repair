@@ -1,4 +1,3 @@
-import type { RegularEnemyId, ToolId } from '../m1/content';
 import {
     ENEMY_ARCHETYPES,
     MODULE_BY_ID,
@@ -13,11 +12,13 @@ import type {
     DangerLevel,
     PlayerStats,
     PreRunSupplyId,
+    RegularEnemyId,
     RigId,
     StatDelta,
     StatKey,
     SynergyState,
     Tier,
+    ToolId,
     WeaponInstance,
     WeaponTag,
     WorkshopProfile,

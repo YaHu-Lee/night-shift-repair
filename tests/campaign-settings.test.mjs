@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CAMPAIGN_SETTINGS_NAMESPACE, CampaignSettings } from '../.m0-build/campaign/CampaignSettings.js';
+import { CAMPAIGN_SETTINGS_NAMESPACE, CampaignSettings } from '../.m0-build/platform/settings.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
 
 function storageFixture() {
@@ -53,6 +53,6 @@ test('campaign settings preserve a different option saved by another instance', 
 
 test('Creator uses the same campaign settings module', () => {
     const readRelative = path => readFileSync(new URL(path, import.meta.url));
-    assert.deepEqual(readRelative('../creator-m0/assets/scripts/campaign/CampaignSettings.ts'),
-        readRelative('../assets/scripts/campaign/CampaignSettings.ts'));
+    assert.deepEqual(readRelative('../creator-m0/assets/scripts/platform/settings.ts'),
+        readRelative('../assets/scripts/platform/settings.ts'));
 });

@@ -9,7 +9,7 @@ const output = ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
 } }).outputText;
 
-function audio(waitsForGesture = true, campaign = true) {
+function audio(waitsForGesture = true) {
     const exports = {};
     const loads = new Map();
     const requests = [];
@@ -30,7 +30,7 @@ function audio(waitsForGesture = true, campaign = true) {
     } } };
     vm.runInNewContext(output, { exports, require: () => cc, Date: { now: () => now } });
     const node = { addComponent: Type => { const source = new Type(); sources.push(source); return source; } };
-    const controller = new exports.CampaignAudio(node, campaign, waitsForGesture, retry => retries.push(retry));
+    const controller = new exports.CampaignAudio(node, waitsForGesture, retry => retries.push(retry));
     return { controller, effects: sources[0], workshop: sources[1], combat: sources[2], requests, retries,
         loaded(path) { loads.get(path)(null, { path }); },
         failed(path) { loads.get(path)(new Error('offline')); }, wait(ms) { now += ms; } };
@@ -52,12 +52,6 @@ test('home keeps only the workshop score and local cues eager until dispatch', (
     assert.equal(requests.length, new Set(requests).size);
     loaded('campaign/live-circuit');
     assert.equal(combat.attempts, 1);
-});
-
-test('M2 still prepares its four legacy cues without requesting campaign audio', () => {
-    const { controller, requests } = audio(false, false);
-    controller.prepareCombat();
-    assert.deepEqual(requests, ['m2/warning', 'm2/charge', 'm2/hit', 'm2/clear']);
 });
 
 test('web score is armed only by a gesture and can retry an unconfirmed start', () => {

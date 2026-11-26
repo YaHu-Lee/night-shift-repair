@@ -1,4 +1,3 @@
-import type { ToolId } from '../m1/content';
 import { makePlatform } from '../platform/platform';
 import { CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WEAPON_CATALOG, WORKSHOP_TALENTS } from './catalog';
 import type { ShopCheckpoint } from './shop';
@@ -15,6 +14,7 @@ import type {
     RigId,
     ShopSlot,
     StatDelta,
+    ToolId,
     WeaponInstance,
     WorkshopProfile,
     WorkshopTalentSpec,

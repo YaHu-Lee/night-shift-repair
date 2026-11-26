@@ -1,19 +1,22 @@
 import { Color, Graphics, JsonAsset, Node, Rect, resources, Sprite, SpriteFrame, Texture2D, UITransform } from 'cc';
 import type { AssetManager } from 'cc';
-import type { Battle, MeleeWindup, WeaponCast } from '../m1/Battle';
-import type { ChapterBossView, MissionView } from '../m1/Encounter';
-import type { CombatBounds, EnemyId, ToolId } from '../m1/content';
-import { FIELD, TICK_RATE } from '../m1/content';
-import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, weaponMount, isMeleeTool, sampleMeleeHead } from '../m1/WeaponMotion';
+import { FIELD, TICK_RATE } from '../roguelite/constants';
+import type {
+    ChapterBossView,
+    CombatBounds,
+    EnemyId,
+    MeleeWindup,
+    RenderBattleView as Battle,
+    RenderEnemy as Enemy,
+    ToolId,
+    WeaponCast,
+} from '../roguelite/types';
+import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, weaponMount, isMeleeTool, sampleMeleeHead } from '../roguelite/weaponMotion';
 import { FLOATING_WEAPON_ART, sampleGunPose } from './FloatingWeaponArt';
 import type { WeaponMuzzle } from './FloatingWeaponArt';
-import { CAMPAIGN_MACHINE_ART, CAMPAIGN_TOOL_ART, PIXEL_ARENAS, PIXEL_DISPATCH_CHAPTERS, PIXEL_MENU_ART } from '../campaign/CampaignArt';
-import { CAMPAIGN_CATALOG } from '../campaign/CampaignCatalog';
+import { CAMPAIGN_MACHINE_ART, CAMPAIGN_TOOL_ART, PIXEL_ARENAS, PIXEL_DISPATCH_CHAPTERS, PIXEL_MENU_ART, chapterForStationId } from './CampaignArt';
 import { loadCampaignBundle, loadCampaignPixelTexture, loadCampaignTexture } from './CampaignAssetLoader';
 import { drawCampaignEncounter } from './CampaignCombatView';
-import { PrototypeDispatchView } from './PrototypeDispatchView';
-import { PrototypeItemIcons } from './PrototypeItemIcons';
-import type { PrototypeToolReveal } from './PrototypeToolReveal';
 
 // All coordinates passed to the view use the existing 360 × 640 game space.
 // The skin folder supplies semantic frame names; snapshots contain only gameplay IDs.
@@ -39,7 +42,6 @@ const exposed = new Color(143, 244, 230);
 const shadowMachine = new Color(167, 183, 200, 58);
 const offlineCore = new Color(108, 123, 134, 223);
 const recovering = new Color(169, 187, 197);
-type Enemy = Battle['enemies'][number];
 type Actor = Readonly<{ x: number; y: number }>;
 type GunAim = { tool: ToolId; tick: number; time: number; bearing: number; desired: number; lastTarget: number };
 type Pose = 'idle' | 'step-a' | 'step-b' | 'windup' | 'strike' | 'recover' | 'hit';
@@ -205,7 +207,6 @@ export class BattleSkinView {
     private readonly machineGround: Graphics;
     private readonly ui: SpritePool;
     private readonly floor: SpritePool;
-    private encounterProps?: SpritePool;
     private stageId = '';
     private arena = 'yard';
     private ticketArena?: string;
@@ -218,11 +219,6 @@ export class BattleSkinView {
     private pixelFloorBounds?: CombatBounds;
     private prepared = false;
     private disposed = false;
-    private modelIcons?: PrototypeItemIcons;
-    private modelDispatch?: PrototypeDispatchView;
-    private dispatchVisible = false;
-    private toolReveal?: PrototypeToolReveal;
-    private toolRevealVisible = false;
     private readonly motion = new WeakMap<Actor, ActorMotion>();
     private pixelMechanic?: PixelMechanicAtlas;
     private readonly pixelTools = new Map<ToolId, PixelTool>();
@@ -232,8 +228,8 @@ export class BattleSkinView {
     readonly weaponOrigin = (cast: WeaponCast): Actor | undefined => this.weaponOrigins.get(cast);
     readonly floatingWeaponOrigin = (cast: WeaponCast): WeaponMuzzle | undefined => this.floatingCasts.get(cast);
 
-    constructor(private readonly root: string, floor: Node, actors: Node, private readonly uiRoot: Node,
-        private readonly invalidate: () => void, private readonly campaign = false, private readonly modelArt = false) {
+    constructor(private readonly root: string, floor: Node, actors: Node, uiRoot: Node,
+        private readonly invalidate: () => void) {
         this.floor = new SpritePool(floor);
         const signals = new Node('MachineShadows');
         signals.layer = actors.layer;
@@ -241,14 +237,13 @@ export class BattleSkinView {
         this.machineGround = signals.addComponent(Graphics);
         this.world = new SpritePool(actors);
         this.ui = new SpritePool(uiRoot);
-        if (!campaign) this.prepare();
     }
 
     prepare(): void {
         if (this.prepared) return;
         this.prepared = true;
         this.setStage(this.stageId, this.arena);
-        if (!this.modelArt) this.prepareSpriteArt();
+        this.prepareSpriteArt();
         const { root, invalidate } = this;
         resources.load(root + '/frames', JsonAsset, (error, manifest) => {
             if (error || this.disposed) return;
@@ -271,7 +266,7 @@ export class BattleSkinView {
                     this.frames.set(key, frame);
                 }
                 const torch = this.frames.get('torch');
-                if (this.campaign && !this.modelArt && torch) {
+                if (torch) {
                     const { x, y, width, height } = torch.rect;
                     const flameWidth = 43;
                     const heldTorch = new SpriteFrame();
@@ -302,20 +297,18 @@ export class BattleSkinView {
             this.setStage(this.stageId, this.arena);
             invalidate();
         });
-        if (this.campaign) {
-            this.loadPixelArt();
-            resources.load(root + '/pump-floor/texture', Texture2D, (error, texture) => {
-                if (error || this.disposed) return;
-                const frame = new SpriteFrame();
-                frame.texture = texture;
-                this.frames.set('pump-floor', frame);
-                this.setStage(this.stageId, this.arena);
-                invalidate();
-            });
-            this.loadAtlas('campaign-machines', CAMPAIGN_MACHINE_ART.map(key => 'machine-' + key), 4);
-            this.loadAtlas('campaign-tools', CAMPAIGN_TOOL_ART, 3);
-            this.loadAtlas('radio-portraits', ['radio-aruan', 'radio-chenqi'], 2);
-        }
+        this.loadPixelArt();
+        resources.load(root + '/pump-floor/texture', Texture2D, (error, texture) => {
+            if (error || this.disposed) return;
+            const frame = new SpriteFrame();
+            frame.texture = texture;
+            this.frames.set('pump-floor', frame);
+            this.setStage(this.stageId, this.arena);
+            invalidate();
+        });
+        this.loadAtlas('campaign-machines', CAMPAIGN_MACHINE_ART.map(key => 'machine-' + key), 4);
+        this.loadAtlas('campaign-tools', CAMPAIGN_TOOL_ART, 3);
+        this.loadAtlas('radio-portraits', ['radio-aruan', 'radio-chenqi'], 2);
     }
 
     private loadPixelArt(): void {
@@ -430,13 +423,11 @@ export class BattleSkinView {
         this.arena = arena;
         this.pixelFloorBounds = undefined;
         this.floor.begin();
-        if (!this.modelArt || !PrototypeDispatchView.supports(id)) {
-            this.loadArena(arena);
-            if (this.campaign && !this.modelArt) this.loadPixelFloor(arena);
-            const frame = this.arenas.get(arena)?.floor ?? this.frames.get(arena) ?? this.frames.get('yard');
-            if (frame) this.floor.put(frame, (FIELD.left + FIELD.right) / 2, (FIELD.top + FIELD.bottom) / 2,
-                FIELD.right - FIELD.left, FIELD.top - FIELD.bottom, 0, Color.WHITE);
-        }
+        this.loadArena(arena);
+        this.loadPixelFloor(arena);
+        const frame = this.arenas.get(arena)?.floor ?? this.frames.get(arena) ?? this.frames.get('yard');
+        if (frame) this.floor.put(frame, (FIELD.left + FIELD.right) / 2, (FIELD.top + FIELD.bottom) / 2,
+            FIELD.right - FIELD.left, FIELD.top - FIELD.bottom, 0, Color.WHITE);
         this.floor.finish();
     }
 
@@ -502,7 +493,7 @@ export class BattleSkinView {
                 if (old) this.releaseArena(old);
             }
         };
-        if (arena === 'city-restored' && this.campaign && !this.modelArt) {
+        if (arena === 'city-restored') {
             loadCampaignPixelTexture(PIXEL_MENU_ART[arena]!, 'ui/' + arena, texture => {
                 if (texture || this.disposed) accept(texture);
                 else loadCampaignTexture(this.root, arena, accept);
@@ -524,28 +515,18 @@ export class BattleSkinView {
     }
 
     dispatchArt(x: number, y: number, id: string, arena: string, height: number): void {
-        if (this.modelArt && PrototypeDispatchView.supports(id)) {
-            this.modelDispatch ??= new PrototypeDispatchView(this.uiRoot.scene!, this.invalidate);
-            this.dispatchVisible = true;
-            const model = this.modelDispatch.show(id);
-            if (model) this.putDispatchArt(model, x, y, height);
+        const pixel = this.frames.get('pixel-dispatch:' + id);
+        if (pixel) {
+            this.putDispatchArt(pixel, x, y, height);
             return;
         }
-        if (this.campaign && !this.modelArt) {
-            const stage = CAMPAIGN_CATALOG.find(entry => entry.id === id);
-            const pixel = this.frames.get('pixel-dispatch:' + id);
-            if (pixel) {
-                this.putDispatchArt(pixel, x, y, height);
-                return;
-            }
-            if (stage && PIXEL_DISPATCH_CHAPTERS.includes(stage.chapter) && !this.dispatchPacks.has(stage.chapter)) {
-                const chapter = stage.chapter;
-                this.dispatchPacks.add(chapter);
-                loadCampaignBundle('campaign-ch' + chapter, bundle => {
-                    if (bundle && !this.disposed) this.loadPixelAtlas(bundle, 'pixel/dispatch', 'scenes', 'pixel-dispatch:');
-                    else this.dispatchPacks.delete(chapter);
-                });
-            }
+        const chapter = chapterForStationId(id);
+        if (chapter && PIXEL_DISPATCH_CHAPTERS.includes(chapter) && !this.dispatchPacks.has(chapter)) {
+            this.dispatchPacks.add(chapter);
+            loadCampaignBundle('campaign-ch' + chapter, bundle => {
+                if (bundle && !this.disposed) this.loadPixelAtlas(bundle, 'pixel/dispatch', 'scenes', 'pixel-dispatch:');
+                else this.dispatchPacks.delete(chapter);
+            });
         }
         const asset = id === 'ending' ? 'city-restored' : arena;
         this.ticketArena = asset;
@@ -907,26 +888,23 @@ export class BattleSkinView {
         return true;
     }
 
-    private drawDirectionalEnemy(battle: Readonly<Battle>, enemy: Enemy, boss: ChapterBossView | null,
-        mission: MissionView | null): boolean {
+    private drawDirectionalEnemy(battle: Readonly<Battle>, enemy: Enemy, boss: ChapterBossView | null): boolean {
         const { player, tick } = battle;
         const { kind, x, y, state } = enemy;
         const key = boss?.kind ?? kind;
         const idle = actorFrame(key, 'idle', SOUTH);
         if (!this.frames.has(idle) && !this.frames.has('pixel-enemy:' + idle)) return false;
         const motion = this.sampleMotion(enemy, tick, facing(player.x - x, player.y - y));
-        const legacyBoss = kind === 'inspector' && !boss ? battle.boss : null;
         const shotAge = age(tick, enemy.shotAt);
         const contactAge = age(tick, enemy.contactAt);
         const impactAge = age(tick, enemy.hitAt);
         const emergeAge = age(tick, enemy.revealedAt);
-        const warning = boss ? (boss.volley ?? boss.hazard)?.state === 'warning' : legacyBoss
-            ? legacyBoss.phase === 'warning' : state === 'warn';
-        const striking = boss ? (boss.volley ?? boss.hazard)?.state === 'active' : legacyBoss
-            ? legacyBoss.phase === 'sweep' || legacyBoss.phase === 'charge' || legacyBoss.phase === 'volley'
-                || legacyBoss.phase === 'recover' && legacyBoss.attack === 'summon' && age(tick, legacyBoss.attackAt) < 5
+        const warning = boss ? (boss.volley ?? boss.hazard)?.state === 'warning' : state === 'warn';
+        const striking = boss
+            ? (boss.volley ?? boss.hazard)?.state === 'active'
             : state === 'dash' || shotAge < 5 || contactAge < 5 || kind === 'ambusher' && emergeAge >= 7 && emergeAge < 13;
-        const recoveringPose = boss ? boss.recovering : legacyBoss ? legacyBoss.phase === 'recover'
+        const recoveringPose = boss
+            ? boss.recovering
             : shotAge < 11 || contactAge < 9 || kind === 'charger' && enemy.next - tick > 46
                 || kind === 'reclaimer' && enemy.next - tick > 65 || kind === 'jammer' && enemy.next - tick > 58;
         const hazard = boss?.hazard;
@@ -943,16 +921,15 @@ export class BattleSkinView {
             motion.heading = facing(hazard.end.x - hazard.x, hazard.end.y - hazard.y, motion.heading);
         } else if (hazard?.shape === 'rect') {
             motion.heading = facing((hazard.left + hazard.right) / 2 - x, (hazard.bottom + hazard.top) / 2 - y, motion.heading);
-        } else if ((legacyBoss && (warning || striking || recoveringPose)) || kind === 'charger' && state !== 'walk'
+        } else if (kind === 'charger' && state !== 'walk'
             || kind === 'turret' && (state === 'warn' || shotAge < 11) || kind === 'pursuer' && state === 'dash') {
             motion.heading = facing(enemy.vx, enemy.vy, motion.heading);
         } else if (state !== 'walk' && (kind === 'reclaimer' || kind === 'jammer')) {
-            const target = (kind === 'reclaimer' ? enemy.tether ?? mission?.escort
-                : mission?.points.find(point => point.state === 'active')) ?? player;
+            const target = (kind === 'reclaimer' ? enemy.tether : undefined) ?? player;
             motion.heading = facing(target.x - x, target.y - y, motion.heading);
         } else if (!boss || (!warning && !striking)) {
             if (walkPose(motion) !== 'idle') motion.heading = facing(motion.dx, motion.dy, motion.heading);
-            else if (!boss && (kind === 'turret' || legacyBoss)) motion.heading = facing(player.x - x, player.y - y, motion.heading);
+            else if (!boss && kind === 'turret') motion.heading = facing(player.x - x, player.y - y, motion.heading);
         }
         const hidden = kind === 'ambusher' && state === 'warn';
         const pose = hidden ? 'windup' : impactAge < 6 && !warning && !striking ? 'hit'
@@ -1025,7 +1002,7 @@ export class BattleSkinView {
         if (boss) {
             switch (boss.kind) {
                 case 'gatekeeper':
-                    tilt = warning || firing ? (boss.station && boss.station.x < x ? -1 : 1) * 6 : drive * 1.4;
+                    tilt = warning || firing ? direction * 6 : drive * 1.4;
                     rise = firing ? -2 : boss.vulnerable ? 2.1 : drive;
                     lamp = wake;
                     break;
@@ -1095,14 +1072,13 @@ export class BattleSkinView {
         }
     }
 
-    drawWorld(battle: Readonly<Battle> | null, prototypeModels = false, floatingTick?: number): void {
+    drawWorld(battle: Readonly<Battle> | null, floatingTick?: number): void {
         this.world.begin();
         this.machineGround.clear();
         if (battle) {
             const { player, tick } = battle;
-            const mission = battle.mission;
             const core = battle.boss?.unit;
-            if (core && core.hp <= 0 && battle.chapterBoss?.kind === 'core' && !prototypeModels) {
+            if (core && core.hp <= 0 && battle.chapterBoss?.kind === 'core') {
                 // The housing drops below the released scrap, which remains at its pickup point.
                 const heading = battle.chapterBoss.facing;
                 const facingAtStop = heading === undefined ? this.sampleMotion(core, tick).heading : facing(Math.cos(heading), Math.sin(heading));
@@ -1112,14 +1088,14 @@ export class BattleSkinView {
                     this.icon(this.world, 'machine-core', core.x, core.y - 14, unitSize.inspector * 0.83, 0, offlineCore);
                 }
             }
-            if (!prototypeModels) for (const part of battle.parts) {
+            for (const part of battle.parts) {
                 if (!this.icon(this.world, 'pixel-item:scrap', part.x, part.y, 13)) {
                     this.icon(this.world, 'scrap', part.x, part.y, 9);
                 }
             }
-            if (floatingTick !== undefined && !prototypeModels) {
+            if (floatingTick !== undefined) {
                 for (const enemy of battle.defeatedEnemies) {
-                    const t = (floatingTick - enemy.hitAt!) / 6;
+                    const t = (floatingTick - enemy.hitAt) / 6;
                     if (t < 0 || t >= 1 || enemy === core) continue;
                     const dx = enemy.x - player.x, dy = enemy.y - player.y, length = Math.hypot(dx, dy) || 1;
                     const key = actorFrame(enemy.kind, 'hit', facing(-dx, -dy));
@@ -1131,13 +1107,8 @@ export class BattleSkinView {
                 }
             }
             for (const enemy of battle.enemies) {
-                if (prototypeModels) {
-                    const size = unitSize[enemy.kind];
-                    this.drawModelShadow(enemy.x, enemy.y, size / 2, size * 0.24);
-                    continue;
-                }
                 const chapterBoss = enemy === battle.boss?.unit ? battle.chapterBoss : null;
-                if (this.drawDirectionalEnemy(battle, enemy, chapterBoss, mission)) continue;
+                if (this.drawDirectionalEnemy(battle, enemy, chapterBoss)) continue;
                 const bossLocked = enemy === battle.boss?.unit && battle.boss.phase !== 'patrol';
                 const locked = enemy.state !== 'walk' || bossLocked;
                 const dx = enemy.kind === 'armored' ? enemy.facingX! : locked ? enemy.vx : player.x - enemy.x;
@@ -1155,11 +1126,7 @@ export class BattleSkinView {
                 const hint = chapterBoss?.vulnerable || locked && enemy.state === 'warn' && tick % 8 < 4 ? amber : Color.WHITE;
                 this.icon(this.world, frame, enemy.x, enemy.y, unitSize[enemy.kind], angle, hint, flip);
             }
-            if (prototypeModels) this.drawModelShadow(player.x, player.y, 9, 5);
-            else this.drawMechanic(battle, floatingTick);
-            if (!prototypeModels && !this.campaign) {
-                for (const bullet of battle.bullets) this.icon(this.world, 'bullet', bullet.x, bullet.y, 11, 0, amber);
-            }
+            this.drawMechanic(battle, floatingTick);
             for (const enemy of battle.enemies) {
                 if (!enemy.marked) continue;
                 const size = 12 + Math.cos(tick * 0.28);
@@ -1172,12 +1139,8 @@ export class BattleSkinView {
         this.world.finish();
     }
 
-    drawEncounter(g: Graphics, battle: Readonly<Battle> | null, stage: string, modelProps: boolean, threat?: Graphics): void {
-        const props = this.encounterProps ??= new SpritePool(g.node);
-        props.begin();
-        if (battle) drawCampaignEncounter(g, battle, stage, modelProps, (key, x, y, size) =>
-            !modelProps && this.icon(props, 'pixel-item:prop/' + key, x, y, size), threat);
-        props.finish();
+    drawEncounter(g: Graphics, battle: Readonly<Battle> | null, threat?: Graphics): void {
+        if (battle) drawCampaignEncounter(g, battle, threat);
     }
 
     private drawModelShadow(x: number, y: number, horizontal: number, vertical: number): void {
@@ -1194,47 +1157,13 @@ export class BattleSkinView {
 
     beginUi(): void {
         this.ticketArena = undefined;
-        this.dispatchVisible = false;
-        this.toolRevealVisible = false;
         this.ui.begin();
     }
     endUi(): void {
         this.ui.finish();
-        if (!this.dispatchVisible && this.modelDispatch) {
-            this.dispatchCrop?.frame.destroy();
-            this.dispatchCrop = undefined;
-            this.modelDispatch.destroy();
-            this.modelDispatch = undefined;
-        }
-        if (!this.toolRevealVisible && this.toolReveal) {
-            this.toolReveal.destroy();
-            this.toolReveal = undefined;
-        }
-    }
-
-    drawToolReward(tool: ToolId, x: number, y: number, size: number, progress: number): void {
-        if (this.modelArt) {
-            this.toolRevealVisible = true;
-            this.modelIcons ??= new PrototypeItemIcons(this.uiRoot.scene!, this.invalidate);
-            if (this.toolReveal?.tool !== tool) {
-                this.toolReveal?.destroy();
-                this.toolReveal = this.modelIcons.createReveal(tool);
-            }
-            const frame = this.toolReveal.show(progress);
-            if (frame) {
-                this.ui.put(frame, x, y, size, size, 0, Color.WHITE);
-                return;
-            }
-        }
-        this.uiIcon(tool, x, y, size);
     }
 
     uiIconFrame(key: string, fallback?: string): SpriteFrame | undefined {
-        if (this.modelArt && PrototypeItemIcons.supports(key)) {
-            this.modelIcons ??= new PrototypeItemIcons(this.uiRoot.scene!, this.invalidate);
-            const frame = this.modelIcons.frame(key);
-            if (frame) return frame;
-        }
         const divider = key.indexOf('/');
         const attachment = divider < 0 ? undefined : this.frames.get('pixel-item:part/' + key.slice(divider + 1));
         return this.frames.get('pixel-tool:' + key) ?? this.frames.get('pixel-item:' + key) ?? attachment ?? this.frames.get(key)
@@ -1264,12 +1193,9 @@ export class BattleSkinView {
 
     dispose(): void {
         this.disposed = true;
-        this.toolReveal?.destroy();
-        this.modelIcons?.destroy();
         this.arenas.forEach((_value, key) => this.releaseArena(key));
         this.dispatchCrop?.frame.destroy();
         this.dispatchCrop = undefined;
-        this.modelDispatch?.destroy();
         this.pixelFloors.forEach((_surface, arena) => this.releasePixelFloor(arena));
         this.frames.forEach(frame => frame.destroy());
         this.frames.clear();

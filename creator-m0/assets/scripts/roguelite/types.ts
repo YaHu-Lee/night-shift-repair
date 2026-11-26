@@ -1,5 +1,158 @@
-import type { CombatBounds, RegularEnemyId, ToolId } from '../m1/content';
-import type { ChapterBossKind, Position } from '../m1/Encounter';
+import type { MeleeMotion } from './weaponMotion';
+
+export interface Position {
+    x: number;
+    y: number;
+}
+
+export interface CombatBounds {
+    readonly left: number;
+    readonly right: number;
+    readonly bottom: number;
+    readonly top: number;
+}
+
+export type ToolId =
+    | 'wrench'
+    | 'arc_gun'
+    | 'riveter'
+    | 'torch'
+    | 'induction'
+    | 'hydraulic_nailer'
+    | 'pulse_nozzle'
+    | 'traction_coil'
+    | 'split_probe'
+    | 'bypass_wrench';
+
+export type RegularEnemyId =
+    | 'crawler'
+    | 'charger'
+    | 'turret'
+    | 'armored'
+    | 'pursuer'
+    | 'reclaimer'
+    | 'jammer'
+    | 'ambusher';
+
+export type EnemyId = RegularEnemyId | 'inspector';
+
+export type ChapterBossKind = 'supervisor' | 'gatekeeper' | 'tow' | 'silence' | 'core' | 'elite';
+
+export type ChapterHazard = (
+    { readonly shape: 'rect'; readonly left: number; readonly right: number; readonly bottom: number; readonly top: number }
+    | (Position & { readonly shape: 'sector'; readonly radius: number; readonly from: number; readonly sweep: number })
+    | (Position & { readonly shape: 'tether'; readonly end: Readonly<Position>; readonly width: number })
+) & { readonly state: 'warning' | 'active' };
+
+export interface ChapterBossView {
+    readonly kind: ChapterBossKind;
+    readonly title: string;
+    readonly hp: number;
+    readonly maxHp: number;
+    readonly stage: number;
+    readonly vulnerable: boolean;
+    readonly recovering: boolean;
+    readonly phaseStartedAt: number;
+    readonly phaseEndsAt: number;
+    readonly instruction: string;
+    readonly facing: number;
+    readonly hazard?: ChapterHazard;
+    readonly volley?: { readonly pattern: 'fan' | 'ring'; readonly state: 'warning' | 'active' };
+}
+
+export type SkillKind = 'arc' | 'shot' | 'heat' | 'magnet' | 'induction';
+export type HitWeight = 'armor' | 'boss-break' | 'break' | 'strike';
+
+export interface WeaponCast extends Readonly<Position> {
+    readonly tool: ToolId;
+    readonly slot: number;
+    readonly ux: number;
+    readonly uy: number;
+    readonly targetRange: number;
+    readonly tick: number;
+    readonly effectBoost?: number;
+    readonly modified?: true;
+    readonly powered?: true;
+    readonly melee?: MeleeMotion;
+}
+
+export interface WeaponImpact extends Readonly<Position> {
+    tick: number;
+    cast: WeaponCast;
+    weight: HitWeight;
+    rank: number;
+}
+
+export type MeleeWindup = Pick<WeaponCast, 'slot' | 'ux' | 'uy'> & {
+    readonly tool: 'wrench' | 'bypass_wrench';
+    readonly ageTicks: number;
+};
+
+type AttackArea = Position & (
+    | { shape: 'circle'; kind: 'magnet' | 'induction'; radius: number }
+    | { shape: 'strip'; kind: 'shot'; ux: number; uy: number; length: number; halfWidth: number }
+    | { shape: 'sector'; kind: 'heat'; ux: number; uy: number; radius: number; slope: number }
+);
+
+export type Attack = { life: number; weight?: HitWeight; sourceCast?: WeaponCast } & (
+    | AttackArea
+    | (Position & { shape: 'link'; kind: 'arc'; from: Position; fromWeapon?: true; melee?: true; mark?: 'applied' | 'boosted' })
+    | (Position & { shape: 'impact'; kind: Exclude<SkillKind, 'arc'>; pullFrom?: Position })
+);
+
+export interface RenderEnemy extends Position {
+    readonly id: number;
+    readonly kind: EnemyId;
+    readonly hp: number;
+    readonly state: 'walk' | 'warn' | 'dash';
+    readonly next: number;
+    readonly vx: number;
+    readonly vy: number;
+    readonly marked: boolean;
+    readonly facingX?: number;
+    readonly facingY?: number;
+    readonly tether?: Readonly<Position>;
+    readonly hitAt?: number;
+    readonly shotAt?: number;
+    readonly contactAt?: number;
+    readonly revealedAt?: number;
+}
+
+export interface RenderBullet extends Position {
+    readonly vx: number;
+    readonly vy: number;
+    readonly boss?: boolean;
+}
+
+export interface RenderBattleView {
+    readonly field: CombatBounds;
+    readonly player: Readonly<Position> & { readonly hp: number; readonly maxHp: number; readonly invulnerableUntil: number; readonly hurtAt?: number };
+    readonly tick: number;
+    readonly tools: readonly { readonly id: ToolId; readonly mods: readonly string[] }[];
+    readonly weaponCasts: readonly WeaponCast[];
+    readonly weaponImpacts: readonly WeaponImpact[];
+    readonly effects: readonly Attack[];
+    readonly enemies: readonly RenderEnemy[];
+    readonly defeatedEnemies: readonly { readonly id: number; readonly kind: EnemyId; readonly x: number; readonly y: number; readonly hitAt: number }[];
+    readonly bullets: readonly RenderBullet[];
+    readonly parts: readonly Readonly<Position>[];
+    readonly warnings: readonly (Readonly<Position> & { readonly kind: RegularEnemyId; readonly at: number })[];
+    readonly chapterBoss: ChapterBossView | null;
+    readonly boss: {
+        readonly unit: RenderEnemy;
+        readonly maxHp: number;
+        readonly phase: 'patrol' | 'warning' | 'volley' | 'recover';
+        readonly attack: string;
+        readonly next: number;
+        readonly pattern: number;
+        readonly attackNumber: number;
+        readonly damagedPlayer: boolean;
+    } | null;
+    readonly playerAttack?: { readonly tick: number; readonly x: number; readonly y: number };
+    readonly playerHit?: Readonly<Position>;
+    readonly rangedAimTarget: (slot: number) => Readonly<Position> | undefined;
+    readonly meleeWindups: () => readonly MeleeWindup[];
+}
 
 export type WeaponTag = 'melee' | 'arc' | 'ballistic' | 'thermal' | 'control';
 export type Tier = 1 | 2 | 3 | 4;

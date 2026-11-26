@@ -39,7 +39,7 @@ function harness() {
     const resources = makeBundle();
     const modules = {
         cc: { assetManager, resources, Texture2D: class { static Filter = { NEAREST: 0 }; } },
-        '../campaign/CampaignArt': { campaignArtBundle: key => key === 'shared' ? null : 'campaign-ch03' },
+        './CampaignArt': { campaignArtBundle: key => key === 'shared' ? null : 'campaign-ch03' },
     };
     let nextTimer = 0;
     vm.runInNewContext(outputText, {

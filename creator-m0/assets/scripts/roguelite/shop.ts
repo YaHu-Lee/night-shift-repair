@@ -1,5 +1,4 @@
-import { randomStream } from '../m1/content';
-import type { ToolId } from '../m1/content';
+import { randomStream } from './constants';
 import {
     ALL_TOOL_IDS,
     MODULE_BY_ID,
@@ -30,6 +29,7 @@ import type {
     StatDelta,
     StatKey,
     Tier,
+    ToolId,
     WeaponInstance,
     WeaponTag,
     WorkshopProfile,

@@ -24,17 +24,7 @@
       "name": "resources",
       "compressionType": "merge_dep",
       "priority": 8,
-      "isRemote": false,
-      "bundleFilterConfig": [
-        {
-          "range": "exclude",
-          "type": "url",
-          "patchOption": {
-            "patchType": "beginWith",
-            "value": "db://assets/resources/prototype3d/"
-          }
-        }
-      ]
+      "isRemote": false
     },
     {
       "root": "db://assets/campaign-content/campaign-ch01",

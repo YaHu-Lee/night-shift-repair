@@ -1,11 +1,17 @@
-import { BASE_PICKUP_RADIUS, CAMPAIGN_FIELD, START, TICK_RATE, randomStream } from '../m1/content';
-import type { CombatBounds, EnemyId, RegularEnemyId, ToolId } from '../m1/content';
-import { clamp, distance, distanceToSegment, fieldRayEnd } from '../m1/Encounter';
-import type { ChapterBossKind, ChapterBossView, Position } from '../m1/Encounter';
-import { IMPACT_TICKS } from '../m1/Battle';
-import type { Attack, MeleeWindup, WeaponCast, WeaponImpact } from '../m1/Battle';
-import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from '../m1/WeaponMotion';
-import type { MeleeMotion, MeleeTool } from '../m1/WeaponMotion';
+import {
+    BASE_PICKUP_RADIUS,
+    CAMPAIGN_FIELD,
+    IMPACT_TICKS,
+    START,
+    TICK_RATE,
+    clamp,
+    distance,
+    distanceToSegment,
+    fieldRayEnd,
+    randomStream,
+} from './constants';
+import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from './weaponMotion';
+import type { MeleeMotion, MeleeTool } from './weaponMotion';
 import { ENEMY_ARCHETYPES, RIG_CATALOG, WEAPON_CATALOG } from './catalog';
 import {
     bossHpForWave,
@@ -19,16 +25,28 @@ import {
 import { UI_COPY } from './narrative';
 import type { ResolvedBuild } from './formulas';
 import type {
+    Attack,
     BattleWaveSummary,
+    ChapterBossKind,
+    ChapterBossView,
     ChapterDefinition,
+    CombatBounds,
     DailyShiftModifierId,
     DamageSource,
     DangerLevel,
+    EnemyId,
+    MeleeWindup,
+    Position,
     PreRunSupplyId,
+    RegularEnemyId,
+    RenderBattleView,
     RigId,
     StatDelta,
+    ToolId,
     WaveDefinition,
+    WeaponCast,
     WeaponDamageStat,
+    WeaponImpact,
     WeaponInstance,
     WorkshopProfile,
 } from './types';
@@ -374,7 +392,7 @@ export class RogueliteBattle {
      * Lightweight read-only bridge matching the fields read by BattleSkinView & CampaignCombatView
      * so all existing 2D pixel art, 8-direction animations, and 6 floating weapons render identically.
      */
-    toRenderBridge(): unknown {
+    toRenderBridge(): RenderBattleView {
         const bossView = this.bossView;
         const bossUnit = this.bossUnit;
         const mappedEnemies = this.enemies.map(e => ({
@@ -410,10 +428,6 @@ export class RogueliteBattle {
             bullets: this.bullets,
             parts: this.drops.filter(d => d.kind === 'part'),
             warnings: this.warnings,
-            mission: null,
-            terrainRects: [],
-            searchlight: null,
-            practiceWarning: undefined,
             chapterBoss: bossView,
             boss: bossMapped && bossUnit ? {
                 unit: bossMapped,

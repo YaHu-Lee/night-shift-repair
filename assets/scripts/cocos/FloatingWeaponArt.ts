@@ -1,4 +1,4 @@
-import type { ToolId } from '../m1/content';
+import type { ToolId } from '../roguelite/types';
 
 export interface WeaponMuzzle {
     x: number;

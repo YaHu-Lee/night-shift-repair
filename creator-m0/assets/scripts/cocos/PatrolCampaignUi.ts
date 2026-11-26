@@ -1,7 +1,5 @@
 import { Color, Graphics, Label, Node, UITransform, Vec2 } from 'cc';
-import type { Battle } from '../m1/Battle';
-import { FIELD, combatViewport } from '../m1/content';
-import type { CombatBounds, ToolId } from '../m1/content';
+import { FIELD, combatViewport } from '../roguelite/constants';
 import {
     CHAPTER_CATALOG,
     MODULE_BY_ID,
@@ -59,6 +57,7 @@ import {
 import type { MiniGameEngage } from '../platform/miniGameEngage';
 import type {
     ChapterDefinition,
+    CombatBounds,
     DailyShiftModifierId,
     DangerLevel,
     ModuleSpec,
@@ -67,6 +66,7 @@ import type {
     RigId,
     StatKey,
     Tier,
+    ToolId,
     WorkshopProfile,
 } from '../roguelite/types';
 import { BENCH, benchLock, benchPlate, benchScrew } from './WorkshopBench';
@@ -77,7 +77,7 @@ import { FLOATING_WEAPON_ART } from './FloatingWeaponArt';
 import { PixelJuiceEngine, pxLine, pxRing } from './PixelVfxEngine';
 import type { BattleSkinView } from './BattleSkinView';
 import type { Sound } from './CampaignAudio';
-import type { CampaignPreferences } from '../campaign/CampaignSettings';
+import type { CampaignPreferences } from '../platform/settings';
 
 const WIDTH = 360;
 const HEIGHT = 640;
@@ -695,7 +695,7 @@ export class PatrolCampaignUi {
         const isBattle = !this.retrySave && (this.page === 'battle' || this.page === 'revive') && !!this.session?.battle;
         if (!isBattle) {
             this.host.clearWorldLayers();
-            this.host.skin?.drawWorld(null, false);
+            this.host.skin?.drawWorld(null);
         }
         this.host.setScenery(this.page === 'home' ? 'night-depot' : null);
 
@@ -753,7 +753,7 @@ export class PatrolCampaignUi {
         const offsetY = view.bottom + (view.top - view.bottom) / 2 - VIEW_CENTER_Y + shake.y;
         this.host.setBattleOffset(offsetX, offsetY);
 
-        const bridge = battle.toRenderBridge() as Battle;
+        const bridge = battle.toRenderBridge();
         const floatingTick = battle.tick + (this.session?.frameFraction ?? 0);
 
         if (this.host.puddles) {
@@ -761,10 +761,10 @@ export class PatrolCampaignUi {
             this.host.threats?.clear();
             // Persistent low-contrast floor decals (oil, scorch, scrap, spent brass shells) sit below actors & bullets!
             this.juice.drawGroundDecals(this.host.puddles);
-            skin?.drawEncounter(this.host.puddles, bridge, battle.chapter.stations[battle.waveDef.stationIndex].id, false, this.host.threats);
+            skin?.drawEncounter(this.host.puddles, bridge, this.host.threats);
         }
 
-        skin?.drawWorld(bridge, false, floatingTick);
+        skin?.drawWorld(bridge, floatingTick);
 
         this.host.skillEffects.clear();
         drawSkillEffects(

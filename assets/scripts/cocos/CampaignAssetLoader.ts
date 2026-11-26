@@ -1,6 +1,6 @@
 import { assetManager, resources, Texture2D } from 'cc';
 import type { AssetManager } from 'cc';
-import { campaignArtBundle } from '../campaign/CampaignArt';
+import { campaignArtBundle } from './CampaignArt';
 
 const inflight = new Map<string, Promise<AssetManager.Bundle | null>>();
 const LOAD_DEADLINE_MS = 15_000;

@@ -1,1 +1,21 @@
-{"name":"night-shift-repair","version":"0.1.0","private":true,"type":"module","creator":{"version":"3.8.8"},"engines":{"node":">=24"},"scripts":{"build:web":"node scripts/build-web.mjs","preview":"npm run build:web && node scripts/serve.mjs","test":"npm run build:web && node --test tests/*.test.mjs","bench":"npm run build:web && node tests/stress-world.bench.mjs","typecheck":"tsc -p tsconfig.qa.json"},"devDependencies":{"typescript":"5.8.3"}}
+{
+  "name": "night-shift-repair",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "creator": {
+    "version": "3.8.8"
+  },
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "test": "npm run build:web && node --test tests/*.test.mjs",
+    "sim": "npm run build:web && node scripts/roguelite-sim.mjs",
+    "typecheck": "tsc -p tsconfig.qa.json"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}

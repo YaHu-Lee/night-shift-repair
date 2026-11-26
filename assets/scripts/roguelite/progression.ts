@@ -1,6 +1,5 @@
-import type { ToolId } from '../m1/content';
 import { ALL_TOOL_IDS, CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WEAPON_CATALOG } from './catalog';
-import type { ChapterId, DangerLevel, PreRunSupplyId, RigId, WorkshopProfile } from './types';
+import type { ChapterId, DangerLevel, PreRunSupplyId, RigId, ToolId, WorkshopProfile } from './types';
 
 export interface ChapterUnlockGrant {
     readonly nextChapter?: ChapterId;

@@ -1,6 +1,6 @@
 # 《夜班修理局》四章巡线肉鸽技术架构与商业化／留存设计
 
-> 本文是默认战役入口（`PatrolCampaignUi` + `assets/scripts/roguelite/` + `assets/scripts/platform/miniGameEngage.ts`）的现行架构文档，对应存档版本 `PatrolLocalSave v4` / `WorkshopProfile v3`。旧 20 关工单回退路径（`?legacyCampaign=1`）仍见 [技术方案 v0.2](TECHNICAL-DESIGN-v0.2.md)。
+> 本文是《夜班修理局》现行版本（`PatrolCampaignUi` + `assets/scripts/roguelite/` + `assets/scripts/platform/miniGameEngage.ts`）的架构与系统说明，对应存档版本 `PatrolLocalSave v4` / `WorkshopProfile v3`。
 
 ---
 
@@ -9,7 +9,9 @@
 严格保持 **“纯 TS 规则内核零引擎依赖，Cocos 仅负责输入与表现，平台能力经统一适配器注入”**：
 
 1. **纯 TS 肉鸽内核（`assets/scripts/roguelite/`）** — 可在 Node.js 脱离 Cocos 直接跑单测与平衡模拟：
-   - `types.ts`：全局核心类型（武器、模块、工装、章节、危急等级、班前特供、每日留存状态、激励点位、存档模型）。
+   - `types.ts`：全局核心类型（战斗几何、武器、模块、工装、章节、危急等级、班前特供、每日留存状态、激励点位、渲染桥接与存档模型）。
+   - `constants.ts`：30 Hz 固定步进常数、战场边界、伪随机流与平面几何工具。
+   - `weaponMotion.ts`：6 槽等角圆环武器锚点与连续扫掠近战轨迹碰撞判定。
    - `catalog.ts`：静态内容表——10 把悬浮武器 4 阶数据、5 大体系羁绊表、33 件工坊模块（含 4 件 IV 阶唯一违章件）、5 套工装、6 项全局天赋、8 种敌机原型与 4 章 × 12 波波表。
    - `progression.ts`：**唯一进度派生源**——章节逐章解锁、全局危急爬阶、工装与武器入库、4 件四阶违章件解锁条件、20 格首通里程碑与跨档自动补领、加密档案附页、全城金印计数、班前特供配置与结算新解锁汇总。
    - `engagement.ts`：**留存与长尾玩法纯逻辑**——每日打卡（`+20 凭证 + 1 次免费班前特供`）、按日期确定性生成的「今日夜班急单」（4 套趣味词条 + 免费体验指定工装 + `+35 凭证`）、通关第 4 章后的「港区无尽夜班」（13 波起动态叠波与每 5 波首领）、每日广告频控、新号状态判断与跨设备云档单调合并器（`mergeWorkshopProfiles`）。
@@ -21,9 +23,9 @@
    - `narrative.ts`：界面文案 `UI_COPY`、4 章电台与档案、以及每章危急二解锁的 4 份「加班密件」。
 2. **平台与商业化适配层（`assets/scripts/platform/`）**：
    - `platform.ts`：Web / 微信 / 抖音本地同步存储、A/B 双槽校验与安全区适配。
+   - `settings.ts`：音乐、音效与移动方式（浮动摇杆／触屏点按）持久化配置。
    - `rewardedRevive.ts`：原生 `wx.createRewardedVideoAd` / `tt.createRewardedVideoAd` 单例租赁、微信加载重试、抖音 `count / isEnded` 判定。
    - `miniGameEngage.ts`：**统一互动与激励视频路由器**——收敛全部 5 个广告点位、预留 `adFreePass`（免广告工牌一键直领）、抖音侧边栏入口检测与跳转（`sidebar_card` / `navigateToScene`）、双端战报分享（`shareAppMessage`）及调试预览开关（`?mockAd=1`）。
-   - `campaignCloud.ts`：抖音云函数传输适配，供后续服务端巡线云档同步复用。
 3. **Cocos Creator 表现层（`assets/scripts/cocos/` 与 `creator-m0/assets/scripts/` 双份同步）**：
    - `M1Bootstrap.ts`：场景宿主、触控与摇杆、激励视频与 `MiniGameEngage` 生命周期托管（切后台取消、销毁释放）。
    - `PatrolCampaignUi.ts`：全套 `360×640` / `393×852` 纯像素竖屏界面（值班室首页、出勤准备、战斗 HUD、阵亡急救层、升级 4 选 1、2×2 商店与 3 步轻量化新手指引、属性羁绊页、工坊改装、值班记录、结算战报）。
@@ -91,11 +93,11 @@
 tsc -p tsconfig.qa.json --pretty false
 tsc -p creator-m0/tsconfig.json --noEmit --skipLibCheck --pretty false
 
-# 2. 全量单元测试（当前 245 项）
-node scripts/build-web.mjs && node --test tests/*.test.mjs
+# 2. 全量单元测试与资产/双份同步校验
+npm test
 
 # 3. 4 章 × 5 工装战斗与经济平衡模拟
-node scripts/roguelite-sim.mjs
+npm run sim
 
 # 4. 微信 / 抖音发布包身份与分包校验
 node scripts/check-campaign-distribution.mjs --platform wechat

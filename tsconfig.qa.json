@@ -1,1 +1,15 @@
-{"compilerOptions":{"target":"ES2020","module":"ES2020","moduleResolution":"Bundler","strict":true,"noEmit":true,"lib":["ES2020","DOM"],"skipLibCheck":true},"include":["assets/scripts/core/**/*.ts","assets/scripts/platform/**/*.ts","assets/scripts/m0/**/*.ts","assets/scripts/m1/**/*.ts","assets/scripts/campaign/**/*.ts","assets/scripts/roguelite/**/*.ts"]}
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2020", "DOM"]
+  },
+  "include": [
+    "assets/scripts/platform/**/*.ts",
+    "assets/scripts/roguelite/**/*.ts"
+  ]
+}

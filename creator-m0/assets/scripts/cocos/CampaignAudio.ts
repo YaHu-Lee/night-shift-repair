@@ -49,30 +49,24 @@ export class CampaignAudio {
     private combatPrepared = false;
     private disposed = false;
 
-    constructor(node: Node, private readonly campaign: boolean, waitsForGesture: boolean,
+    constructor(node: Node, waitsForGesture: boolean,
         private readonly retry: (action: () => void) => void) {
         this.activated = !waitsForGesture;
         this.effectSource = node.addComponent(AudioSource);
         this.effectSource.playOnAwake = false;
-        if (campaign) {
-            for (const key of Object.keys(SCORES) as Score[]) {
-                const source = node.addComponent(AudioSource);
-                source.playOnAwake = false;
-                source.loop = true;
-                source.volume = 0;
-                this.tracks[key] = { source };
-            }
-            this.loadScore('workshop');
-            for (const key of HOME_CUES) this.loadCue(key);
-        } else {
-            for (const key of Object.keys(CUES) as Sound[]) {
-                if (CUES[key].path.startsWith('m2/')) this.loadCue(key);
-            }
+        for (const key of Object.keys(SCORES) as Score[]) {
+            const source = node.addComponent(AudioSource);
+            source.playOnAwake = false;
+            source.loop = true;
+            source.volume = 0;
+            this.tracks[key] = { source };
         }
+        this.loadScore('workshop');
+        for (const key of HOME_CUES) this.loadCue(key);
     }
 
     prepareCombat(): void {
-        if (!this.campaign || this.combatPrepared || this.disposed) return;
+        if (this.combatPrepared || this.disposed) return;
         this.combatPrepared = true;
         this.loadScore('combat');
         for (const key of Object.keys(CUES) as Sound[]) {
@@ -132,7 +126,7 @@ export class CampaignAudio {
         const now = Date.now();
         if (now - (this.lastCue[group] ?? -Infinity) < INTERVAL_MS[group]) return;
         this.lastCue[group] = now;
-        this.effectSource.playOneShot(clip, this.campaign ? gain : 0.45);
+        this.effectSource.playOneShot(clip, gain);
     }
 
     get musicPlaying(): boolean {
