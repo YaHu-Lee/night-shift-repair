@@ -219,7 +219,7 @@ test('patrol session runs a full wave, retains bag parts, grants level-ups, bans
 test('persistence migrates legacy clears/credits and round-trips active patrol checkpoints with locks', () => {
     const store = new Map();
     const env = { localStorage: { getItem: k => store.get(k) ?? null, setItem: (k, v) => { store.set(k, v); } } };
-    const storage = new PatrolStorage(makePlatform(env, 'test.prof'), makePlatform(env, 'test.run'));
+    const storage = new PatrolStorage(makePlatform(env, 'test.prof'), makePlatform(env, 'test.run'), makePlatform(env, 'test.save'));
 
     const migrated = storage.loadProfile({ clearedStages: ['01', '05', '10'], credits: 72 });
     assert.deepEqual(migrated.clearedChapters, ['01', '02']);
@@ -268,3 +268,178 @@ test('roguelite battle emits visual bridge casts, effects, impacts, and boss vie
     assert.ok(bridge.chapterBoss && bridge.chapterBoss.title === ch1.bossName, 'exposes boss HUD view');
 });
 
+
+function patrolJournalFixture() {
+    const disk = new Map();
+    const env = { localStorage: { getItem: k => disk.get(k) ?? null, setItem: (k, v) => disk.set(k, v) } };
+    const platform = name => makePlatform(env, name);
+    const open = (local = platform('save')) => new PatrolStorage(platform('profile3'), platform('run3'), local);
+    return { disk, platform, open };
+}
+
+function shopSession(profile, seed = 42) {
+    const run = new PatrolSession({ chapterId: '01', rigId: 'duty_standard', seed, profile });
+    run.parts = 500;
+    run.xp = 60;
+    while (run.phase === 'battle') run.stepBattle(0.5, 0.2);
+    assert.equal(run.phase, 'shop');
+    return run;
+}
+
+test('shop restores exact choices, lock positions, refresh prices and future draws after a cold launch', () => {
+    const { open } = patrolJournalFixture();
+    const storage = open();
+    const profile = storage.loadProfile();
+    const run = shopSession(profile);
+    function reload() {
+        assert.ok(storage.saveActiveRun(run));
+        const cold = open();
+        return cold.loadActiveRun(cold.loadProfile());
+    }
+    assert.ok(run.rerollLevelUpOptions());
+    assert.deepEqual(reload().shopView, run.shopView);
+    while (run.shopView.pendingLevelUps) run.chooseLevelUp(0);
+    assert.ok(run.reroll());
+    assert.ok(run.toggleLock(3));
+    assert.ok(run.buySlot(0).ok);
+    const restored = reload();
+    assert.deepEqual(restored.shopView, run.shopView);
+    assert.ok(restored.shopView.slots[0].sold);
+    assert.ok(restored.shopView.slots[3].locked);
+    run.reroll();
+    restored.reroll();
+    assert.deepEqual(restored.snapshot(), run.snapshot());
+    const lockedItem = run.shopView.slots[3];
+    assert.ok(run.startNextWave());
+    // Isolate cross-wave lock persistence from second-wave combat difficulty.
+    run.battle.player.invulnerableUntil = Infinity;
+    while (run.phase === 'battle') run.stepBattle(0.5, 0.2);
+    assert.equal(run.phase, 'shop');
+    const carried = reload().shopView.slots.find(slot => slot.locked);
+    assert.equal(carried.itemId, lockedItem.itemId);
+    assert.equal(carried.price, lockedItem.price);
+});
+
+test('settlement survives failed writes at either stage and cold starts without double payment', () => {
+    const { platform, open } = patrolJournalFixture();
+    const local = platform('save');
+    const write = local.writeCheckpoint.bind(local);
+    const storage = open(local);
+    const profile = storage.loadProfile();
+    const run = shopSession(profile);
+    assert.ok(storage.saveActiveRun(run));
+    run.phase = 'won';
+    run.intermission = null;
+    local.writeCheckpoint = () => false;
+    assert.equal(storage.settleRun(run), null);
+    const original = open();
+    assert.equal(original.loadActiveRun(original.loadProfile()).phase, 'shop');
+
+    local.writeCheckpoint = (ver, value, validate) => value.run !== null && write(ver, value, validate);
+    assert.equal(storage.settleRun(run), null);
+    const cold = open();
+    const pendingProfile = cold.loadProfile();
+    assert.equal(pendingProfile.credits, 0);
+    const pending = cold.loadActiveRun(pendingProfile);
+    assert.equal(pending.phase, 'won');
+    const expected = pending.settle().creditsEarned;
+    const awarded = cold.settleRun(pending);
+    assert.equal(awarded.credits, expected);
+    assert.deepEqual(awarded.clearedChapters, ['01']);
+    assert.equal(cold.settleRun(pending).credits, expected);
+    const confirmed = open();
+    assert.equal(confirmed.loadProfile().credits, expected);
+    assert.equal(confirmed.loadActiveRun(awarded), null);
+});
+
+test('legacy patrol data migrates without changing its source, and a legacy run tombstone stays empty', () => {
+    const { platform, open } = patrolJournalFixture();
+    const profile = { ...createDefaultProfile(), credits: 71 };
+    const legacy = shopSession(profile).snapshot();
+    delete legacy.runId;
+    delete legacy.shop;
+    legacy.version = 3;
+    legacy.nextWeaponUid = legacy.weapons[0].uid;
+    assert.ok(platform('profile3').writeCheckpoint(3, profile));
+    assert.ok(platform('run3').writeCheckpoint(3, legacy));
+    const storage = open();
+    assert.deepEqual(storage.loadProfile(), profile);
+    const run = storage.loadActiveRun(profile);
+    assert.equal(run.parts, legacy.parts);
+    assert.ok(run.snapshot().nextWeaponUid > legacy.weapons[0].uid);
+    assert.ok(storage.saveActiveRun(run));
+    assert.deepEqual(platform('run3').readCheckpoint(3), legacy);
+    assert.ok(platform('run3').clearCheckpoint());
+    const restored = open();
+    assert.equal(restored.loadActiveRun(restored.loadProfile()).runId, run.runId);
+
+    const empty = patrolJournalFixture();
+    assert.ok(empty.platform('run3').clearCheckpoint());
+    const migrated = empty.open();
+    assert.equal(migrated.loadActiveRun(migrated.loadProfile()), null);
+    assert.equal(migrated.needsReload, false);
+});
+
+test('stale writers and unreadable saves cannot replace progress; a bad slot falls back to its good generation', () => {
+    const { open, platform, disk } = patrolJournalFixture();
+    const first = open(), stale = open();
+    const profile = first.loadProfile();
+    stale.loadProfile();
+    assert.ok(first.saveProfile({ ...profile, credits: 10 }));
+    assert.equal(stale.saveProfile({ ...profile, credits: 2 }), false);
+    assert.ok(stale.needsReload);
+    const journal = platform('save');
+    const good = journal.readCheckpoint(4);
+    assert.ok(journal.writeCheckpoint(4, { ...good, run: { version: 4 } }));
+    const reader = open();
+    assert.equal(reader.loadProfile().credits, 10);
+    assert.ok(reader.saveProfile({ ...profile, credits: 12 }));
+    for (const key of disk.keys()) disk.set(key, '{broken');
+    const bad = open();
+    bad.loadProfile();
+    assert.ok(bad.needsReload);
+    assert.equal(bad.saveProfile(profile), false);
+    assert.deepEqual([...disk.values()], ['{broken', '{broken']);
+});
+
+test('a settlement write with lost read-back confirmation can be retried without paying twice', () => {
+    const { platform, open } = patrolJournalFixture();
+    const local = platform('save');
+    const storage = open(local);
+    const run = shopSession(storage.loadProfile());
+    assert.ok(storage.saveActiveRun(run));
+    run.intermission = null;
+    run.phase = 'lost';
+    const write = local.writeCheckpoint.bind(local);
+    local.writeCheckpoint = (version, value, validate) => {
+        const persisted = write(version, value, validate);
+        return !value.lastSettledRunId && persisted;
+    };
+    assert.equal(storage.settleRun(run), null);
+    const expected = run.settle().creditsEarned;
+    assert.ok(expected > 0);
+    assert.equal(storage.settleRun(run).credits, expected);
+    const cold = open();
+    const profile = cold.loadProfile();
+    assert.equal(profile.credits, expected);
+    assert.equal(cold.loadActiveRun(profile), null);
+});
+
+test('spent free rerolls and the buyout bonus survive a reopened shop', () => {
+    const { open } = patrolJournalFixture();
+    const storage = open();
+    const profile = { ...storage.loadProfile(), talents: { toolbox: 1 } };
+    assert.ok(storage.saveProfile(profile));
+    const run = shopSession(profile);
+    while (run.shopView.pendingLevelUps) run.chooseLevelUp(0);
+    assert.equal(run.shopView.freeRerollsLeft, 1);
+    assert.ok(run.reroll());
+    for (let i = 0; i < 4; i++) assert.ok(run.buySlot(i).ok);
+    assert.ok(run.intermission.buyoutBonusUsed);
+    assert.ok(storage.saveActiveRun(run));
+    const cold = open();
+    const restored = cold.loadActiveRun(cold.loadProfile());
+    assert.equal(restored.shopView.freeRerollsLeft, 0);
+    assert.ok(restored.intermission.buyoutBonusUsed);
+    assert.deepEqual(restored.shopView, run.shopView);
+});

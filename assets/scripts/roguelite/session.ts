@@ -29,6 +29,11 @@ import type {
 } from './types';
 import type { PatrolSnapshot } from './persistence';
 
+export function createPatrolId(): string {
+    return globalThis.crypto?.randomUUID?.()
+        ?? [Date.now(), Math.random(), Math.random()].map(value => value.toString(36)).join('-');
+}
+
 export function createDefaultProfile(): WorkshopProfile {
     return {
         schemaVersion: 3,
@@ -84,6 +89,7 @@ export class PatrolSession {
     readonly rigId: RigId;
     readonly danger: DangerLevel;
     readonly seed: number;
+    readonly runId: string;
     readonly profile: WorkshopProfile;
 
     phase: 'battle' | 'shop' | 'won' | 'lost' = 'battle';
@@ -110,11 +116,13 @@ export class PatrolSession {
         readonly danger?: DangerLevel;
         readonly seed: number;
         readonly profile?: WorkshopProfile;
+        readonly runId?: string;
     }, skipStart = false) {
         this.chapter = getChapter(params.chapterId);
         this.rigId = params.rigId;
         this.danger = params.danger ?? 0;
         this.seed = params.seed >>> 0;
+        this.runId = params.runId ?? createPatrolId();
         this.profile = params.profile ?? createDefaultProfile();
         const rig = RIG_CATALOG[params.rigId];
         this.weapons = [{ uid: 1, id: rig.starterWeapon, tier: 1 }];
@@ -129,6 +137,7 @@ export class PatrolSession {
             rigId: snap.rigId,
             danger: snap.danger,
             seed: snap.seed,
+            runId: snap.runId ?? ['v3', snap.chapterId, snap.rigId, snap.seed].join('-'),
             profile,
         }, true);
         session.phase = snap.phase;
@@ -142,7 +151,9 @@ export class PatrolSession {
         session.weapons = snap.weapons.map(w => ({ ...w }));
         session.modules = [...snap.modules];
         session.carriedLocks = snap.carriedLocks.map(s => ({ ...s }));
-        session.nextWeaponUid = snap.nextWeaponUid;
+        session.nextWeaponUid = snap.version === 3
+            ? Math.max(snap.nextWeaponUid, ...session.weapons.map(weapon => weapon.uid + 1))
+            : snap.nextWeaponUid;
         session.reports.push(...snap.reports);
         if (snap.phase === 'battle') {
             session.startWaveBattle();
@@ -158,8 +169,8 @@ export class PatrolSession {
                 weapons: snap.weapons,
                 modules: snap.modules,
                 carryLockedSlots: snap.carriedLocks,
-                nextWeaponUid: snap.nextWeaponUid,
-            }, profile);
+                nextWeaponUid: session.nextWeaponUid,
+            }, profile, snap.version === 4 ? snap.shop : undefined);
         }
         return session;
     }
@@ -167,7 +178,15 @@ export class PatrolSession {
     snapshot(): PatrolSnapshot {
         const shop = this.intermission;
         return {
-            version: 3,
+            version: 4,
+            runId: this.runId,
+            ...(shop ? { shop: {
+                slots: shop.slots.map(slot => ({ ...slot })),
+                levelUpOptions: shop.levelUpOptions.map(option => ({ ...option })),
+                levelUpRerolls: shop.levelUpRerolls, paidRerolls: shop.paidRerolls,
+                freeRerollsLeft: shop.freeRerollsLeft, buyoutBonusUsed: shop.buyoutBonusUsed,
+                rollSerial: shop.rollSerial,
+            } } : {}),
             chapterId: this.chapter.id,
             rigId: this.rigId,
             danger: this.danger,

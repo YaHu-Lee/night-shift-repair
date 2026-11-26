@@ -1,7 +1,8 @@
 import { makePlatform } from '../platform/platform';
-import type { Platform } from '../platform/platform';
-import { CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WORKSHOP_TALENTS } from './catalog';
-import { createDefaultProfile, PatrolSession } from './session';
+import { CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WEAPON_CATALOG, WORKSHOP_TALENTS } from './catalog';
+import type { ShopCheckpoint } from './shop';
+import { STAT_KEYS } from './formulas';
+import { createDefaultProfile, createPatrolId, PatrolSession } from './session';
 import type {
     BattleWaveSummary,
     ChapterDefinition,
@@ -16,10 +17,23 @@ import type {
 
 export const PATROL_PROFILE_NAMESPACE = 'night-shift.patrol.profile';
 export const PATROL_RUN_NAMESPACE = 'night-shift.patrol.run';
-const STORAGE_VERSION = 3;
+export const PATROL_SAVE_NAMESPACE = 'night-shift.patrol.save';
+const STORAGE_VERSION = 4;
+
+// Profile and run share one A/B journal generation, including the settlement receipt.
+export interface PatrolLocalSave {
+    readonly schemaVersion: 4;
+    readonly saveId: string;
+    readonly revision: number;
+    readonly profile: WorkshopProfile;
+    readonly run: PatrolSnapshot | null;
+    readonly lastSettledRunId: string | null;
+}
 
 export interface PatrolSnapshot {
-    readonly version: 3;
+    readonly version: 3 | 4;
+    readonly runId?: string;
+    readonly shop?: ShopCheckpoint;
     readonly chapterId: ChapterDefinition['id'];
     readonly rigId: RigId;
     readonly danger: DangerLevel;
@@ -51,7 +65,10 @@ export function validWorkshopProfile(value: unknown): value is WorkshopProfile {
     if (typeof p.credits !== 'number' || !Number.isSafeInteger(p.credits) || p.credits < 0) return false;
     if (!Array.isArray(p.clearedChapters) || !p.clearedChapters.every(id => VALID_CHAPTERS.has(id))) return false;
     if (!Array.isArray(p.unlockedRigs) || !p.unlockedRigs.every(id => VALID_RIGS.has(id))) return false;
-    if (!Array.isArray(p.bannedModules) || !p.bannedModules.every(id => typeof id === 'string' && !!MODULE_BY_ID[id])) return false;
+    if (!Array.isArray(p.bannedModules) || !p.bannedModules.every(id => typeof id === 'string' && owns(MODULE_BY_ID, id))) return false;
+    if (!p.maxDangerCleared || typeof p.maxDangerCleared !== 'object' || Array.isArray(p.maxDangerCleared)
+        || !Object.entries(p.maxDangerCleared).every(([id, danger]) => VALID_CHAPTERS.has(id) && [0, 1, 2, 3, 4].includes(danger))) return false;
+    if (Array.isArray(p.talents)) return false;
     if (!p.talents || typeof p.talents !== 'object') return false;
     for (const [k, v] of Object.entries(p.talents)) {
         const spec = WORKSHOP_TALENTS.find(t => t.id === (k as WorkshopTalentSpec['id']));
@@ -62,17 +79,54 @@ export function validWorkshopProfile(value: unknown): value is WorkshopProfile {
     return true;
 }
 
+function owns(table: object, key: string): boolean {
+    return typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key);
+}
+
+function natural(value: number): boolean {
+    return Number.isSafeInteger(value) && value >= 0;
+}
+
+function validSlot(slot: ShopSlot): boolean {
+    return !!slot && natural(slot.slotIndex) && slot.slotIndex < 4 && natural(slot.price)
+        && [1, 2, 3, 4].includes(slot.tier) && typeof slot.locked === 'boolean' && typeof slot.sold === 'boolean'
+        && (slot.kind === 'weapon' ? owns(WEAPON_CATALOG, slot.itemId)
+            : slot.kind === 'module' && owns(MODULE_BY_ID, slot.itemId));
+}
+
+function validShop(shop: ShopCheckpoint, pending: number): boolean {
+    return !!shop && Array.isArray(shop.slots) && shop.slots.length === 4
+        && shop.slots.every((slot, i) => validSlot(slot) && slot.slotIndex === i)
+        && Array.isArray(shop.levelUpOptions) && shop.levelUpOptions.length === (pending ? 4 : 0)
+        && shop.levelUpOptions.every(o => o && STAT_KEYS.includes(o.stat) && natural(o.amount)
+            && [1, 2, 3, 4].includes(o.tier) && [o.id, o.label, o.detail].every(v => typeof v === 'string'))
+        && [shop.rollSerial, shop.levelUpRerolls, shop.freeRerollsLeft, shop.paidRerolls].every(natural)
+        && typeof shop.buyoutBonusUsed === 'boolean';
+}
+
 export function validPatrolSnapshot(value: unknown): value is PatrolSnapshot {
     if (!value || typeof value !== 'object') return false;
     const s = value as PatrolSnapshot;
-    if (s.version !== 3 || !VALID_CHAPTERS.has(s.chapterId) || !VALID_RIGS.has(s.rigId)) return false;
+    if ((s.version !== 3 && s.version !== 4) || !VALID_CHAPTERS.has(s.chapterId) || !VALID_RIGS.has(s.rigId)) return false;
     if (![0, 1, 2, 3, 4].includes(s.danger)) return false;
     if (!['battle', 'shop', 'won', 'lost'].includes(s.phase)) return false;
     if (!Number.isSafeInteger(s.waveIndex) || s.waveIndex < 0 || s.waveIndex >= 12) return false;
     if (!Number.isSafeInteger(s.parts) || s.parts < 0) return false;
     if (!Array.isArray(s.weapons) || s.weapons.length < 1 || s.weapons.length > 6) return false;
-    if (!Array.isArray(s.modules) || !Array.isArray(s.reports)) return false;
-    return true;
+    if (s.version === 4 && (typeof s.runId !== 'string' || !s.runId.length
+        || (s.phase === 'shop' ? !s.shop || !validShop(s.shop, s.pendingLevelUps) : s.shop !== undefined))) return false;
+    if (![s.seed, s.bagParts, s.xp, s.level, s.pendingLevelUps, s.currentHp, s.nextWeaponUid].every(natural)) return false;
+    if (!s.levelStats || typeof s.levelStats !== 'object' || Array.isArray(s.levelStats)
+        || !Object.entries(s.levelStats).every(([key, v]) => STAT_KEYS.some(k => k === key) && Number.isFinite(v))) return false;
+    if (!s.weapons.every(w => w && owns(WEAPON_CATALOG, w.id) && [1, 2, 3, 4].includes(w.tier)
+        && natural(w.uid) && w.uid > 0 && (s.version === 3 || w.uid < s.nextWeaponUid))
+        || new Set(s.weapons.map(w => w.uid)).size !== s.weapons.length) return false;
+    if (!Array.isArray(s.modules) || !s.modules.every(id => owns(MODULE_BY_ID, id))
+        || !Array.isArray(s.carriedLocks) || !s.carriedLocks.every(validSlot)) return false;
+    return Array.isArray(s.reports) && s.reports.length <= 12 && s.reports.every(r => r
+        && typeof r.cleared === 'boolean' && natural(r.kills) && Number.isFinite(r.elapsedSeconds)
+        && Array.isArray(r.damageByWeapon) && r.damageByWeapon.every((w: BattleWaveSummary['damageByWeapon'][number]) => w && owns(WEAPON_CATALOG, w.id)
+            && [1, 2, 3, 4].includes(w.tier) && [w.slot, w.totalDamage, w.crits, w.kills].every(natural)));
 }
 
 /**
@@ -96,41 +150,88 @@ export function migrateLegacyCampaignProfile(legacy?: { clearedStages?: readonly
     };
 }
 
-export class PatrolStorage {
-    readonly profilePlatform: Platform;
-    readonly runPlatform: Platform;
+export function validPatrolLocalSave(value: unknown): value is PatrolLocalSave {
+    if (!value || typeof value !== 'object') return false;
+    const save = value as PatrolLocalSave;
+    return save.schemaVersion === STORAGE_VERSION && typeof save.saveId === 'string' && save.saveId.length > 0
+        && natural(save.revision) && validWorkshopProfile(save.profile)
+        && (save.lastSettledRunId === null || typeof save.lastSettledRunId === 'string')
+        && (save.run === null || (validPatrolSnapshot(save.run) && save.run.version === 4));
+}
 
-    constructor(profilePlatform?: Platform, runPlatform?: Platform) {
-        this.profilePlatform = profilePlatform ?? makePlatform(undefined, PATROL_PROFILE_NAMESPACE);
-        this.runPlatform = runPlatform ?? makePlatform(undefined, PATROL_RUN_NAMESPACE);
-    }
+export class PatrolStorage {
+    private current?: PatrolLocalSave;
+    private stored: PatrolLocalSave | null = null;
+    needsReload = false;
+
+    constructor(
+        private readonly profilePlatform = makePlatform(undefined, PATROL_PROFILE_NAMESPACE),
+        private readonly runPlatform = makePlatform(undefined, PATROL_RUN_NAMESPACE),
+        private readonly local = makePlatform(undefined, PATROL_SAVE_NAMESPACE),
+    ) {}
 
     loadProfile(legacyFallback?: { clearedStages?: readonly string[]; credits?: number } | null): WorkshopProfile {
-        const saved = this.profilePlatform.readCheckpoint<WorkshopProfile>(STORAGE_VERSION, validWorkshopProfile);
-        if (saved) return saved;
-        const migrated = migrateLegacyCampaignProfile(legacyFallback);
-        if (migrated.credits > 0 || migrated.clearedChapters.length > 0) {
-            this.saveProfile(migrated);
+        this.needsReload = false;
+        this.current = undefined;
+        this.stored = this.local.readCheckpoint(STORAGE_VERSION, validPatrolLocalSave);
+        if (this.stored) {
+            this.current = this.stored;
+            return this.current.profile;
         }
-        return migrated;
+        const profile = this.profilePlatform.readCheckpoint<WorkshopProfile>(3, validWorkshopProfile);
+        const snap = this.runPlatform.readCheckpoint<PatrolSnapshot>(3, validPatrolSnapshot);
+        const initial = profile ?? migrateLegacyCampaignProfile(legacyFallback);
+        if (this.local.checkpointPresence?.() !== 'empty'
+            || (!profile && this.profilePlatform.checkpointPresence?.(true) !== 'empty')
+            || (!snap && this.runPlatform.checkpointPresence?.(true) !== 'empty')) {
+            this.needsReload = true;
+            return initial;
+        }
+        const run = snap ? PatrolSession.fromSnapshot(snap, initial).snapshot() : null;
+        this.current = { schemaVersion: 4, saveId: createPatrolId(), revision: 0, profile: initial, run, lastSettledRunId: null };
+        return initial;
+    }
+
+    private commit(next: PatrolLocalSave): boolean {
+        if (!this.current || this.needsReload || this.local.checkpointPresence?.() === 'unreadable') return false;
+        const disk = this.local.readCheckpoint<PatrolLocalSave>(STORAGE_VERSION, validPatrolLocalSave);
+        // A write can reach disk even if its read-back failed. Accept that same generation on retry.
+        if (disk && JSON.stringify(disk) === JSON.stringify(next)) {
+            this.stored = this.current = disk;
+            return true;
+        }
+        if (JSON.stringify(disk) !== JSON.stringify(this.stored)
+            || (!disk && this.local.checkpointPresence?.() !== 'empty')) {
+            this.needsReload = true;
+            return false;
+        }
+        if (!this.local.writeCheckpoint(STORAGE_VERSION, next, validPatrolLocalSave)) return false;
+        this.stored = this.current = next;
+        return true;
     }
 
     saveProfile(profile: WorkshopProfile): boolean {
-        return this.profilePlatform.writeCheckpoint(STORAGE_VERSION, profile, validWorkshopProfile);
+        return !!this.current && this.commit({ ...this.current, profile, revision: this.current.revision + 1 });
     }
 
     loadActiveRun(profile: WorkshopProfile): PatrolSession | null {
-        const snap = this.runPlatform.readCheckpoint<PatrolSnapshot>(STORAGE_VERSION, validPatrolSnapshot);
-        if (!snap || snap.phase === 'won' || snap.phase === 'lost') return null;
-        return PatrolSession.fromSnapshot(snap, profile);
+        return this.current?.run ? PatrolSession.fromSnapshot(this.current.run, profile) : null;
     }
 
     saveActiveRun(session: PatrolSession): boolean {
-        const snap = session.snapshot();
-        return this.runPlatform.writeCheckpoint(STORAGE_VERSION, snap, validPatrolSnapshot);
+        if (!this.current || this.current.lastSettledRunId === session.runId) return false;
+        return this.commit({ ...this.current, run: session.snapshot(), revision: this.current.revision + 1 });
     }
 
-    clearActiveRun(): void {
-        this.runPlatform.clearCheckpoint();
+    settleRun(session: PatrolSession): WorkshopProfile | null {
+        if (!this.current || (session.phase !== 'lost' && session.phase !== 'won')) return null;
+        if (this.current.lastSettledRunId === session.runId) return this.current.profile;
+        const run = this.current.run;
+        if (!run || run.runId !== session.runId) return null;
+        // Persist the outcome before crediting it so a cold launch can finish an interrupted settlement.
+        if (run.phase !== session.phase && !this.saveActiveRun(session)) return null;
+        const profile = session.applySettlementToProfile(this.current.profile);
+        return this.commit({ ...this.current, revision: this.current.revision + 1, profile,
+            run: null, lastSettledRunId: session.runId }) ? profile : null;
     }
 }

@@ -70,6 +70,9 @@ export interface IntermissionState {
     rollSerial: number;
 }
 
+export type ShopCheckpoint = Pick<IntermissionState, 'slots' | 'levelUpOptions' | 'levelUpRerolls'
+    | 'paidRerolls' | 'freeRerollsLeft' | 'buyoutBonusUsed' | 'rollSerial'>;
+
 export interface ShopViewModel {
     readonly wave: number;
     readonly parts: number;
@@ -169,6 +172,7 @@ function rollShopSlots(
         if (existing && existing.locked && !existing.sold) {
             return {
                 ...existing,
+                slotIndex: i,
                 canAutoMerge: existing.kind === 'weapon' && willAutoMergeOnBuy(state.weapons, existing.itemId as ToolId, existing.tier),
             };
         }
@@ -277,6 +281,7 @@ export function createIntermission(
         readonly nextWeaponUid: number;
     },
     profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    checkpoint?: ShopCheckpoint,
 ): IntermissionState {
     const build = resolveBuild(params.rigId, params.level, params.levelStats, params.weapons, params.modules, profile);
     const state: IntermissionState = {
@@ -298,6 +303,18 @@ export function createIntermission(
         nextWeaponUid: params.nextWeaponUid,
         rollSerial: 0,
     };
+    if (checkpoint) {
+        return {
+            ...state,
+            slots: checkpoint.slots.map(slot => ({ ...slot })),
+            levelUpOptions: checkpoint.levelUpOptions.map(option => ({ ...option })),
+            levelUpRerolls: checkpoint.levelUpRerolls,
+            paidRerolls: checkpoint.paidRerolls,
+            freeRerollsLeft: checkpoint.freeRerollsLeft,
+            buyoutBonusUsed: checkpoint.buyoutBonusUsed,
+            rollSerial: checkpoint.rollSerial,
+        };
+    }
     if (state.pendingLevelUps > 0) {
         const nextLvl = state.level - state.pendingLevelUps + 1;
         state.levelUpOptions = rollLevelUpOptions(nextLvl, build.stats.luck, state.seed, 0, state.rigId);

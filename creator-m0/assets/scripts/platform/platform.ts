@@ -10,7 +10,7 @@ export interface Platform {
   readCheckpoint<T>(version: number, validate?: CheckpointValidator): T | null;
   writeCheckpoint<T>(version: number, value: T, validate?: CheckpointValidator): boolean;
   clearCheckpoint(): boolean;
-  checkpointPresence?(): 'empty' | 'present' | 'unreadable';
+  checkpointPresence?(ignoreCleared?: boolean): 'empty' | 'present' | 'unreadable';
 }
 type NativeEvent = 'onShow' | 'onHide' | 'offShow' | 'offHide';
 type NativeWindowInfo = {
@@ -65,9 +65,8 @@ function fingerprint(sequence: number, version: number, payload: string): string
   return checksum(`${sequence}:${version}:${payload}`);
 }
 
-function readSlot(store: Store, key: string): Slot | null {
+function decodeSlot(raw: unknown, key: string): Slot | null {
   try {
-    const raw = store.get(key);
     if (typeof raw !== 'string' || raw.length > MAX_TEXT_LENGTH) return null;
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== 'object') return null;
@@ -83,10 +82,15 @@ function readSlot(store: Store, key: string): Slot | null {
     return null;
   }
 }
-function slots(store: Store, keys: SlotKeys): Slot[] {
-  return keys.map((key) => readSlot(store, key))
+function newestFirst(values: (Slot | null)[]): Slot[] {
+  return values
     .filter((slot): slot is Slot => slot !== null)
     .sort((a, b) => b.entry.sequence - a.entry.sequence);
+}
+function slots(store: Store, keys: SlotKeys): Slot[] {
+  return newestFirst(keys.map(key => {
+    try { return decodeSlot(store.get(key), key); } catch { return null; }
+  }));
 }
 function readCompatibleSlot(journal: readonly Slot[], version: number, validate?: CheckpointValidator) {
   for (const { key, entry } of journal) {
@@ -100,7 +104,9 @@ function readCompatibleSlot(journal: readonly Slot[], version: number, validate?
   return null;
 }
 function commit(store: Store, keys: SlotKeys, version: number, payload: string, validate?: CheckpointValidator): boolean {
-  const journal = slots(store, keys);
+  let journal: Slot[];
+  try { journal = newestFirst(keys.map(key => decodeSlot(store.get(key), key))); }
+  catch { return false; }
   const previous = journal[0];
   const sequence = (previous?.entry.sequence ?? 0) + 1;
   if (!revision(sequence) || payload.length > MAX_TEXT_LENGTH) return false;
@@ -256,10 +262,11 @@ export function makePlatform(host: Host = globalThis as Host, checkpoint = DEFAU
         return false;
       }
     },
-    checkpointPresence() {
+    checkpointPresence(ignoreCleared = false) {
       if ((sdk && !nativeStorage) || (doc && !storage)) return 'unreadable';
       try {
         const values = keys.map((key) => store.get(key));
+        if (ignoreCleared && newestFirst(values.map((raw, i) => decodeSlot(raw, keys[i])))[0]?.entry.version === 0) return 'empty';
         return values.some((value) => value !== null && value !== undefined && value !== '') ? 'present' : 'empty';
       } catch {
         return 'unreadable';

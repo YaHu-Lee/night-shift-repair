@@ -252,7 +252,7 @@ function formatStatPreview(stats: Partial<Record<StatKey, number>>, limit = 3, s
 
 export class PatrolCampaignUi {
     private readonly storage: PatrolStorage;
-    profile: WorkshopProfile;
+    profile!: WorkshopProfile;
     session: PatrolSession | null = null;
     result: PatrolResult | null = null;
 
@@ -268,7 +268,8 @@ export class PatrolCampaignUi {
     private inspectWeaponSlot: number | null = null;
     private showStatsDrawer = false;
     private shopFeedback = '';
-    private settledRun = false;
+    private saving = false;
+    private retrySave: (() => void) | null = null;
     private lastArena = '';
 
     // Audio & VFX juice serial tracking for RogueliteBattle
@@ -287,16 +288,30 @@ export class PatrolCampaignUi {
 
     constructor(
         private readonly host: PatrolHost,
-        legacyProfile?: { clearedStages?: readonly string[]; credits?: number } | null,
+        private readonly legacyProfile?: { clearedStages?: readonly string[]; credits?: number } | null,
         storage?: PatrolStorage,
     ) {
         this.storage = storage ?? new PatrolStorage();
-        this.profile = this.storage.loadProfile(legacyProfile);
+        this.restore();
+    }
+
+    private restore(): void {
+        this.page = 'home';
+        this.result = null;
+        this.paused = false;
+        this.retrySave = null;
+        this.profile = this.storage.loadProfile(this.legacyProfile);
+        if (this.storage.needsReload) {
+            this.session = null;
+            this.retrySave = () => this.restore();
+            return;
+        }
         this.session = this.storage.loadActiveRun(this.profile);
         if (this.session) {
             this.chapterIdx = this.session.chapter.index;
             this.rigIdx = Math.max(0, RIG_ORDER.indexOf(this.session.rigId));
             this.danger = this.session.danger;
+            if (this.session.phase === 'won' || this.session.phase === 'lost') this.finalizeRun();
         } else {
             const firstUncleared = CHAPTER_CATALOG.findIndex(c => !this.profile.clearedChapters.includes(c.id));
             this.chapterIdx = firstUncleared >= 0 ? firstUncleared : CHAPTER_CATALOG.length - 1;
@@ -304,7 +319,7 @@ export class PatrolCampaignUi {
     }
 
     get inBattle(): boolean {
-        return this.page === 'battle' && !!this.session?.battle && !this.paused;
+        return !this.saving && !this.retrySave && this.page === 'battle' && !!this.session?.battle && !this.paused;
     }
 
     get battleField(): CombatBounds | null {
@@ -323,7 +338,7 @@ export class PatrolCampaignUi {
     }
 
     update(dt: number, axisX: number, axisY: number): void {
-        if (this.page !== 'battle' || this.paused || !this.session?.battle) return;
+        if (this.saving || this.retrySave || this.page !== 'battle' || this.paused || !this.session?.battle) return;
         const b = this.session.battle;
         const simDt = this.juice.step(dt);
         const completed = simDt > 0 ? this.session.advance(simDt, axisX, axisY) : false;
@@ -383,7 +398,7 @@ export class PatrolCampaignUi {
         if (!completed) return;
         this.host.onBattleStopped();
         if (this.session.phase === 'shop') {
-            this.storage.saveActiveRun(this.session);
+            this.saveRun(this.session);
             this.inspectWeaponSlot = null;
             this.showStatsDrawer = false;
             this.shopFeedback = '';
@@ -394,37 +409,68 @@ export class PatrolCampaignUi {
         }
     }
 
-    private finalizeRun(): void {
-        if (!this.session) return;
-        this.result = this.session.settle();
-        if (!this.settledRun) {
-            this.settledRun = true;
-            this.profile = this.session.applySettlementToProfile(this.profile);
-            this.storage.saveProfile(this.profile);
-            this.storage.clearActiveRun();
-            this.host.play(this.result.won ? 'unlock' : 'hit');
+    private persist(write: () => boolean): void {
+        const attempt = () => this.finishWrite(write);
+        const locks = typeof navigator !== 'undefined' && navigator.locks;
+        if (!locks) { attempt(); return; }
+        // Serialise the read/compare/write across tabs on Web origins supporting Web Locks.
+        this.saving = true;
+        void locks.request('night-shift.patrol.save', attempt).catch(() => {
+            this.retrySave = () => this.persist(write);
+        }).finally(() => { this.saving = false; });
+    }
+
+    private finishWrite(write: () => boolean): void {
+        if (write()) {
+            this.retrySave = null;
+        } else {
+            this.host.onBattleStopped();
+            this.retrySave = this.storage.needsReload ? () => this.restore() : () => this.persist(write);
         }
-        this.page = 'result';
-        this.host.syncMusic(false);
+    }
+
+    private saveRun(session: PatrolSession): void {
+        this.persist(() => this.storage.saveActiveRun(session));
+    }
+
+    private saveWorkshop(profile: WorkshopProfile): void {
+        this.persist(() => {
+            if (!this.storage.saveProfile(profile)) return false;
+            this.profile = profile;
+            return true;
+        });
+    }
+
+    private finalizeRun(): void {
+        const session = this.session;
+        if (!session) return;
+        this.persist(() => {
+            const profile = this.storage.settleRun(session);
+            if (!profile) return false;
+            this.profile = profile;
+            this.result = session.settle();
+            this.page = 'result';
+            this.host.play(this.result.won ? 'unlock' : 'hit');
+            this.host.syncMusic(false);
+            return true;
+        });
     }
 
     private startNewPatrol(chapterId: ChapterDefinition['id'], rigId: RigId, danger: DangerLevel): void {
         const seed = (Date.now() ^ Math.imul(this.profile.credits + 17, 2654435761)) >>> 0;
         this.session = new PatrolSession({ chapterId, rigId, danger, seed, profile: this.profile });
         this.result = null;
-        this.settledRun = false;
         this.paused = false;
         this.inspectWeaponSlot = null;
         this.showStatsDrawer = false;
         this.syncAudioSerials();
-        this.storage.saveActiveRun(this.session);
+        this.saveRun(this.session);
         this.page = 'battle';
         this.host.syncMusic(true);
     }
 
     private resumeSavedPatrol(): void {
         if (!this.session) return;
-        this.settledRun = false;
         this.paused = false;
         this.syncAudioSerials();
         this.page = this.session.phase === 'shop' ? 'shop' : 'battle';
@@ -448,7 +494,7 @@ export class PatrolCampaignUi {
     }
 
     draw(): void {
-        const isBattle = this.page === 'battle' && !!this.session?.battle;
+        const isBattle = !this.retrySave && this.page === 'battle' && !!this.session?.battle;
         if (!isBattle) {
             this.host.clearWorldLayers();
             this.host.skin?.drawWorld(null, false);
@@ -459,6 +505,22 @@ export class PatrolCampaignUi {
             this.drawBattleWorld();
         }
         this.host.skin?.beginUi();
+        if (this.saving) {
+            this.host.text('正在保存进度…', 180, 320, { width: 236, size: 16, color: BENCH.paper });
+            this.host.skin?.endUi();
+            return;
+        }
+        if (this.retrySave) {
+            this.backdrop();
+            const reload = this.storage.needsReload;
+            this.host.text(reload ? '请重新读取本机存档' : '进度尚未保存', 180, 365,
+                { width: 304, size: 22, bold: true, color: BENCH.paper });
+            this.host.text(reload ? '存档已变化或无法读取。' : '请确认本机存储可用，再重试。', 180, 315,
+                { width: 304, size: 14, color: BENCH.muted });
+            this.pixelBtn(reload ? '重新读取' : '重试保存', 180, 254, 236, 50, this.retrySave, true);
+            this.host.skin?.endUi();
+            return;
+        }
         switch (this.page) {
             case 'home': this.drawHome(); break;
             case 'prep': this.drawPrep(); break;
@@ -799,7 +861,7 @@ export class PatrolCampaignUi {
             this.host.updateSettings({ sound: !this.host.settings.sound });
         });
         this.pixelBtn('回值班室（保留进度）', 180, cy - 100, 250, 44, () => {
-            if (this.session) this.storage.saveActiveRun(this.session);
+            if (this.session) this.saveRun(this.session);
             this.paused = false;
             this.page = 'home';
             this.host.syncMusic(false);
@@ -828,7 +890,7 @@ export class PatrolCampaignUi {
         const top = this.header(
             `${UI_COPY.shop.heading} · W${view.wave}`,
             '‹ 首页',
-            () => { this.storage.saveActiveRun(session); this.page = 'home'; },
+            () => { this.saveRun(session); this.page = 'home'; },
             '属性/羁绊',
             () => { this.showStatsDrawer = true; this.inspectWeaponSlot = null; },
         );
@@ -882,7 +944,7 @@ export class PatrolCampaignUi {
             this.pixelBtn(slot.locked ? '已锁' : '锁', x + cardW - 22, y + cardH - 14, 36, 22, () => {
                 if (session.toggleLock(idx)) {
                     this.shopFeedback = slot.locked ? '已解锁该货位' : '已锁住 · 下波不涨价';
-                    this.storage.saveActiveRun(session);
+                    this.saveRun(session);
                 } else {
                     this.shopFeedback = `最多同时锁 ${view.maxLocks} 件（去工坊扩充）`;
                 }
@@ -905,7 +967,7 @@ export class PatrolCampaignUi {
                     this.shopFeedback = res.merged
                         ? `2合1 升阶成功！${name} → ${TIER_ROMAN[(slot.tier + 1) as Tier]}阶`
                         : res.freeBuyoutReroll ? `买空整排！赠送一次免费翻箱` : `已装上 ${name}`;
-                    this.storage.saveActiveRun(session);
+                    this.saveRun(session);
                 } else if (res.reason) {
                     this.shopFeedback = res.reason;
                 }
@@ -953,7 +1015,7 @@ export class PatrolCampaignUi {
                         this.host.play('unlock');
                         this.shopFeedback = `${w.name} 升至 ${TIER_ROMAN[(w.tier + 1) as Tier]} 阶！`;
                         this.inspectWeaponSlot = null;
-                        this.storage.saveActiveRun(session);
+                        this.saveRun(session);
                     }
                 }, true);
             }
@@ -963,7 +1025,7 @@ export class PatrolCampaignUi {
                 if (refund > 0) {
                     this.shopFeedback = `拆解 ${w.name}，换回 ${refund} 零件`;
                     this.inspectWeaponSlot = null;
-                    this.storage.saveActiveRun(session);
+                    this.saveRun(session);
                 }
             }, false, canSell);
         } else {
@@ -986,7 +1048,7 @@ export class PatrolCampaignUi {
         this.pixelBtn(rerollLabel, 88, botY, 144, 48, () => {
             if (session.reroll()) {
                 this.shopFeedback = '又翻了一箱新货';
-                this.storage.saveActiveRun(session);
+                this.saveRun(session);
             }
         }, view.freeRerollsLeft > 0, canReroll);
 
@@ -995,7 +1057,7 @@ export class PatrolCampaignUi {
         this.pixelBtn(UI_COPY.shop.nextWave(nextWaveNum, isBossNext), 255, botY, 178, 48, () => {
             if (session.startNextWave()) {
                 this.syncAudioSerials();
-                this.storage.saveActiveRun(session);
+                this.saveRun(session);
                 this.page = 'battle';
                 this.host.syncMusic(true);
             }
@@ -1020,7 +1082,7 @@ export class PatrolCampaignUi {
             this.pixelBtn('选它', 292, y + h / 2, 76, 44, () => {
                 if (this.session!.chooseLevelUp(idx)) {
                     this.host.play('purchase');
-                    this.storage.saveActiveRun(this.session!);
+                    this.saveRun(this.session!);
                 }
             }, true);
         });
@@ -1028,7 +1090,7 @@ export class PatrolCampaignUi {
         const botY = Math.max(this.host.footer + 26, 52);
         const canRoll = view.parts >= view.levelUpRerollCost;
         this.pixelBtn(UI_COPY.shop.levelUpReroll(view.levelUpRerollCost), 180, botY, 220, 46, () => {
-            if (this.session!.rerollLevelUpOptions()) this.storage.saveActiveRun(this.session!);
+            if (this.session!.rerollLevelUpOptions()) this.saveRun(this.session!);
         }, false, canRoll);
     }
 
@@ -1102,8 +1164,7 @@ export class PatrolCampaignUi {
                 this.pixelBtn(maxed ? '已满级' : `升级 · ${cost}`, 286, y + cardH / 2, 92, 40, () => {
                     const next = buyWorkshopTalent(this.profile, talent.id);
                     if (next) {
-                        this.profile = next;
-                        this.storage.saveProfile(next);
+                        this.saveWorkshop(next);
                         this.host.play('purchase');
                     }
                 }, canBuy, canBuy);
@@ -1125,7 +1186,7 @@ export class PatrolCampaignUi {
                     { left: true, width: 196, size: 10, color: BENCH.muted });
                 this.pixelBtn(banned ? '已禁用' : '禁用', 290, y + cardH / 2, 82, 36, () => {
                     const next = toggleModuleBan(this.profile, mod.id);
-                    if (next) { this.profile = next; this.storage.saveProfile(next); }
+                    if (next) this.saveWorkshop(next);
                 }, banned, banned || this.profile.bannedModules.length < limit);
             });
             const botY = Math.max(this.host.footer + 20, 44);
@@ -1335,6 +1396,7 @@ export class PatrolCampaignUi {
             mode: 'patrol-v3',
             page: this.page,
             paused: this.paused,
+            savePending: !!this.retrySave,
             credits: this.profile.credits,
             clearedChapters: this.profile.clearedChapters,
             chapter: CHAPTER_CATALOG[this.chapterIdx].id,
@@ -1353,6 +1415,7 @@ export class PatrolCampaignUi {
 
     // Debug helper for QA screenshot automation to jump cleanly across every redesigned screen.
     jumpDebugState(target: string): void {
+        if (this.retrySave) return;
         if (target === 'prep') { this.page = 'prep'; return; }
         if (target === 'workshop') { this.profile = { ...this.profile, credits: Math.max(this.profile.credits, 80) }; this.page = 'workshop'; return; }
         if (target === 'log') { this.profile = { ...this.profile, clearedChapters: ['01', '02', '03', '04'] }; this.page = 'log'; return; }
@@ -1372,6 +1435,7 @@ export class PatrolCampaignUi {
                     { uid: 3, id: 'wrench', tier: 2 },
                     { uid: 4, id: 'torch', tier: 1 },
                 ];
+                this.session.nextWeaponUid = 5;
                 while (this.session.phase === 'battle') this.session.stepBattle(Math.cos(this.session.battle!.tick / 25), Math.sin(this.session.battle!.tick / 25));
                 if (target === 'shop') {
                     while (this.session.shopView && this.session.shopView.pendingLevelUps > 0) this.session.chooseLevelUp(0);
@@ -1390,6 +1454,7 @@ export class PatrolCampaignUi {
                     { uid: 5, id: 'induction', tier: 2 },
                     { uid: 6, id: 'split_probe', tier: 2 },
                 ];
+                this.session.nextWeaponUid = 7;
                 const snap = { ...this.session.snapshot(), phase: 'battle' as const, waveIndex: 11 };
                 this.session = PatrolSession.fromSnapshot(snap, this.profile);
                 for (let i = 0; i < 60; i++) this.session.stepBattle(0.3, -0.2);
@@ -1405,6 +1470,7 @@ export class PatrolCampaignUi {
                     { uid: 5, id: 'induction', tier: 2 },
                     { uid: 6, id: 'split_probe', tier: 2 },
                 ];
+                this.session.nextWeaponUid = 7;
                 this.session.reports.push({
                     wave: 12, stationName: '中央调度台', cleared: true, elapsedSeconds: 34, kills: 1082, elitesKilled: 2,
                     partsCollected: 310, partsBagged: 0, bagRedeemed: 45, xpGained: 1200, damageTaken: 68, hitsTaken: 7,
