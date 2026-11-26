@@ -21,6 +21,8 @@ import { makePlatform } from '../platform/platform';
 import type { Platform } from '../platform/platform';
 import { createRewardedRevive } from '../platform/rewardedRevive';
 import type { RewardedRevive } from '../platform/rewardedRevive';
+import { createMiniGameEngage } from '../platform/miniGameEngage';
+import type { MiniGameEngage } from '../platform/miniGameEngage';
 import { FIELD, M2_RULES, MODS, REFRESH_COST, RUN_SEED, STARTER, TICK_RATE, TOOLS, TUNING_OPTIONS, attackReach, combatViewport, hasPair, isTool, offer } from '../m1/content';
 import type { CombatBounds, EquippedTool, ModId, OfferId, Route, ToolId } from '../m1/content';
 import { createEquipment, getEquipmentOffer, resolveEquipment, weaponAttachmentCapacity } from '../m1/Equipment';
@@ -172,6 +174,7 @@ export class M1Bootstrap extends Component {
     private campaignRunPrefix = GUEST_CAMPAIGN_RUN_PREFIX;
 
     private reviveAd: RewardedRevive | null = null;
+    private engage: MiniGameEngage | null = null;
     private loggedReviveOffer?: string;
     private watchingRevive = false;
     private reviveFeedback?: 'unavailable' | 'incomplete';
@@ -348,6 +351,7 @@ export class M1Bootstrap extends Component {
             this.settings = new CampaignSettings(this.weaponShowcase ? showcasePlatform() : undefined);
             this.soundEnabled = this.settings.current.sound;
             this.reviveAd = createRewardedRevive({ douyin: this.reviveAdUnitId, wechat: this.wechatReviveAdUnitId });
+            this.engage = createMiniGameEngage(this.reviveAd, { mockAds: DEBUG && previewQuery?.get('mockAd') === '1' });
             this.loadCampaign();
             const cloud = this.run.platform.kind === 'douyin' ? createCampaignCloud(this.cloudEnvId, this.cloudServiceId) : null;
             if (cloud) {
@@ -404,6 +408,7 @@ export class M1Bootstrap extends Component {
 
     onDestroy(): void {
         this.cloud?.invalidate();
+        this.engage?.dispose();
         this.reviveAd?.dispose();
         this.audio?.dispose();
         this.prototypeActors?.dispose();
@@ -1107,6 +1112,7 @@ export class M1Bootstrap extends Component {
             block: (x, y, w, h, color) => self.block(x, y, w, h, color),
             syncMusic: () => self.syncMusic(),
             onBattleStopped: () => self.clearInput(),
+            get engage() { return self.engage; },
         }, this.campaign?.profile);
     }
 

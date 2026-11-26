@@ -32,11 +32,44 @@ import {
 import { RogueliteBattle } from '../.m0-build/roguelite/battle.js';
 import {
     PatrolSession,
+    buyPreRunSupply,
     buyWorkshopTalent,
     createDefaultProfile,
     toggleModuleBan,
 } from '../.m0-build/roguelite/session.js';
+import {
+    CHAPTER_CLEAR_BONUS,
+    DANGER_CAPSTONE_MODULES,
+    FIRST_CLEAR_DANGER_BONUS,
+    goldSealCount,
+    hasCustomStarterUnlock,
+    isChapterUnlocked,
+    isDangerUnlocked,
+    isModuleUnlocked,
+    isRigUnlocked,
+    isSecretArchiveUnlocked,
+    maxUnlockedDanger,
+    totalBanSlots,
+    unlockedWeaponsForProfile,
+} from '../.m0-build/roguelite/progression.js';
 import { PatrolStorage, migrateLegacyCampaignProfile } from '../.m0-build/roguelite/persistence.js';
+import {
+    DAILY_CHECKIN_CREDITS,
+    DAILY_SHIFT_BONUS_CREDITS,
+    SHOP_EMERGENCY_PARTS,
+    buildEndlessWaveDef,
+    canClaimDailyCheckIn,
+    claimDailyCheckIn,
+    consumeDailyAdUse,
+    consumeFreeSupplyCharge,
+    freeSupplyChargesToday,
+    getDailyShift,
+    isFirstTimePlayer,
+    markOnboardingDone,
+    mergeWorkshopProfiles,
+    remainingDailyAdUses,
+} from '../.m0-build/roguelite/engagement.js';
+import { createMiniGameEngage } from '../.m0-build/platform/miniGameEngage.js';
 import { makePlatform } from '../.m0-build/platform/platform.js';
 
 test('armor follows linear EHP curve without reaching immunity, and negative armor stays bounded', () => {
@@ -207,10 +240,35 @@ test('patrol session runs a full wave, retains bag parts, grants level-ups, bans
     for (const ch of CHAPTER_CATALOG) {
         assert.equal(ch.waves.length, 12);
         assert.equal(ch.stations.length, 5);
-        assert.ok(CHAPTER_NARRATIVES[ch.id].opener.line.length > 20);
-        assert.ok(CHAPTER_NARRATIVES[ch.id].clearOutro.line.length > 20);
+        const narrative = CHAPTER_NARRATIVES[ch.id];
+        assert.ok(narrative.opener.line.length > 20 && narrative.opener.line.length <= 48, narrative.opener.line);
+        assert.ok(narrative.clearOutro.line.length > 20 && narrative.clearOutro.line.length <= 72, narrative.clearOutro.line);
+        assert.ok(narrative.midTurn.line.length <= 32, narrative.midTurn.line);
+        assert.equal(ch.stations[2].arriveRadio, `${narrative.midTurn.speaker}：${narrative.midTurn.line}`);
+        assert.equal(ch.waves[11].hint, narrative.bossIntro.line);
+        if (narrative.epilogueHook) assert.ok(narrative.epilogueHook.line.length <= 40, narrative.epilogueHook.line);
+        for (const station of ch.stations) {
+            assert.ok(station.arriveRadio && station.arriveRadio.length <= 46, station.arriveRadio);
+        }
+        for (const wave of ch.waves) assert.ok(wave.hint.length <= 30, `${ch.id} ${wave.wave} ${wave.hint}`);
     }
     // Check all 10 pixel weapons & 5 rigs are cataloged with valid synergies
+    for (const mod of MODULE_CATALOG) {
+        const lead = mod.flavor.split(/[，。！]/)[0];
+        assert.ok(lead.length > 0 && lead.length <= 14, `${mod.id} ${lead}`);
+    }
+    for (const spec of Object.values(WEAPON_CATALOG)) {
+        const role = spec.roleText.split(/[，。！]/)[0];
+        assert.ok(role.length <= 14, spec.roleText);
+        for (const tier of spec.tiers) {
+            if (!tier.perkText) continue;
+            const lead = tier.perkText.split(/[，。！]/)[0];
+            assert.ok(lead.length <= 14, tier.perkText);
+        }
+    }
+    for (const rig of Object.values(RIG_CATALOG)) {
+        assert.ok(rig.tradeoff.length <= 16, rig.tradeoff);
+    }
     assert.equal(Object.keys(WEAPON_CATALOG).length, 10);
     assert.equal(Object.keys(RIG_CATALOG).length, 5);
     assert.equal(computeSynergies([{ uid: 1, id: 'wrench', tier: 1 }, { uid: 2, id: 'arc_gun', tier: 1 }], 'duty_standard').find(s => s.tag === 'arc')?.activeTier, 2);
@@ -259,8 +317,13 @@ test('roguelite battle emits visual bridge casts, effects, impacts, and boss vie
         ],
         modules: [], startHp: 80, carriedBagParts: 0,
     });
-    battle.boss.x = battle.player.x + 50;
+    const aim = battle.toRenderBridge().rangedAimTarget;
+    battle.boss.x = battle.player.x + 1000;
     battle.boss.y = battle.player.y;
+    assert.equal(aim(2), undefined);
+    battle.boss.x = battle.player.x + 50;
+    assert.equal(aim(2), battle.boss, 'the riveter can track before its first shot');
+    assert.equal(battle.weaponCasts.length, 0, 'sampling aim cannot fire a weapon');
     for (let i = 0; i < 20; i++) battle.step(0, 0);
     const bridge = battle.toRenderBridge();
     assert.ok(bridge.weaponCasts.length > 0, 'emits weapon casts for floating weapon art');
@@ -442,4 +505,274 @@ test('spent free rerolls and the buyout bonus survive a reopened shop', () => {
     assert.equal(restored.shopView.freeRerollsLeft, 0);
     assert.ok(restored.intermission.buyoutBonusUsed);
     assert.deepEqual(restored.shopView, run.shopView);
+});
+
+test('chapter & danger progression unlocks rigs, weapons, capstones, secret archives, and auto-claims lower milestones', () => {
+    const fresh = createDefaultProfile();
+    assert.equal(isChapterUnlocked(fresh, '01'), true);
+    assert.equal(isChapterUnlocked(fresh, '02'), false);
+    assert.equal(isDangerUnlocked(fresh, 0), true);
+    assert.equal(isDangerUnlocked(fresh, 1), false);
+    assert.equal(isRigUnlocked(fresh, 'duty_standard'), true);
+    assert.equal(isRigUnlocked(fresh, 'heavy_fitter'), true);
+    assert.equal(isRigUnlocked(fresh, 'high_voltage'), false);
+    assert.equal(unlockedWeaponsForProfile(fresh).includes('traction_coil'), false);
+    assert.equal(isModuleUnlocked(fresh, DANGER_CAPSTONE_MODULES[1]), false);
+
+    // Clearing Chapter 1 D0 unlocks Chapter 2, High Voltage rig, Traction Coil, and Danger 1
+    const run1 = new PatrolSession({ chapterId: '01', rigId: 'duty_standard', danger: 0, seed: 11, profile: fresh });
+    run1.reports.push(...Array.from({ length: 12 }, (_, i) => ({
+        wave: i + 1, stationName: '配电站', cleared: true, elapsedSeconds: 30, kills: 10, elitesKilled: 0,
+        partsCollected: 10, partsBagged: 0, bagRedeemed: 0, xpGained: 10, damageTaken: 0, hitsTaken: 0,
+        healed: 0, endHp: 60, maxHp: 60, defeatedBy: null, hitSources: {}, damageByWeapon: [], emptySeconds: 0,
+    })));
+    run1.phase = 'won';
+    const res1 = run1.settle(fresh);
+    assert.equal(res1.firstClearBonus, FIRST_CLEAR_DANGER_BONUS[0]);
+    assert.equal(res1.creditsEarned, 24 + CHAPTER_CLEAR_BONUS['01'] + FIRST_CLEAR_DANGER_BONUS[0]);
+    assert.ok(res1.unlocks.some(u => u.includes('高压电工')));
+    assert.ok(res1.unlocks.some(u => u.includes('牵引线圈')));
+    assert.ok(res1.unlocks.some(u => u.includes('寒潮加班')));
+
+    const after1 = run1.applySettlementToProfile(fresh);
+    assert.equal(isChapterUnlocked(after1, '02'), true);
+    assert.equal(isRigUnlocked(after1, 'high_voltage'), true);
+    assert.equal(unlockedWeaponsForProfile(after1).includes('traction_coil'), true);
+    assert.equal(maxUnlockedDanger(after1), 1);
+    assert.equal(after1.maxDangerByRig?.duty_standard, 0);
+
+    // Jump directly to Chapter 2 D2 (after unlocking D2 via Ch1 D1): auto-claims D0+D1+D2 milestones & unlocks secret archive + bonus bans
+    const withD2 = { ...after1, maxDangerCleared: { '01': 1 } };
+    const run2 = new PatrolSession({ chapterId: '02', rigId: 'high_voltage', danger: 2, seed: 22, profile: withD2 });
+    run2.reports.push(...run1.reports);
+    run2.phase = 'won';
+    const res2 = run2.settle(withD2);
+    assert.equal(res2.firstClearBonus, FIRST_CLEAR_DANGER_BONUS[0] + FIRST_CLEAR_DANGER_BONUS[1] + FIRST_CLEAR_DANGER_BONUS[2]);
+    assert.ok(res2.unlocks.some(u => u.includes('便携急救发电机')));
+    assert.ok(res2.unlocks.some(u => u.includes('加班密件')));
+    const after2 = run2.applySettlementToProfile(withD2);
+    assert.equal(isSecretArchiveUnlocked(after2, '02'), true);
+    assert.equal(isModuleUnlocked(after2, 'emergency_generator'), true);
+    assert.equal(totalBanSlots(after2), 2);
+    assert.equal(after2.maxDangerByRig?.high_voltage, 2);
+
+    // Re-clearing Ch2 D2 gives zero duplicate first-clear bonus
+    assert.equal(run2.settle(after2).firstClearBonus, 0);
+
+    // Chapter 4 clear pays strictly more base credits than Chapter 1 and unlocks custom starter + D4 gold seal
+    const preCh4 = { ...after2, clearedChapters: ['01', '02', '03'], maxDangerCleared: { '01': 4, '02': 4, '03': 4 } };
+    const run4 = new PatrolSession({ chapterId: '04', rigId: 'heavy_fitter', danger: 4, seed: 44, profile: preCh4 });
+    run4.reports.push(...run1.reports);
+    run4.phase = 'won';
+    const res4 = run4.settle(preCh4);
+    assert.ok(CHAPTER_CLEAR_BONUS['04'] > CHAPTER_CLEAR_BONUS['01']);
+    const after4 = run4.applySettlementToProfile(preCh4);
+    assert.equal(hasCustomStarterUnlock(after4), true);
+    assert.equal(goldSealCount(after4), 4);
+    assert.equal(isModuleUnlocked(after4, 'main_breaker_lever'), true);
+    assert.ok(res4.unlocks.some(u => u.includes('全城值守·金章')));
+    assert.ok(resolveBuild('duty_standard', 1, {}, [{ uid: 1, id: 'wrench', tier: 1 }], [], after4).maxLocks >= 2);
+});
+
+test('danger mechanical rules (D1-D4), D4 capstone surge, and pre-run supplies work atomically', () => {
+    // D1 cold shift lowers between-wave HP recovery from 30% to 18%, while hot_thermos adds +10 maxHp and +10% recovery
+    const b0 = resolveBuild('duty_standard', 0, {}, [{ uid: 1, id: 'wrench', tier: 1 }], [], undefined, 0, 'none');
+    const b2 = resolveBuild('duty_standard', 0, {}, [{ uid: 1, id: 'wrench', tier: 1 }], [], undefined, 2, 'hot_thermos');
+    assert.ok(b2.shopPriceScale > b0.shopPriceScale, 'D2 increases shop price scale by 10%');
+    assert.equal(b2.stats.maxHp, b0.stats.maxHp + 10, 'hot_thermos adds +10 maxHp');
+
+    // D3 spawns Wave-5 escorts AND Wave-8 patrol elite
+    const ch1 = CHAPTER_CATALOG[0];
+    const w5d3 = new RogueliteBattle({
+        chapter: ch1, waveIndex: 4, seed: 77, danger: 3, rigId: 'duty_standard', level: 4, levelStats: {},
+        weapons: [{ uid: 1, id: 'wrench', tier: 2 }], modules: [], startHp: 60, carriedBagParts: 0,
+    });
+    assert.ok(w5d3.boss !== null);
+    assert.ok(w5d3.warnings.length >= 2, 'D3 Wave 5 spawns 2 escorts beside the mid-boss');
+    const w8d3 = new RogueliteBattle({
+        chapter: ch1, waveIndex: 7, seed: 77, danger: 3, rigId: 'duty_standard', level: 7, levelStats: {},
+        weapons: [{ uid: 1, id: 'wrench', tier: 2 }], modules: [], startHp: 60, carriedBagParts: 0,
+    });
+    assert.ok(w8d3.boss !== null, 'D3 spawns an extra elite on Wave 8');
+
+    // D4 capstone main_breaker_lever triggers wave-opening shock ring + surge
+    const surgeBattle = new RogueliteBattle({
+        chapter: ch1, waveIndex: 0, seed: 9, danger: 0, rigId: 'duty_standard', level: 1, levelStats: {},
+        weapons: [{ uid: 1, id: 'wrench', tier: 1 }], modules: ['main_breaker_lever'], startHp: 60, carriedBagParts: 0,
+    });
+    assert.equal(surgeBattle.build.hasBreakerSurge, true);
+    surgeBattle.step(0, 0);
+    assert.ok(surgeBattle.effects.some(e => e.shape === 'circle' && e.radius === 140), 'breaker surge emits shock ring on tick 1');
+    assert.ok(surgeBattle.floaters.some(f => f.text === '强合超载'));
+
+    // Pre-run supply spare_parts & atomic storage.startRun (failed write must not spend credits)
+    const { platform, open } = patrolJournalFixture();
+    const local = platform('save');
+    const storage = open(local);
+    const rich = { ...storage.loadProfile(), credits: 30 };
+    assert.ok(storage.saveProfile(rich));
+    const paid = buyPreRunSupply(rich, 'spare_parts');
+    assert.equal(paid.credits, 15);
+    const suppliedRun = new PatrolSession({ chapterId: '01', rigId: 'duty_standard', danger: 0, supply: 'spare_parts', seed: 99, profile: paid });
+    assert.equal(suppliedRun.parts, 35);
+
+    // Simulate storage failure on startRun: credits remain intact on disk
+    const origWrite = local.writeCheckpoint.bind(local);
+    local.writeCheckpoint = () => false;
+    assert.equal(storage.startRun(paid, suppliedRun), false);
+    assert.equal(open(local).loadProfile().credits, 30);
+
+    // Succeed startRun and verify cold reload preserves supply & parts without double-adding 35
+    local.writeCheckpoint = origWrite;
+    assert.equal(storage.startRun(paid, suppliedRun), true);
+    const cold = open(local);
+    const coldProf = cold.loadProfile();
+    assert.equal(coldProf.credits, 15);
+    const coldRun = cold.loadActiveRun(coldProf);
+    assert.equal(coldRun.supply, 'spare_parts');
+    assert.equal(coldRun.parts, 35);
+
+    // extra_crate supply grants +1 free reroll on wave 1 shop
+    const crateShop = createIntermission({
+        wave: 1, seed: 12, rigId: 'duty_standard', danger: 0, supply: 'extra_crate',
+        parts: 50, level: 1, pendingLevelUps: 0, levelStats: {},
+        weapons: [{ uid: 1, id: 'wrench', tier: 1 }], modules: [], nextWeaponUid: 2,
+    }, createDefaultProfile());
+    assert.equal(crateShop.freeRerollsLeft, 1);
+});
+
+test('new-player onboarding guarantees a mergeable starter weapon in first Wave-1 shop', () => {
+    const fresh = createDefaultProfile();
+    assert.equal(isFirstTimePlayer(fresh), true);
+    const shop = createIntermission({
+        wave: 1, seed: 777, rigId: 'duty_standard', danger: 0, supply: 'none',
+        parts: 60, level: 1, pendingLevelUps: 0, levelStats: {},
+        weapons: [{ uid: 1, id: 'wrench', tier: 1 }], modules: [], nextWeaponUid: 2,
+    }, fresh);
+    assert.equal(shop.slots[0].kind, 'weapon');
+    assert.equal(shop.slots[0].itemId, 'wrench');
+    assert.equal(shop.slots[0].tier, 1);
+    assert.ok(buyShopSlot(shop, 0, fresh).ok);
+    assert.equal(shop.weapons.length, 2);
+    assert.ok(mergeOwnedWeapons(shop, 0, 1), 'new player can merge two tier-1 wrenches into tier-2');
+    assert.equal(shop.weapons[0].tier, 2);
+    const done = markOnboardingDone(fresh);
+    assert.equal(isFirstTimePlayer(done), false);
+});
+
+test('rewarded ad placements (boss rescue, level-up bonus, shop aid, double base credits, adFreePass) obey strict caps', async () => {
+    let adShows = 0;
+    const fakeAd = { show: async () => { adShows++; return true; }, cancel() {}, dispose() {} };
+    const engage = createMiniGameEngage(fakeAd, {
+        host: { tt: { getLaunchOptionsSync: () => ({ location: 'sidebar_card' }), shareAppMessage: () => {} } },
+    });
+    assert.equal(engage.isDouyinSidebarEntry, true);
+    assert.equal(engage.canShare, true);
+    assert.equal(await engage.requestReward('revive', { adFreePass: true }), true);
+    assert.equal(adShows, 0, 'ad-free pass skips native video');
+    assert.equal(await engage.requestReward('revive'), true);
+    assert.equal(adShows, 1);
+
+    // Boss wave in-place rescue keeps boss HP, restores 60% player HP, and clears bullets
+    const session = new PatrolSession({ chapterId: '01', rigId: 'duty_standard', danger: 0, seed: 51, profile: createDefaultProfile() });
+    session.waveIndex = 11;
+    session.phase = 'battle';
+    session.battle = new RogueliteBattle({
+        chapter: CHAPTER_CATALOG[0], waveIndex: 11, seed: 51, danger: 0, rigId: 'duty_standard',
+        level: 10, levelStats: {}, weapons: [{ uid: 1, id: 'wrench', tier: 3 }], modules: [], startHp: 80, carriedBagParts: 0,
+    });
+    const boss = session.battle.boss;
+    assert.ok(boss);
+    boss.hp = Math.round(boss.maxHp * 0.25);
+    session.battle.bullets.push({ x: 100, y: 100, vx: 1, vy: 0, damage: 10, source: 'boss_bullet', boss: true });
+    session.battle.player.hp = 0;
+    session.stepBattle(0, 0);
+    assert.equal(session.phase, 'lost');
+    assert.equal(session.canRevive, true);
+    assert.equal(session.isBossRevive, true);
+    assert.equal(session.applyRevive(), true);
+    assert.equal(session.phase, 'battle');
+    assert.equal(session.battle.boss.hp, Math.round(boss.maxHp * 0.25), 'boss keeps damaged HP after in-place rescue');
+    assert.equal(session.battle.bullets.length, 0, 'in-place rescue clears active bullets');
+    assert.equal(session.battle.player.hp, Math.round(session.battle.player.maxHp * 0.6));
+    // Second death in same run cannot revive again
+    session.battle.player.hp = 0;
+    session.stepBattle(0, 0);
+    assert.equal(session.canRevive, false);
+
+    // Level-up bonus pick (max 1/run) & shop emergency aid (max 2/run)
+    const run = shopSession(createDefaultProfile(), 88);
+    assert.equal(run.canUseLevelUpBonus, true);
+    const beforePicks = run.shopView.pendingLevelUps;
+    assert.equal(run.grantLevelUpBonus(), true);
+    assert.equal(run.shopView.pendingLevelUps, beforePicks + 1);
+    assert.equal(run.canUseLevelUpBonus, false);
+    while (run.shopView.pendingLevelUps > 0) run.chooseLevelUp(0);
+    const partsBefore = run.shopView.parts;
+    assert.equal(run.grantShopAid(), true);
+    assert.equal(run.grantShopAid(), true);
+    assert.equal(run.grantShopAid(), false, 'shop emergency aid is capped at 2 per run');
+    assert.equal(run.shopView.parts, partsBefore + SHOP_EMERGENCY_PARTS * 2);
+});
+
+test('daily check-in, daily urgent shift, harbor endless waves, and monotonic cloud merge work cleanly', () => {
+    const day1 = '2026-11-26';
+    const day2 = '2026-11-27';
+    let p = createDefaultProfile();
+    assert.equal(canClaimDailyCheckIn(p, day1), true);
+    p = claimDailyCheckIn(p, day1);
+    assert.equal(p.credits, DAILY_CHECKIN_CREDITS);
+    assert.equal(freeSupplyChargesToday(p, day1), 1);
+    assert.equal(claimDailyCheckIn(p, day1), null, 'cannot claim check-in twice same day');
+    assert.equal(canClaimDailyCheckIn(p, day2), true, 'next day resets check-in');
+    p = consumeFreeSupplyCharge(p, day1);
+    assert.equal(freeSupplyChargesToday(p, day1), 0);
+
+    // Daily double-credits ad cap = 3/day
+    assert.equal(remainingDailyAdUses(p, 'double', day1), 3);
+    for (let i = 0; i < 3; i++) p = consumeDailyAdUse(p, 'double', day1);
+    assert.equal(remainingDailyAdUses(p, 'double', day1), 0);
+    assert.equal(consumeDailyAdUse(p, 'double', day1), null);
+
+    // Daily urgent shift awards +35 once per day and baseCreditsForDouble excludes first-clear & daily bonus
+    const shift = getDailyShift(day1);
+    const dailyRun = new PatrolSession({
+        chapterId: shift.chapterId, rigId: shift.rigId, danger: shift.danger,
+        dailyShiftKey: shift.dateKey, dailyMod: shift.modifier.id, seed: shift.seed, profile: p,
+    });
+    dailyRun.reports.push(...Array.from({ length: 12 }, (_, i) => ({
+        wave: i + 1, stationName: '配电站', cleared: true, elapsedSeconds: 30, kills: 15, elitesKilled: 0,
+        partsCollected: 15, partsBagged: 0, bagRedeemed: 0, xpGained: 15, damageTaken: 0, hitsTaken: 0,
+        healed: 0, endHp: 60, maxHp: 60, defeatedBy: null, hitSources: {}, damageByWeapon: [], emptySeconds: 0,
+    })));
+    dailyRun.phase = 'won';
+    const dailyRes = dailyRun.settle(p);
+    assert.equal(dailyRes.creditsEarned, dailyRes.baseCreditsForDouble + dailyRes.firstClearBonus + DAILY_SHIFT_BONUS_CREDITS);
+    assert.ok(dailyRes.unlocks.some(u => u.includes('今日急单完成')));
+
+    // Harbor endless mode generates Wave 13..15 (Boss at Wave 15) and updates bestEndlessWave
+    const w15 = buildEndlessWaveDef(15);
+    assert.equal(w15.wave, 15);
+    assert.equal(w15.bossWave, true);
+    const endlessRun = new PatrolSession({ chapterId: '04', rigId: 'duty_standard', danger: 0, endlessMode: true, seed: 15, profile: p });
+    endlessRun.reports.push(...Array.from({ length: 14 }, (_, i) => ({
+        wave: i + 1, stationName: '中央调度台', cleared: true, elapsedSeconds: 30, kills: 20, elitesKilled: 0,
+        partsCollected: 20, partsBagged: 0, bagRedeemed: 0, xpGained: 20, damageTaken: 0, hitsTaken: 0,
+        healed: 0, endHp: 60, maxHp: 60, defeatedBy: null, hitSources: {}, damageByWeapon: [], emptySeconds: 0,
+    })));
+    endlessRun.phase = 'lost';
+    const afterEndless = endlessRun.applySettlementToProfile(p);
+    assert.equal(afterEndless.bestEndlessWave, 14);
+
+    // Monotonic cloud profile merge preserves highest clears, dangers, talents, and endless records from both devices
+    const devA = { ...createDefaultProfile(), credits: 80, clearedChapters: ['01', '02'], maxDangerCleared: { '01': 3, '02': 1 }, talents: { chassis: 4 }, bestEndlessWave: 16 };
+    const devB = { ...createDefaultProfile(), credits: 50, clearedChapters: ['01', '03'], maxDangerCleared: { '01': 1, '03': 4 }, talents: { chassis: 2, capacitor: 3 }, adFreePass: true, bestEndlessWave: 12 };
+    const merged = mergeWorkshopProfiles(devA, devB);
+    assert.deepEqual(merged.clearedChapters, ['01', '02', '03']);
+    assert.equal(merged.maxDangerCleared['01'], 3);
+    assert.equal(merged.maxDangerCleared['03'], 4);
+    assert.equal(merged.talents.chassis, 4);
+    assert.equal(merged.talents.capacitor, 3);
+    assert.equal(merged.bestEndlessWave, 16);
+    assert.equal(merged.adFreePass, true);
 });

@@ -1,11 +1,31 @@
 import type { ToolId } from '../m1/content';
 import { CHAPTER_CATALOG, RIG_CATALOG, WORKSHOP_TALENTS, getChapter } from './catalog';
+import {
+    DAILY_SHIFT_BONUS_CREDITS,
+    MAX_RUN_LEVELUP_ADS,
+    MAX_RUN_REVIVES,
+    MAX_RUN_SHOP_ADS,
+    buildEndlessWaveDef,
+    dailyForDate,
+    isDailyShiftClearedToday,
+} from './engagement';
 import { DANGER_MULTIPLIERS, resolveBuild, workshopTalentCost, xpRequiredForLevel } from './formulas';
 import { CHAPTER_NARRATIVES } from './narrative';
+import {
+    CHAPTER_CLEAR_BONUS,
+    PRE_RUN_SUPPLIES,
+    STARTER_RIGS,
+    computeRunUnlocks,
+    legalStarterWeaponsForRig,
+    totalBanSlots,
+    unclaimedFirstClearBonus,
+    unlockedRigsForProfile,
+} from './progression';
 import { RogueliteBattle } from './battle';
 import {
     buyShopSlot,
     createIntermission,
+    grantShopEmergencyAid,
     mergeOwnedWeapons,
     pickLevelUp,
     rerollLevelUp,
@@ -18,10 +38,13 @@ import type { IntermissionState, ShopViewModel } from './shop';
 import type {
     BattleWaveSummary,
     ChapterDefinition,
+    DailyShiftModifierId,
     DangerLevel,
+    PreRunSupplyId,
     RigId,
     ShopSlot,
     StatDelta,
+    WaveDefinition,
     WeaponDamageStat,
     WeaponInstance,
     WorkshopProfile,
@@ -40,7 +63,7 @@ export function createDefaultProfile(): WorkshopProfile {
         credits: 0,
         clearedChapters: [],
         maxDangerCleared: {},
-        unlockedRigs: ['duty_standard', 'high_voltage', 'heavy_fitter', 'thermal_welder', 'scrap_auditor'],
+        unlockedRigs: [...STARTER_RIGS],
         talents: {},
         bannedModules: [],
     };
@@ -61,12 +84,19 @@ export function buyWorkshopTalent(profile: WorkshopProfile, talentId: WorkshopTa
 }
 
 export function toggleModuleBan(profile: WorkshopProfile, moduleId: string): WorkshopProfile | null {
-    const limit = (profile.talents.ban_permit ?? 0) * 2;
+    const limit = totalBanSlots(profile);
     if (profile.bannedModules.includes(moduleId)) {
         return { ...profile, bannedModules: profile.bannedModules.filter(id => id !== moduleId) };
     }
     if (profile.bannedModules.length >= limit) return null;
     return { ...profile, bannedModules: [...profile.bannedModules, moduleId] };
+}
+
+export function buyPreRunSupply(profile: WorkshopProfile, supply: PreRunSupplyId): WorkshopProfile | null {
+    const spec = PRE_RUN_SUPPLIES[supply];
+    if (!spec || spec.cost <= 0) return profile;
+    if (profile.credits < spec.cost) return null;
+    return { ...profile, credits: profile.credits - spec.cost };
 }
 
 export interface PatrolResult {
@@ -78,6 +108,11 @@ export interface PatrolResult {
     readonly wavesCleared: number;
     readonly totalKills: number;
     readonly creditsEarned: number;
+    readonly baseCreditsForDouble: number;
+    readonly firstClearBonus: number;
+    readonly unlocks: readonly string[];
+    readonly endlessMode?: boolean;
+    readonly dailyShiftKey?: string;
     readonly totalDurationSeconds: number;
     readonly damageByWeapon: readonly WeaponDamageStat[];
     readonly outroRadio: { readonly speaker: string; readonly line: string };
@@ -88,12 +123,18 @@ export class PatrolSession {
     readonly chapter: ChapterDefinition;
     readonly rigId: RigId;
     readonly danger: DangerLevel;
+    readonly supply: PreRunSupplyId;
+    readonly starterWeapon: ToolId;
+    readonly dailyShiftKey?: string;
+    readonly dailyMod?: DailyShiftModifierId;
+    readonly endlessMode: boolean;
+    readonly trialRig: boolean;
     readonly seed: number;
     readonly runId: string;
     readonly profile: WorkshopProfile;
 
     phase: 'battle' | 'shop' | 'won' | 'lost' = 'battle';
-    waveIndex = 0; // 0..11
+    waveIndex = 0; // 0..11 (or higher in endless mode)
     parts = 0;
     bagParts = 0;
     xp = 0;
@@ -104,16 +145,26 @@ export class PatrolSession {
     modules: string[] = [];
     carriedLocks: ShopSlot[] = [];
     nextWeaponUid = 2;
+    revivesUsed = 0;
+    levelUpAdUsed = false;
+    shopAdUsed = 0;
 
     battle: RogueliteBattle | null = null;
     intermission: IntermissionState | null = null;
     readonly reports: BattleWaveSummary[] = [];
+    private defeatedBattle: RogueliteBattle | null = null;
     private elapsed = 0;
 
     constructor(params: {
         readonly chapterId: ChapterDefinition['id'];
         readonly rigId: RigId;
         readonly danger?: DangerLevel;
+        readonly supply?: PreRunSupplyId;
+        readonly starterWeapon?: ToolId;
+        readonly dailyShiftKey?: string;
+        readonly dailyMod?: DailyShiftModifierId;
+        readonly endlessMode?: boolean;
+        readonly trialRig?: boolean;
         readonly seed: number;
         readonly profile?: WorkshopProfile;
         readonly runId?: string;
@@ -121,12 +172,25 @@ export class PatrolSession {
         this.chapter = getChapter(params.chapterId);
         this.rigId = params.rigId;
         this.danger = params.danger ?? 0;
+        this.supply = params.supply ?? 'none';
+        this.dailyShiftKey = params.dailyShiftKey;
+        this.dailyMod = params.dailyMod;
+        this.endlessMode = params.endlessMode === true;
+        this.trialRig = params.trialRig === true;
         this.seed = params.seed >>> 0;
         this.runId = params.runId ?? createPatrolId();
         this.profile = params.profile ?? createDefaultProfile();
         const rig = RIG_CATALOG[params.rigId];
-        this.weapons = [{ uid: 1, id: rig.starterWeapon, tier: 1 }];
-        const initialBuild = resolveBuild(this.rigId, 0, {}, this.weapons, [], this.profile);
+        const legalStarters = legalStarterWeaponsForRig(params.rigId, this.profile);
+        this.starterWeapon = params.starterWeapon && legalStarters.includes(params.starterWeapon)
+            ? params.starterWeapon
+            : rig.starterWeapon;
+        this.weapons = [{ uid: 1, id: this.starterWeapon, tier: 1 }];
+        if (!skipStart) {
+            if (this.supply === 'spare_parts') this.parts += 35;
+            if (this.dailyMod === 'cold_supply') this.parts += 40;
+        }
+        const initialBuild = resolveBuild(this.rigId, 0, {}, this.weapons, [], this.profile, this.danger, this.supply, this.dailyMod);
         this.currentHp = initialBuild.stats.maxHp;
         if (!skipStart) this.startWaveBattle();
     }
@@ -136,6 +200,12 @@ export class PatrolSession {
             chapterId: snap.chapterId,
             rigId: snap.rigId,
             danger: snap.danger,
+            supply: snap.supply ?? 'none',
+            starterWeapon: snap.starterWeapon,
+            dailyShiftKey: snap.dailyShiftKey,
+            dailyMod: snap.dailyMod,
+            endlessMode: snap.endlessMode === true,
+            trialRig: snap.trialRig === true,
             seed: snap.seed,
             runId: snap.runId ?? ['v3', snap.chapterId, snap.rigId, snap.seed].join('-'),
             profile,
@@ -154,6 +224,9 @@ export class PatrolSession {
         session.nextWeaponUid = snap.version === 3
             ? Math.max(snap.nextWeaponUid, ...session.weapons.map(weapon => weapon.uid + 1))
             : snap.nextWeaponUid;
+        session.revivesUsed = snap.revivesUsed ?? 0;
+        session.levelUpAdUsed = snap.levelUpAdUsed === true;
+        session.shopAdUsed = snap.shopAdUsed ?? 0;
         session.reports.push(...snap.reports);
         if (snap.phase === 'battle') {
             session.startWaveBattle();
@@ -162,6 +235,9 @@ export class PatrolSession {
                 wave: snap.waveIndex + 1,
                 seed: snap.seed,
                 rigId: snap.rigId,
+                danger: snap.danger,
+                supply: snap.supply ?? 'none',
+                dailyMod: snap.dailyMod,
                 parts: snap.parts,
                 level: snap.level,
                 pendingLevelUps: snap.pendingLevelUps,
@@ -177,6 +253,7 @@ export class PatrolSession {
 
     snapshot(): PatrolSnapshot {
         const shop = this.intermission;
+        const defaultStarter = RIG_CATALOG[this.rigId].starterWeapon;
         return {
             version: 4,
             runId: this.runId,
@@ -190,6 +267,15 @@ export class PatrolSession {
             chapterId: this.chapter.id,
             rigId: this.rigId,
             danger: this.danger,
+            ...(this.supply !== 'none' ? { supply: this.supply } : {}),
+            ...(this.starterWeapon !== defaultStarter ? { starterWeapon: this.starterWeapon } : {}),
+            ...(this.dailyShiftKey ? { dailyShiftKey: this.dailyShiftKey } : {}),
+            ...(this.dailyMod ? { dailyMod: this.dailyMod } : {}),
+            ...(this.endlessMode ? { endlessMode: true } : {}),
+            ...(this.trialRig ? { trialRig: true } : {}),
+            ...(this.revivesUsed > 0 ? { revivesUsed: this.revivesUsed } : {}),
+            ...(this.levelUpAdUsed ? { levelUpAdUsed: true } : {}),
+            ...(this.shopAdUsed > 0 ? { shopAdUsed: this.shopAdUsed } : {}),
             seed: this.seed,
             phase: this.phase,
             waveIndex: this.waveIndex,
@@ -206,6 +292,70 @@ export class PatrolSession {
             nextWeaponUid: shop ? shop.nextWeaponUid : this.nextWeaponUid,
             reports: [...this.reports],
         };
+    }
+
+    get currentWaveDef(): WaveDefinition {
+        if (this.endlessMode && this.waveIndex >= this.chapter.waves.length) {
+            return buildEndlessWaveDef(this.waveIndex + 1);
+        }
+        return this.chapter.waves[Math.min(this.waveIndex, this.chapter.waves.length - 1)];
+    }
+
+    get canRevive(): boolean {
+        return this.phase === 'lost' && this.revivesUsed < MAX_RUN_REVIVES;
+    }
+
+    get isBossRevive(): boolean {
+        return this.currentWaveDef.bossWave === true && !!this.defeatedBattle;
+    }
+
+    applyRevive(): boolean {
+        if (!this.canRevive) return false;
+        this.revivesUsed++;
+        if (this.reports.length && !this.reports[this.reports.length - 1].cleared) {
+            this.reports.pop();
+        }
+        if (this.currentWaveDef.bossWave && this.defeatedBattle) {
+            this.defeatedBattle.reviveInPlace();
+            this.battle = this.defeatedBattle;
+            this.defeatedBattle = null;
+            this.currentHp = this.battle.player.hp;
+            this.phase = 'battle';
+            return true;
+        }
+        this.defeatedBattle = null;
+        const build = resolveBuild(this.rigId, this.level, this.levelStats, this.weapons, this.modules, this.profile, this.danger, this.supply, this.dailyMod);
+        this.currentHp = build.stats.maxHp;
+        this.startWaveBattle();
+        return true;
+    }
+
+    get canUseLevelUpBonus(): boolean {
+        return this.phase === 'shop'
+            && !!this.intermission
+            && this.intermission.pendingLevelUps > 0
+            && !this.levelUpAdUsed
+            && MAX_RUN_LEVELUP_ADS > 0;
+    }
+
+    grantLevelUpBonus(): boolean {
+        if (!this.canUseLevelUpBonus || !this.intermission) return false;
+        this.levelUpAdUsed = true;
+        this.intermission.pendingLevelUps++;
+        return true;
+    }
+
+    get shopAidRemaining(): number {
+        return Math.max(0, MAX_RUN_SHOP_ADS - this.shopAdUsed);
+    }
+
+    grantShopAid(): boolean {
+        if (this.phase !== 'shop' || !this.intermission || this.intermission.pendingLevelUps > 0) return false;
+        if (this.shopAidRemaining <= 0) return false;
+        this.shopAdUsed++;
+        grantShopEmergencyAid(this.intermission);
+        this.parts = this.intermission.parts;
+        return true;
     }
 
     get frameFraction(): number {
@@ -228,9 +378,12 @@ export class PatrolSession {
     private startWaveBattle(): void {
         this.phase = 'battle';
         this.intermission = null;
+        this.defeatedBattle = null;
+        const waveDef = this.currentWaveDef;
         this.battle = new RogueliteBattle({
             chapter: this.chapter,
-            waveIndex: this.waveIndex,
+            waveIndex: Math.min(this.waveIndex, this.chapter.waves.length - 1),
+            waveDefOverride: waveDef,
             seed: this.seed,
             danger: this.danger,
             rigId: this.rigId,
@@ -240,6 +393,8 @@ export class PatrolSession {
             modules: this.modules,
             startHp: this.currentHp,
             carriedBagParts: this.bagParts,
+            supply: this.supply,
+            dailyMod: this.dailyMod,
             profile: this.profile,
         });
     }
@@ -257,17 +412,21 @@ export class PatrolSession {
         this.battle = null;
 
         if (!report.cleared) {
+            this.defeatedBattle = battle;
             this.currentHp = 0;
             this.phase = 'lost';
             return;
         }
+        this.defeatedBattle = null;
 
-        // Between-wave recovery: recover only 30% of missing HP (keeping HP a genuine resource!)
+        // Between-wave recovery: 30% normally, 18% under D1+ Cold Shift or Daily Cold Supply, +10% with Hot Thermos
+        const coldShift = this.danger >= 1 || this.dailyMod === 'cold_supply';
+        const recoveryRate = (coldShift ? 0.18 : 0.30) + (this.supply === 'hot_thermos' ? 0.10 : 0);
         const missing = report.maxHp - report.endHp;
-        this.currentHp = Math.min(report.maxHp, report.endHp + Math.round(missing * 0.30));
+        this.currentHp = Math.min(report.maxHp, report.endHp + Math.round(missing * recoveryRate));
 
         // Economy: wave kills + retained bag redemption + Salvage compounding bonus
-        const build = resolveBuild(this.rigId, this.level, this.levelStats, this.weapons, this.modules, this.profile);
+        const build = resolveBuild(this.rigId, this.level, this.levelStats, this.weapons, this.modules, this.profile, this.danger, this.supply, this.dailyMod);
         const salvageBonus = Math.max(0, Math.round(build.stats.salvage * (1 + 0.05 * this.waveIndex) + 6 + this.waveIndex * 2));
         this.parts += report.partsCollected + salvageBonus;
         this.bagParts = report.partsBagged;
@@ -282,7 +441,7 @@ export class PatrolSession {
             this.currentHp += 4;
         }
 
-        if (this.waveIndex >= this.chapter.waves.length - 1) {
+        if (!this.endlessMode && this.waveIndex >= this.chapter.waves.length - 1) {
             this.phase = 'won';
             return;
         }
@@ -292,6 +451,9 @@ export class PatrolSession {
             wave: this.waveIndex + 1,
             seed: this.seed,
             rigId: this.rigId,
+            danger: this.danger,
+            supply: this.supply,
+            dailyMod: this.dailyMod,
             parts: this.parts,
             level: this.level,
             pendingLevelUps: gainedLevels,
@@ -329,12 +491,12 @@ export class PatrolSession {
         return !!this.intermission && rerollShop(this.intermission, this.profile);
     }
 
-    mergeWeapons(a: number, b: number): boolean {
-        return !!this.intermission && mergeOwnedWeapons(this.intermission, a, b);
+    mergeWeapons(slotA: number, slotB: number): boolean {
+        return !!this.intermission && mergeOwnedWeapons(this.intermission, slotA, slotB);
     }
 
-    sellWeapon(slot: number): number {
-        return this.intermission ? sellOwnedWeapon(this.intermission, slot, this.profile) : 0;
+    sellWeapon(slotIndex: number): number {
+        return this.intermission ? sellOwnedWeapon(this.intermission, slotIndex, this.profile) : 0;
     }
 
     startNextWave(): boolean {
@@ -348,7 +510,7 @@ export class PatrolSession {
         this.carriedLocks = shop.slots.filter(s => s.locked && !s.sold).map(s => ({ ...s }));
 
         // Clamp currentHp to new maxHp (if maxHp increased, grant the gained HP headroom)
-        const nextBuild = resolveBuild(this.rigId, this.level, this.levelStats, this.weapons, this.modules, this.profile);
+        const nextBuild = resolveBuild(this.rigId, this.level, this.levelStats, this.weapons, this.modules, this.profile, this.danger, this.supply, this.dailyMod);
         this.currentHp = Math.min(nextBuild.stats.maxHp, Math.max(1, this.currentHp));
 
         this.waveIndex++;
@@ -356,12 +518,61 @@ export class PatrolSession {
         return true;
     }
 
-    settle(): PatrolResult {
+    private projectPostRunProfile(profile: WorkshopProfile, won: boolean, wavesCleared: number): WorkshopProfile {
+        let next: WorkshopProfile = profile;
+        if (won || wavesCleared >= 2) {
+            if (!next.onboardingDone) next = { ...next, onboardingDone: true };
+        }
+        if (this.endlessMode && wavesCleared > (next.bestEndlessWave ?? 0)) {
+            next = { ...next, bestEndlessWave: wavesCleared };
+        }
+        if (!won) return next;
+        const cleared = !next.clearedChapters.includes(this.chapter.id)
+            ? [...next.clearedChapters, this.chapter.id]
+            : next.clearedChapters;
+        const prevDanger = next.maxDangerCleared[this.chapter.id];
+        const maxDangerCleared = prevDanger === undefined || this.danger > prevDanger
+            ? { ...next.maxDangerCleared, [this.chapter.id]: this.danger }
+            : next.maxDangerCleared;
+        const prevRigDanger = next.maxDangerByRig?.[this.rigId];
+        const maxDangerByRig = prevRigDanger === undefined || this.danger > prevRigDanger
+            ? { ...(next.maxDangerByRig ?? {}), [this.rigId]: this.danger }
+            : next.maxDangerByRig;
+        const unlockedRigs = unlockedRigsForProfile({ clearedChapters: cleared, unlockedRigs: next.unlockedRigs });
+        let daily = next.daily;
+        if (this.dailyShiftKey && !isDailyShiftClearedToday(next, this.dailyShiftKey)) {
+            daily = { ...dailyForDate(next, this.dailyShiftKey), dailyShiftCleared: true };
+        }
+        return {
+            ...next,
+            clearedChapters: cleared,
+            maxDangerCleared,
+            ...(maxDangerByRig ? { maxDangerByRig } : {}),
+            unlockedRigs,
+            ...(daily ? { daily } : {}),
+        };
+    }
+
+    settle(targetProfile: WorkshopProfile = this.profile): PatrolResult {
         const won = this.phase === 'won';
         const wavesCleared = this.reports.filter(r => r.cleared).length;
         const totalKills = this.reports.reduce((s, r) => s + r.kills, 0);
         const totalDurationSeconds = this.reports.reduce((s, r) => s + r.elapsedSeconds, 0);
-        const creditsEarned = wavesCleared * 2 + (won ? 8 + DANGER_MULTIPLIERS[this.danger].creditBonus : 0);
+        const chapterBonus = won ? CHAPTER_CLEAR_BONUS[this.chapter.id] : (this.endlessMode && wavesCleared >= 12 ? CHAPTER_CLEAR_BONUS['04'] : 0);
+        const dangerBonus = won ? DANGER_MULTIPLIERS[this.danger].creditBonus : 0;
+        const baseCreditsForDouble = wavesCleared * 2 + chapterBonus + dangerBonus;
+        const firstClearBonus = won && !this.endlessMode ? unclaimedFirstClearBonus(targetProfile, this.chapter.id, this.danger) : 0;
+        const dailyBonus = won && this.dailyShiftKey && !isDailyShiftClearedToday(targetProfile, this.dailyShiftKey)
+            ? DAILY_SHIFT_BONUS_CREDITS
+            : 0;
+        const creditsEarned = baseCreditsForDouble + firstClearBonus + dailyBonus;
+
+        const nextProfile = this.projectPostRunProfile(targetProfile, won, wavesCleared);
+        const unlocks = won && !this.endlessMode ? computeRunUnlocks(targetProfile, nextProfile, this.chapter.id, this.danger) : [];
+        if (dailyBonus > 0) unlocks.unshift(`今日急单完成 · 额外 +${dailyBonus} 凭证`);
+        if (this.endlessMode && wavesCleared > (targetProfile.bestEndlessWave ?? 0)) {
+            unlocks.unshift(`港区无尽新纪录：撑过 ${wavesCleared} 波！`);
+        }
 
         const totals = new Map<string, { id: ToolId; tier: WeaponDamageStat['tier']; dmg: number; kills: number; crits: number }>();
         for (const r of this.reports) {
@@ -388,36 +599,41 @@ export class PatrolSession {
         })).sort((a, b) => b.totalDamage - a.totalDamage);
 
         const narrative = CHAPTER_NARRATIVES[this.chapter.id];
+        const endlessRadio = {
+            speaker: '港区老马',
+            line: wavesCleared >= 15
+                ? `好家伙，撑过 ${wavesCleared} 波！码头这几台龙门吊总算老实一会儿了！`
+                : `撑到第 ${wavesCleared} 波已经够硬了！歇口热茶，下回咱再冲更高波！`,
+        };
         return {
             chapterId: this.chapter.id,
-            chapterTitle: this.chapter.title,
+            chapterTitle: this.endlessMode ? '港区无尽夜班' : this.chapter.title,
             rigId: this.rigId,
             danger: this.danger,
             won,
             wavesCleared,
             totalKills,
             creditsEarned,
+            baseCreditsForDouble,
+            firstClearBonus,
+            unlocks,
+            ...(this.endlessMode ? { endlessMode: true } : {}),
+            ...(this.dailyShiftKey ? { dailyShiftKey: this.dailyShiftKey } : {}),
             totalDurationSeconds,
             damageByWeapon,
-            outroRadio: won ? narrative.clearOutro : { speaker: '阿阮', line: '先撤回值班室喘口气！刚才那批家伙有点凶，咱改改配装再杀回去！' },
-            ...(won && narrative.epilogueHook ? { epilogueHook: narrative.epilogueHook } : {}),
+            outroRadio: this.endlessMode
+                ? endlessRadio
+                : won ? narrative.clearOutro : { speaker: '阿阮', line: '先回值班室喘口气。这班没打完，装备改改再出去。' },
+            ...(!this.endlessMode && won && narrative.epilogueHook ? { epilogueHook: narrative.epilogueHook } : {}),
         };
     }
 
     applySettlementToProfile(profile: WorkshopProfile): WorkshopProfile {
-        const result = this.settle();
-        const cleared = result.won && !profile.clearedChapters.includes(this.chapter.id)
-            ? [...profile.clearedChapters, this.chapter.id]
-            : profile.clearedChapters;
-        const prevDanger = profile.maxDangerCleared[this.chapter.id];
-        const maxDangerCleared = result.won && (prevDanger === undefined || this.danger > prevDanger)
-            ? { ...profile.maxDangerCleared, [this.chapter.id]: this.danger }
-            : profile.maxDangerCleared;
+        const result = this.settle(profile);
+        const next = this.projectPostRunProfile(profile, result.won, result.wavesCleared);
         return {
-            ...profile,
+            ...next,
             credits: profile.credits + result.creditsEarned,
-            clearedChapters: cleared,
-            maxDangerCleared,
         };
     }
 }

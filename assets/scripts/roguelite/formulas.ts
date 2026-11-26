@@ -7,9 +7,12 @@ import {
     WEAPON_CATALOG,
 } from './catalog';
 import { TAG_LABELS } from './narrative';
+import { bonusLockSlotsForProfile } from './progression';
 import type {
+    DailyShiftModifierId,
     DangerLevel,
     PlayerStats,
+    PreRunSupplyId,
     RigId,
     StatDelta,
     StatKey,
@@ -38,10 +41,10 @@ export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
 
 export const DANGER_MULTIPLIERS: Readonly<Record<DangerLevel, { readonly hp: number; readonly dmg: number; readonly count: number; readonly creditBonus: number; readonly label: string }>> = {
     0: { hp: 1.0, dmg: 1.0, count: 1.0, creditBonus: 0, label: '标准夜班' },
-    1: { hp: 1.15, dmg: 1.1, count: 1.08, creditBonus: 6, label: '加班 Ⅰ · 寒潮预警' },
-    2: { hp: 1.32, dmg: 1.22, count: 1.15, creditBonus: 12, label: '加班 Ⅱ · 电网过载' },
-    3: { hp: 1.52, dmg: 1.35, count: 1.22, creditBonus: 20, label: '加班 Ⅲ · 全面封控' },
-    4: { hp: 1.75, dmg: 1.5, count: 1.3, creditBonus: 30, label: '停电危机 · 极限值守' },
+    1: { hp: 1.15, dmg: 1.1, count: 1.08, creditBonus: 6, label: '寒潮加班' },
+    2: { hp: 1.32, dmg: 1.22, count: 1.15, creditBonus: 12, label: '电网过载' },
+    3: { hp: 1.52, dmg: 1.35, count: 1.22, creditBonus: 20, label: '全面封控' },
+    4: { hp: 1.75, dmg: 1.5, count: 1.3, creditBonus: 30, label: '极限值守' },
 };
 
 export const STAT_KEYS: readonly StatKey[] = [
@@ -76,7 +79,7 @@ export function computeSynergies(weapons: readonly WeaponInstance[], rigId: RigI
             name: TAG_LABELS[tag],
             count,
             activeTier: active?.count ?? 0,
-            summary: active?.summary ?? `凑齐 2 把激活：${table[0].summary}`,
+            summary: active?.summary ?? `两把起：${table[0].summary}`,
         };
     });
 }
@@ -98,6 +101,7 @@ export interface ResolvedBuild {
     readonly hasArcShock: boolean;
     readonly hasBurnSpread: boolean;
     readonly hasArmorThorns: boolean;
+    readonly hasBreakerSurge: boolean;
 }
 
 export function resolveBuild(
@@ -106,11 +110,17 @@ export function resolveBuild(
     levelStats: StatDelta,
     weapons: readonly WeaponInstance[],
     moduleIds: readonly string[],
-    profile?: Pick<WorkshopProfile, 'talents'>,
+    profile?: Pick<WorkshopProfile, 'talents'> & { readonly maxDangerCleared?: WorkshopProfile['maxDangerCleared'] },
+    danger: DangerLevel = 0,
+    supply: PreRunSupplyId = 'none',
+    dailyMod?: DailyShiftModifierId,
 ): ResolvedBuild {
     const rig = RIG_CATALOG[rigId];
     const stats: PlayerStats = { ...BASE_PLAYER_STATS };
     stats.maxHp += level * 4;
+    if (supply === 'hot_thermos') stats.maxHp += 10;
+    if (dailyMod === 'arc_overdrive') stats.cycleSpeed += 20;
+    if (dailyMod === 'turbo_shift') { stats.moveSpeed += 18; stats.overclock += 12; }
     addStats(stats, rig.stats);
     addStats(stats, levelStats);
 
@@ -136,6 +146,7 @@ export function resolveBuild(
     let hasArcShock = false;
     let hasBurnSpread = false;
     let hasArmorThorns = false;
+    let hasBreakerSurge = false;
 
     for (const id of moduleIds) {
         const mod = MODULE_BY_ID[id];
@@ -150,6 +161,7 @@ export function resolveBuild(
             case 'burn_spread': hasBurnSpread = true; break;
             case 'armor_thorns': hasArmorThorns = true; break;
             case 'extra_enemies': extraEnemyScale += 0.18; break;
+            case 'breaker_surge': hasBreakerSurge = true; break;
         }
     }
 
@@ -171,10 +183,13 @@ export function resolveBuild(
     stats.moveSpeed = Math.max(-25, Math.min(60, stats.moveSpeed));
     stats.pickupRadius = Math.max(-30, stats.pickupRadius);
 
-    const shopPriceScale = Math.max(0.55, (rig.shopPriceScale ?? 1.0) - shopDiscount);
+    // D2+ Grid Overload adds +10% shop supply inflation; Daily Bargain Horde discounts 25% with +30% enemies.
+    const dangerInflation = danger >= 2 ? 1.10 : 1.0;
+    const modPriceScale = dailyMod === 'bargain_horde' ? 0.75 : 1.0;
+    const shopPriceScale = Math.max(0.50, ((rig.shopPriceScale ?? 1.0) - shopDiscount) * dangerInflation * modPriceScale);
     const bagKeepRate = Math.min(1.0, Math.max(rig.bagKeepRate ?? 0, 0.75 + magnetBag * 0.06));
-    const maxLocks = 1 + shopPermit;
-    const enemyCountScale = (rig.enemyCountScale ?? 1.0) + extraEnemyScale;
+    const maxLocks = 1 + shopPermit + bonusLockSlotsForProfile(profile?.maxDangerCleared ? { maxDangerCleared: profile.maxDangerCleared } : undefined);
+    const enemyCountScale = (rig.enemyCountScale ?? 1.0) + extraEnemyScale + (dailyMod === 'bargain_horde' ? 0.30 : 0);
 
     return {
         stats,
@@ -189,6 +204,7 @@ export function resolveBuild(
         hasArcShock,
         hasBurnSpread,
         hasArmorThorns,
+        hasBreakerSurge,
     };
 }
 
@@ -295,11 +311,12 @@ export function enemyStatsForWave(
 ): { readonly hp: number; readonly damage: number; readonly speed: number; readonly parts: number; readonly xp: number } {
     const arch = ENEMY_ARCHETYPES[kind];
     const dm = DANGER_MULTIPLIERS[danger];
-    // Ramp chapter difficulty smoothly from W1 (so fresh W1 starter weapon stays playable) to full chapterScale by W12.
-    const chRamp = 1 + (chapterScale - 1) * (0.15 + 0.85 * ((wave - 1) / 11));
-    const waveGrowth = 1 + (wave - 1) * 0.085;
+    // Ramp chapter difficulty smoothly from W1 to full chapterScale by W12, then continue scaling in endless waves.
+    const chRamp = 1 + (chapterScale - 1) * (0.15 + 0.85 * Math.min(1, (wave - 1) / 11));
+    const endlessBoost = wave > 12 ? Math.pow(1.14, wave - 12) : 1;
+    const waveGrowth = (1 + (wave - 1) * 0.085) * endlessBoost;
     const hp = Math.round((arch.baseHp + arch.hpPerWave * (wave - 1)) * waveGrowth * chRamp * dm.hp);
-    const damage = Math.max(2, Math.round((arch.baseDamage + arch.damagePerWave * (wave - 1)) * (1 + (chRamp - 1) * 0.45) * dm.dmg));
+    const damage = Math.max(2, Math.round((arch.baseDamage + arch.damagePerWave * (wave - 1)) * (1 + (chRamp - 1) * 0.45) * dm.dmg * (wave > 12 ? 1 + (wave - 12) * 0.06 : 1)));
     return { hp, damage, speed: arch.speed, parts: arch.partsDrop, xp: arch.xpDrop };
 }
 
@@ -312,7 +329,7 @@ export function bossHpForWave(
     const dm = DANGER_MULTIPLIERS[danger];
     // Calibrated for ~22-36s exciting duel with 100% baseline damage + 1.5x open vulnerability.
     const base = isChapterBoss ? 48000 : 4200;
-    const waveScale = isChapterBoss ? 1 : (wave / 5);
+    const waveScale = isChapterBoss ? (wave > 12 ? Math.pow(1.18, wave - 12) : 1) : (wave / 5);
     return Math.round(base * waveScale * chapterScale * dm.hp);
 }
 

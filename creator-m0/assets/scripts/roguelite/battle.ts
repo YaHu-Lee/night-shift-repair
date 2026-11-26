@@ -4,7 +4,7 @@ import { clamp, distance, distanceToSegment, fieldRayEnd } from '../m1/Encounter
 import type { ChapterBossKind, ChapterBossView, Position } from '../m1/Encounter';
 import { IMPACT_TICKS } from '../m1/Battle';
 import type { Attack, MeleeWindup, WeaponCast, WeaponImpact } from '../m1/Battle';
-import { MELEE_RETURN_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from '../m1/WeaponMotion';
+import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from '../m1/WeaponMotion';
 import type { MeleeMotion, MeleeTool } from '../m1/WeaponMotion';
 import { ENEMY_ARCHETYPES, RIG_CATALOG, WEAPON_CATALOG } from './catalog';
 import {
@@ -21,8 +21,10 @@ import type { ResolvedBuild } from './formulas';
 import type {
     BattleWaveSummary,
     ChapterDefinition,
+    DailyShiftModifierId,
     DamageSource,
     DangerLevel,
+    PreRunSupplyId,
     RigId,
     StatDelta,
     WaveDefinition,
@@ -37,7 +39,6 @@ const SPAWN_WARNING_TICKS = 20;
 const MAX_BULLETS = 56;
 const TAU = Math.PI * 2;
 const WEAPON_CAST_HISTORY = 16;
-const MELEE_WINDUP_TICKS = 4;
 
 type SkillKind = 'arc' | 'shot' | 'heat' | 'magnet' | 'induction';
 const WEAPON_ATTACK_CUES: Record<ToolId, SkillKind> = {
@@ -142,7 +143,8 @@ interface ActiveMeleeSwing {
 
 export interface BattleInit {
     readonly chapter: ChapterDefinition;
-    readonly waveIndex: number; // 0..11
+    readonly waveIndex: number; // 0..11 (or higher in endless mode)
+    readonly waveDefOverride?: WaveDefinition;
     readonly seed: number;
     readonly danger: DangerLevel;
     readonly rigId: RigId;
@@ -152,7 +154,9 @@ export interface BattleInit {
     readonly modules: readonly string[];
     readonly startHp: number;
     readonly carriedBagParts: number;
-    readonly profile?: Pick<WorkshopProfile, 'talents'>;
+    readonly supply?: PreRunSupplyId;
+    readonly dailyMod?: DailyShiftModifierId;
+    readonly profile?: Pick<WorkshopProfile, 'talents'> & { readonly maxDangerCleared?: WorkshopProfile['maxDangerCleared'] };
     readonly field?: CombatBounds;
 }
 
@@ -165,6 +169,7 @@ export class RogueliteBattle {
     readonly build: ResolvedBuild;
     readonly rigId: RigId;
     readonly danger: DangerLevel;
+    readonly dailyMod?: DailyShiftModifierId;
     readonly durationTicks: number;
 
     readonly player: Position & { hp: number; maxHp: number; invulnerableUntil: number; hurtAt?: number };
@@ -219,14 +224,25 @@ export class RogueliteBattle {
 
     constructor(init: BattleInit) {
         this.chapter = init.chapter;
-        this.waveDef = init.chapter.waves[init.waveIndex];
+        this.waveDef = init.waveDefOverride ?? init.chapter.waves[init.waveIndex];
         const station = init.chapter.stations[this.waveDef.stationIndex];
         this.stationName = station.name;
         this.arena = station.arena;
         this.field = init.field ?? CAMPAIGN_FIELD;
         this.rigId = init.rigId;
         this.danger = init.danger;
-        this.build = resolveBuild(init.rigId, init.level, init.levelStats, init.weapons, init.modules, init.profile);
+        this.dailyMod = init.dailyMod;
+        this.build = resolveBuild(
+            init.rigId,
+            init.level,
+            init.levelStats,
+            init.weapons,
+            init.modules,
+            init.profile,
+            init.danger,
+            init.supply ?? 'none',
+            init.dailyMod,
+        );
         this.durationTicks = this.waveDef.durationSeconds * TICK_RATE;
         this.random = randomStream(init.seed ^ Math.imul(this.waveDef.wave + 11, 0x58a86197));
         this.bagRemaining = Math.max(0, Math.floor(init.carriedBagParts));
@@ -257,6 +273,9 @@ export class RogueliteBattle {
             this.spawnBoss(true);
         } else if (this.waveDef.eliteWave) {
             this.spawnBoss(false);
+            if (this.danger >= 3) this.spawnDangerEscorts();
+        } else if (this.danger >= 3 && this.waveDef.wave === 8) {
+            this.spawnBoss(false, 0.8);
         }
     }
 
@@ -279,6 +298,20 @@ export class RogueliteBattle {
         if (this.player.hp <= 0) return true;
         if (this.waveDef.bossWave) return this.bossDefeated || this.tick >= this.durationTicks * 2;
         return this.tick >= this.durationTicks;
+    }
+
+    /** Emergency in-place rescue (Boss wave): clear bullets & regular mobs, restore 60% HP, grant 2s invulnerability. */
+    reviveInPlace(): void {
+        const hp = Math.max(1, Math.round(this.player.maxHp * 0.6));
+        this.player.hp = hp;
+        this.player.invulnerableUntil = this.tick + 60;
+        this.bullets.length = 0;
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
+            if (this.enemies[i].kind !== 'boss') this.enemies.splice(i, 1);
+        }
+        this.warnings.length = 0;
+        this.effects.push({ x: this.player.x, y: this.player.y, shape: 'circle', kind: 'induction', radius: 160, life: 16 });
+        this.pushFloater(this.player.x, this.player.y + 24, '急救续班', 'heal');
     }
 
     get bossView(): ChapterBossView | null {
@@ -323,7 +356,7 @@ export class RogueliteBattle {
             if (tool !== 'wrench' && tool !== 'bypass_wrench') continue;
             const remaining = rt.next - this.tick;
             if (remaining <= 0 || remaining > MELEE_WINDUP_TICKS) continue;
-            const target = this.nearestFromWeapon(weaponDock(rt.slot), this.effectiveReach(rt));
+            const target = this.nearestFromWeapon(weaponDock(rt.slot, this.runtimes.length), this.effectiveReach(rt));
             if (!target) continue;
             const r = distance(this.player, target) || 1;
             windups.push({
@@ -394,6 +427,7 @@ export class RogueliteBattle {
             } : null,
             playerAttack: this.playerAttack,
             playerHit: this.playerHit,
+            rangedAimTarget: (slot: number) => this.nearest(this.player, this.effectiveReach(this.runtimes[slot])),
             meleeWindups: () => this.meleeWindups(),
         };
     }
@@ -440,6 +474,30 @@ export class RogueliteBattle {
         // 3. Controlled dynamic wave spawning
         this.stepSpawner();
         if (!this.enemies.length && !this.warnings.length) this.emptyTicks++;
+
+        // Breaker surge (D4 capstone): wave-opening shock ring + 6s attack speed burst
+        if (this.tick === 1 && this.build.hasBreakerSurge) {
+            this.effects.push({ x: this.player.x, y: this.player.y, shape: 'circle', kind: 'induction', radius: 140, life: 16 });
+            this.pushFloater(this.player.x, this.player.y + 24, '强合超载', 'crit');
+            const surgeDmg = Math.max(24, Math.round(45 + this.build.stats.voltage * 2.5));
+            for (const e of [...this.enemies]) {
+                if (this.canTarget(e) && distance(this.player, e) <= 140) {
+                    this.applyDamage(e, surgeDmg, this.runtimes[0], false, false);
+                }
+            }
+        }
+
+        // Breaker surge (D4 capstone): wave-opening shock ring + 6s attack speed burst
+        if (this.tick === 1 && this.build.hasBreakerSurge) {
+            this.effects.push({ x: this.player.x, y: this.player.y, shape: 'circle', kind: 'induction', radius: 140, life: 16 });
+            this.pushFloater(this.player.x, this.player.y + 24, '强合超载', 'crit');
+            const surgeDmg = Math.max(24, Math.round(45 + this.build.stats.voltage * 2.5));
+            for (const e of [...this.enemies]) {
+                if (this.canTarget(e) && distance(this.player, e) <= 140) {
+                    this.applyDamage(e, surgeDmg, this.runtimes[0], false, false);
+                }
+            }
+        }
 
         // 4. Snapshot enemies for continuous melee collision, then move enemies & bullets
         const priorEnemies = this.activeMelees.length
@@ -536,8 +594,8 @@ export class RogueliteBattle {
         this.player.y = clamp(this.player.y + (speed * ay) / mag, this.field.bottom + 12, this.field.top - 12);
     }
 
-    private spawnBoss(isChapterBoss: boolean): void {
-        const hp = bossHpForWave(this.waveDef.wave, this.chapter.enemyScale, this.danger, isChapterBoss);
+    private spawnBoss(isChapterBoss: boolean, hpScale = 1.0): void {
+        const hp = Math.max(100, Math.round(bossHpForWave(this.waveDef.wave, this.chapter.enemyScale, this.danger, isChapterBoss) * hpScale));
         const dmg = Math.round((isChapterBoss ? 20 : 15) * Math.sqrt(this.chapter.enemyScale) * (1 + this.danger * 0.12));
         const unit: RogueliteEnemy = {
             id: this.nextEnemyId++,
@@ -574,6 +632,15 @@ export class RogueliteBattle {
         };
         this.enemies.push(unit);
         this.bossUnit = unit;
+    }
+
+    private spawnDangerEscorts(): void {
+        const escorts: readonly RegularEnemyId[] = ['armored', 'pursuer'];
+        escorts.forEach((kind, idx) => {
+            const x = clamp(START.x + (idx === 0 ? -56 : 56), this.field.left + 16, this.field.right - 16);
+            const y = Math.min(this.field.top - 48, this.player.y + 132);
+            this.warnings.push({ kind, x, y, at: this.tick + SPAWN_WARNING_TICKS });
+        });
     }
 
     private stepSpawner(): void {
@@ -635,12 +702,17 @@ export class RogueliteBattle {
     }
 
     private queueRegularEnemy(): void {
-        const totalWeight = this.waveDef.roster.reduce((s, r) => s + r.weight, 0);
-        let roll = this.random() * totalWeight;
         let kind: RegularEnemyId = this.waveDef.roster[0].kind;
-        for (const entry of this.waveDef.roster) {
-            roll -= entry.weight;
-            if (roll <= 0) { kind = entry.kind; break; }
+        // D2+ Grid Overload or Daily Arc Overdrive introduces jammers from Wave 4 onward on non-boss waves.
+        if ((this.danger >= 2 || this.dailyMod === 'arc_overdrive') && this.waveDef.wave >= 4 && !this.waveDef.bossWave && this.random() < 0.12) {
+            kind = 'jammer';
+        } else {
+            const totalWeight = this.waveDef.roster.reduce((s, r) => s + r.weight, 0);
+            let roll = this.random() * totalWeight;
+            for (const entry of this.waveDef.roster) {
+                roll -= entry.weight;
+                if (roll <= 0) { kind = entry.kind; break; }
+            }
         }
         const angle = this.random() * TAU;
         const dist = 135 + this.random() * 85;
@@ -851,7 +923,7 @@ export class RogueliteBattle {
             }
         }
         if (this.isJammed && !wasJammed) {
-            this.pushFloater(this.player.x, this.player.y + 22, '攻速受扰!', 'jam');
+            this.pushFloater(this.player.x, this.player.y + 22, '攻速变慢', 'jam');
         }
     }
 
@@ -875,7 +947,9 @@ export class RogueliteBattle {
                 boss.bossDamagedPlayer = false;
                 boss.state = 'warn';
                 boss.bossPhaseStartedAt = this.tick;
-                boss.next = this.tick + Math.max(24, 34 - boss.bossStage * 3);
+                const fastBoss = this.danger >= 4 || this.dailyMod === 'turbo_shift';
+                const warnBase = fastBoss ? 30 : 34;
+                boss.next = this.tick + Math.max(fastBoss ? 20 : 24, warnBase - boss.bossStage * 3);
                 this.warningKind = 'warning';
                 this.warningSerial++;
                 if (cycle % 2 === 1) {
@@ -909,14 +983,16 @@ export class RogueliteBattle {
             if (this.tick >= boss.next) {
                 boss.bossHazard = undefined;
                 boss.bossVolley = undefined;
+                const fastBoss = this.danger >= 4 || this.dailyMod === 'turbo_shift';
                 boss.state = 'open';
                 boss.bossPhaseStartedAt = this.tick;
-                boss.next = this.tick + 56;
+                boss.next = this.tick + (fastBoss ? 44 : 56);
             }
         } else if (boss.state === 'open' && this.tick >= boss.next) {
+            const fastBoss = this.danger >= 4 || this.dailyMod === 'turbo_shift';
             boss.state = 'walk';
             boss.bossPhaseStartedAt = this.tick;
-            boss.next = this.tick + 22;
+            boss.next = this.tick + (fastBoss ? 15 : 22);
         }
 
         if (distance(boss, this.player) < boss.radius + 10) {
@@ -1058,7 +1134,7 @@ export class RogueliteBattle {
         const spec = WEAPON_CATALOG[id];
         const tierSpec = spec.tiers[tier - 1];
         const reach = this.effectiveReach(rt);
-        const dock = weaponDock(rt.slot);
+        const dock = weaponDock(rt.slot, this.runtimes.length);
 
         const target = isMeleeTool(id)
             ? this.nearestFromWeapon(dock, reach)
@@ -1068,7 +1144,8 @@ export class RogueliteBattle {
             return;
         }
 
-        const cd = computeWeaponCooldown(tierSpec.cooldownTicks, this.build.stats.cycleSpeed, this.isJammed);
+        const surgeSpeed = this.build.hasBreakerSurge && this.tick <= 180 ? 45 : 0;
+        const cd = computeWeaponCooldown(tierSpec.cooldownTicks, this.build.stats.cycleSpeed + surgeSpeed, this.isJammed);
         rt.next = this.tick + cd;
 
         const targetRange = distance(this.player, target) || 1;

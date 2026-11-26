@@ -6,7 +6,7 @@
 
 在仓库根目录运行 `node scripts/serve.mjs creator-m0/build/campaign-web-review`，打开[战役](http://127.0.0.1:4173/)或[单武器试打台](http://127.0.0.1:4173/?weaponShowcase=bench)。点武器名换下一把，点配件重新开始相同遭遇，点右侧按钮在怪群和巡检首领间切换。也可直接试[喷火管专属件打首领](http://127.0.0.1:4173/?weaponShowcase=bench&tool=torch&special=1&target=boss)。从新检出的仓库构建时，用 Creator 3.8.8 打开 `creator-m0`，按 `build-campaign-web.json` 构建 Web Mobile 调试包。
 
-六把武器依次占用左右两侧、斜上方和斜下方的固定槽位。移动时整组跟随维修工，开火时各自在槽位上瞄准和后坐。可以在[六武器试打台](http://127.0.0.1:4173/?weaponShowcase=utility)观察移动与换向。
+单把武器贴在腰侧，两至六把时按装备数量沿圆环等角排列。移动时整组跟随维修工，开火时各自在槽位上瞄准和后坐。可以在[六武器试打台](http://127.0.0.1:4173/?weaponShowcase=utility)观察移动与换向。
 
 同一把武器对着同一位置的炮台开火。左列炮台挨打后留下，右列这一击将它击毁。上排是基础武器，下排装了专属配件。喷火管的强化样片取连续开火后的蓝白焰。每两步取一帧，按慢动作播放。[十把武器命中与击毁对照](review/weapon-hit-and-break.webp)
 

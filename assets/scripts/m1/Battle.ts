@@ -5,7 +5,7 @@ import type { EquipmentState, ResolvedEquipment, WeaponEquipmentStats } from './
 import { CONVEYOR_STEP, GATEKEEPER_PORTS, GATEKEEPER_WARNING_TICKS, Mission, RECLAIMER_PULL_TICKS, clamp, clipTerrainReach, distance, distanceToSegment, fieldRayEnd, gatekeeperLane, insideRect, nearestOpen, routeAround, terrainAt } from './Encounter';
 import type { BlueprintId, BossVolley, ChapterBossView, ChapterHazard, ChallengeMode, MissionCue, MissionFailure, MissionState, MissionView, Position, TerrainRect } from './Encounter';
 import { ChapterBoss } from './ChapterBoss';
-import { MELEE_RETURN_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from './WeaponMotion';
+import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, circleContact, createMeleeMotion, isMeleeTool, updateMeleePath, weaponDock } from './WeaponMotion';
 import type { MeleeMotion, MeleeTool } from './WeaponMotion';
 
 export type { Position } from './Encounter';
@@ -73,7 +73,6 @@ export type MeleeWindup = Pick<WeaponCast, 'slot' | 'ux' | 'uy'> & {
 };
 
 const WEAPON_CAST_HISTORY = 16;
-const MELEE_WINDUP_TICKS = 4;
 
 function covers(area: Area, position: Position): boolean {
     const dx = position.x - area.x, dy = position.y - area.y;
@@ -313,6 +312,11 @@ export class Battle {
     }
     get chapterBoss(): ChapterBossView | null { return this.encounterBoss?.view ?? null; }
     get inspectorSweepReach(): number { return this.rules.campaign ? 108 : BOSS_SWEEP_REACH; }
+
+    rangedAimTarget(slot: number): Readonly<Position> | undefined {
+        // Track the nearest eligible threat between shots. The cast carries the precise firing lane.
+        return this.nearest(this.player, this.runtime[slot].reach);
+    }
 
     /** Local pose cue for scheduled melee attacks with a valid target in reach. */
     meleeWindups(): readonly MeleeWindup[] {
@@ -1050,7 +1054,7 @@ export class Battle {
 
     private swingTarget(slot: number, reach: number): Enemy | undefined {
         if (!this.rules.sweptMelee) return this.nearest(this.player, reach);
-        const dock = weaponDock(slot);
+        const dock = weaponDock(slot, this.tools.length);
         const weapon = { x: this.player.x + dock.x, y: this.player.y + dock.y };
         let picked: Enemy | undefined;
         let best = Infinity;
@@ -1208,7 +1212,7 @@ export class Battle {
         const marks = equipment?.marks ?? (tool.mods.indexOf('contact') >= 0 || (this.arc && tool.mods.indexOf('relay') >= 0));
         const linked = equipment?.arcLink ?? this.arc;
         if (meleeTool) {
-            const melee = createMeleeMotion(meleeTool, runtime.swings++, weaponDock(slot),
+            const melee = createMeleeMotion(meleeTool, runtime.swings++, weaponDock(slot, this.tools.length),
                 cast, ux, uy, reach, this.field, targetRange, runtime.wideSweepReady);
             const swingBonus = runtime.wideSweepReady ? 2 : 0;
             if (runtime.wideSweepReady) this.wideSweeps++;

@@ -72,10 +72,18 @@ test('two distinct hits arm one flywheel sweep, with damage only along its wider
     assert.equal(battle.wideSweeps, 1, 'one victim cannot renew the charge through repeated contact');
 });
 
-test('melee launches from the same side slot after time passes and the loadout grows', () => {
-    const docks = Array.from({ length: 6 }, (_, slot) => weaponDock(slot));
-    assert.equal(new Set(docks.map(p => p.x + ',' + p.y)).size, 6);
-    for (const count of [1, 2, 6]) for (const tick of [1, 98, 205, 390]) {
+test('weapons keep even angular spacing and melee launches from its current ring slot', () => {
+    for (const count of [2, 3, 4, 5, 6]) {
+        const angles = Array.from({ length: count }, (_, slot) => {
+            const { x, y } = weaponDock(slot, count);
+            return Math.atan2(y - 20, x);
+        }).sort((a, b) => a - b);
+        angles.push(angles[0] + 2 * Math.PI);
+        for (let i = 0; i < count; i++) {
+            assert.ok(Math.abs(angles[i + 1] - angles[i] - 2 * Math.PI / count) < 0.035);
+        }
+    }
+    for (const count of [1, 2, 3, 4, 5, 6]) for (const tick of [1, 98, 205, 390]) {
         const tools = Array.from({ length: count }, () => ({ id: 'wrench', mods: [] }));
         const battle = new Battle(0, 105, tools, { ...M1_RULES, sweptMelee: true,
             waves: [{ seconds: 30, spawnEvery: 0, enemies: [] }] });
@@ -85,7 +93,7 @@ test('melee launches from the same side slot after time passes and the loadout g
         battle.step(0, 0);
         assert.equal(battle.weaponCasts.length, count);
         for (const cast of battle.weaponCasts) {
-            const dock = docks[cast.slot], start = cast.melee.points[0];
+            const dock = weaponDock(cast.slot, count), start = cast.melee.points[0];
             assert.deepEqual([start.x - cast.x, start.y - cast.y], [dock.x, dock.y]);
         }
     }
@@ -134,7 +142,7 @@ test('each melee attacks with two distinct paths, hits along the sweep once, and
 
 test('the arc wrench swings in opposite directions and can hit at point-blank range', () => {
     const battle = meleeBattle();
-    const dock = weaponDock(0);
+    const dock = weaponDock(0, 1);
     for (const [sequence, sign] of [[0, 1], [1, -1]]) {
         const motion = createMeleeMotion('wrench', sequence, dock, battle.player, 1, 0, 57, battle.field, 42);
         const angles = motion.offsets.slice(motion.first).map(({ x, y }) => Math.atan2(y, x));

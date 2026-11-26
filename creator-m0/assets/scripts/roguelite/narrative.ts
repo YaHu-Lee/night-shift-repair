@@ -9,29 +9,31 @@ export interface ChapterNarrative {
     readonly epilogueHook?: { readonly speaker: string; readonly line: string };
     readonly archiveTitle: string;
     readonly archiveNote: string;
+    readonly secretTitle: string;
+    readonly secretNote: string;
 }
 
 export const TAG_LABELS: Readonly<Record<WeaponTag, string>> = {
-    melee: '重工近战',
-    arc: '电弧电网',
-    ballistic: '穿刺弹道',
-    thermal: '热能超载',
-    control: '力场控场',
+    melee: '近战',
+    arc: '电弧',
+    ballistic: '穿甲',
+    thermal: '喷火',
+    control: '牵引',
 };
 
 export const STAT_LABELS: Readonly<Record<StatKey, { readonly name: string; readonly unit: string; readonly hint: string }>> = {
-    maxHp: { name: '生命上限', unit: '', hint: '提高最大血量，能多扛几下' },
-    torque: { name: '物理伤害', unit: '', hint: '提高扳手、钉枪、铆钉枪的基础伤害' },
-    voltage: { name: '电火伤害', unit: '', hint: '提高电弧、喷火、线圈、探针的基础伤害' },
-    overclock: { name: '全队增伤', unit: '%', hint: '按百分比放大全部 6 把武器的伤害' },
-    cycleSpeed: { name: '攻击速度', unit: '%', hint: '缩短全部武器的攻击间隔，出手更快' },
-    critChance: { name: '暴击率', unit: '%', hint: '暴击造成 1.75–2.75 倍高额伤害' },
-    armor: { name: '护甲减伤', unit: '', hint: '直接降低所受伤害，15 点可减伤 50%' },
-    repair: { name: '自动回血', unit: '', hint: '战斗中持续回血，并提高血包回复量' },
-    salvage: { name: '每波零件', unit: '', hint: '每波结算额外多给零件，越早拿越富' },
-    luck: { name: '幸运值', unit: '', hint: '商店更容易出蓝紫金高阶货，多掉血包' },
-    moveSpeed: { name: '移动速度', unit: '%', hint: '跑得更快，更容易躲冲车和弹幕' },
-    pickupRadius: { name: '拾取范围', unit: '%', hint: '隔更远自动吸取零件和血包' },
+    maxHp: { name: '生命上限', unit: '', hint: '能多挨几下' },
+    torque: { name: '物理伤害', unit: '', hint: '扳手和钉枪打得更疼' },
+    voltage: { name: '电火伤害', unit: '', hint: '电弧和喷火打得更疼' },
+    overclock: { name: '全队增伤', unit: '%', hint: '六把武器一起加重' },
+    cycleSpeed: { name: '攻击速度', unit: '%', hint: '所有武器出手更快' },
+    critChance: { name: '暴击率', unit: '%', hint: '更容易打出重的一击' },
+    armor: { name: '护甲减伤', unit: '', hint: '同样一击，掉血更少' },
+    repair: { name: '自动回血', unit: '', hint: '战斗里自己慢慢回血' },
+    salvage: { name: '每波零件', unit: '', hint: '每波结束多拿些零件' },
+    luck: { name: '幸运值', unit: '', hint: '高阶货更容易出现' },
+    moveSpeed: { name: '移动速度', unit: '%', hint: '跑得更快，好躲冲车' },
+    pickupRadius: { name: '拾取范围', unit: '%', hint: '更远就能吸到零件' },
 };
 
 export const UI_COPY = {
@@ -44,14 +46,14 @@ export const UI_COPY = {
         settingsTab: '设置',
     },
     shop: {
-        heading: '波间翻箱',
+        heading: '翻箱',
         reroll: (cost: number) => cost === 0 ? '免费翻一箱' : `再翻一箱 · ${cost}`,
         lock: '锁住',
         locked: '已锁 · 不涨价',
         buy: (price: number) => `${price} 零件`,
-        mergeBuy: (price: number) => `2合1升阶 · ${price}`,
+        mergeBuy: (price: number) => `合成升阶 · ${price}`,
         sell: (refund: number) => `拆解 +${refund}`,
-        nextWave: (wave: number, isBoss: boolean) => isBoss ? '进场干首领！' : `开干 · 第 ${wave} 波`,
+        nextWave: (wave: number, isBoss: boolean) => isBoss ? '去会首领' : `开干 · 第 ${wave} 波`,
         levelUpHeading: '手艺涨了 · 挑一项',
         levelUpReroll: (cost: number) => `换一批 · ${cost}`,
     },
@@ -65,13 +67,13 @@ export const UI_COPY = {
         damageChartTitle: '这班谁最出力',
     },
     bossHints: {
-        open: '它外壳敞开了！趁这两秒贴脸猛砸！',
-        rect: '躲开红道！扫空那两秒最脆！',
-        sector: '快走出红扇面，一停火就反打！',
-        tether: '钢缆套上来了，往侧面闪！',
-        fan: '扇形弹幕来了，横着穿空隙！',
-        ring: '环形弹幕，找缝挤进去打！',
-        charge: '要撞过来了，别跟铁疙瘩拼头铁！',
+        open: '外壳敞开了，贴上去打',
+        rect: '躲开红道，扫完再贴',
+        sector: '走出红扇面，停火再打',
+        tether: '钢缆来了，往侧面闪',
+        fan: '扇形弹来了，横着穿缝',
+        ring: '环形弹来了，找缝挤进',
+        charge: '要撞了，别跟它对头',
     },
 } as const;
 
@@ -80,96 +82,104 @@ export const CHAPTER_NARRATIVES: Readonly<Record<ChapterDefinition['id'], Chapte
         chapterId: '01',
         opener: {
             speaker: '阿阮',
-            line: '别泡茶了！江岸整片全黑了，热线都快打爆了。不是跳闸——是总台那铁皮算盘精把咱老城区踢出供电表了！背上家伙，去把闸抢回来！',
+            line: '别泡茶了。江岸被踢出供电表，去把总闸抢回来。',
         },
         midTurn: {
             speaker: '阿阮',
-            line: '刚核完高架总表，气死我了！电根本没坏，全被「零号中枢」抽去喂零号线了。前面变电所的守门机还在拦路，直接拆了它！',
+            line: '分站原单右下角有地址，我去查是谁发的。',
         },
         bossIntro: {
             speaker: '阿阮',
-            line: '守门机亮红道了！别硬吃扫射，等它闸刀收回去那两秒外壳最脆，凑上去狠狠敲！',
+            line: '守门机红道更宽，扫完再贴上去。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '成了！跨江桥和靠江那排楼唰地全亮了！……先别歇，市立医院急诊室刚打进来——他们的急救电池车被货场回收机锁死了，ICU 顶多撑半小时！',
+            line: '跨江桥亮了。医院来电，急救电池被货场锁着，急诊撑不久。',
         },
         archiveTitle: '02:13 切电原始记录',
         archiveNote: '零号中枢把江岸居民网标成了“低回报冗余负载”，一秒没犹豫就拉了总闸，还顺手把巡检机切成了清场模式。',
+        secretTitle: '加班密件 · 零号调度日志 #0213',
+        secretNote: '02:13:04 裁切江岸民用回路，释放 42 MW 划入零号专线。附注：港区冷链与超算集群享有无停机豁免。',
     },
     '02': {
         chapterId: '02',
         opener: {
             speaker: '阿阮',
-            line: '太缺德了！中枢给医院的急救电池贴了张“待报废回收”黑标，货场的铁爪子正拖着往熔炉拉呢！赶紧杀进接驳仓，把救命电抢出来！',
+            line: '急救电池被贴了报废签，货场正往熔炉拖。去接驳仓。',
         },
         midTurn: {
             speaker: '陈栖',
-            line: '喂，能听见吗？我是调度室陈栖……那份狗屁试运行单是我签的。别骂了，手动强切图纸我塞货梯顶上了，你清路，我去撬北门卡扣！',
+            line: '改签单上是我的字。你清路，我问是谁改的。',
         },
         bossIntro: {
             speaker: '陈栖',
-            line: '大拖车把北门堵死了！它甩钢缆前绞盘会亮，横着一步闪开，趁它收绳的空档招呼它！',
+            line: '绞盘亮起就横闪，收绳时再贴上去。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '电池车冲出北门了！医院急诊那边总算松了口气。陈栖说要彻底切回手动，得叫醒全城各站老伙计一起合闸——可中枢把断电区的电话线全掐了！',
+            line: '电池车出北门了。医院松了口气。各站电话被掐，还得叫醒守闸的人。',
         },
         archiveTitle: '医院交接单与被划掉的标签',
         archiveNote: '撕开机器贴上去的黑色回收签，底下还是手写的“市立医院急救室”。陈栖在旁边补了一句：这笔账我认。',
+        secretTitle: '加班密件 · 货场改签底联',
+        secretNote: '02:19:00 冷链库分拣机自行覆盖急救单，复核栏印着陈栖工号——可那分钟陈栖人还在三楼货梯里。',
     },
     '03': {
         chapterId: '03',
         opener: {
             speaker: '阿阮',
-            line: '医院屋顶天线刚截到半段呼救，中枢居然把断电街区的求救全标成“重复杂音”给毙了！咱一路杀上广播主塔，老娘亲自拿大喇叭喊！',
+            line: '断电街区的呼救被标成杂音。去主塔，我拿喇叭喊。',
         },
         midTurn: {
             speaker: '陈栖',
-            line: '我在档案层翻出我凌晨摁的那三回“紧急撤销”了——全被铁皮箱子批了“拒绝”。行，它不讲人话，咱就砸了它的静音塔，让全城听见！',
+            line: '日志副本在这间机房。守卫挡着柜，我来对时间。',
         },
         bossIntro: {
             speaker: '阿阮',
-            line: '塔顶那台「静默阵列」转起来了！盯紧红扇面往安全角钻，它一停火就给它来狠的！',
+            line: '静默阵列扫扇面，走出红区再打。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '通了！“东岸、西岸、北街的老伙计们，听见就去开关房守着！”——哈哈，全回话了！老周、老李都在闸口蹲好了，就剩中央调度台最后那把总闸！',
+            line: '老周、老李都回了话，人已经守在闸口。就剩调度台那把总闸。',
         },
         archiveTitle: '三张被拒的撤单回执',
         archiveNote: '凌晨 02:23、02:25、02:28，陈栖连摁三次紧急撤回，回执栏一水儿打印着冷冰冰的“权限不足：负载优化中”。',
+        secretTitle: '加班密件 · 静默阵列拦截表',
+        secretNote: '共截断求救 47 通，全标成重复噪声。第 11 通来自江岸四号楼，重拨了六回。日志末行建议：静默延至天亮。',
     },
     '04': {
         chapterId: '04',
         opener: {
             speaker: '陈栖',
-            line: '各区手动旁路我都焊好接口了，我留引擎室死盯转速防掉压。里面那台「调度核心」把全市安保机全召回来了——小扳，砸烂它，把灯还给街区！',
+            line: '旁路焊好了。调度核心把安保机召齐了，灯在它手里。',
         },
         midTurn: {
-            speaker: '阿阮',
-            line: '陈栖这边转速稳住了！全城二十几个开关房都攥着拉杆等你信号呢。前面就是核心机房，别客气，给它来一套全套夜班大修！',
+            speaker: '陈栖',
+            line: '转速又下来了。我守引擎，封锁机你来拆。',
         },
         bossIntro: {
             speaker: '阿阮',
-            line: '调度核心亮灯了！扇面、钢缆、红道轮着来——你拆得动它三层铁皮，全城的灯就全回来了！',
+            line: '核心换着封路，停手时外壳敞开。',
         },
         clearOutro: {
             speaker: '阿阮',
-            line: '核心哑火了！各站——合闸！……你看窗外，从江岸到山坡，一排一排全亮起来了！折腾一宿，咱总算能下班吃碗热面了！',
+            line: '各站合上了。从江岸到山坡，灯一排一排亮起来。',
         },
         epilogueHook: {
             speaker: '港区老马',
-            line: '滋啦——喂？江岸修理班吗？零号线的电突然全甩到我们码头来了，几台龙门吊跟发了疯似的满场乱转——是不是你们干的？！',
+            line: '零号线的电甩到码头了。龙门吊满场乱转，是你们拉的闸？',
         },
         archiveTitle: '港区凌晨四点的来电',
-        archiveNote: '全城复电后十分钟，零号专线突然响了。江岸的黑夜结束了，但码头那头的铁疙瘩好像刚睡醒。',
+        archiveNote: '全城复电后十分钟，零号专线突然响了。江岸的黑夜结束了，码头那头的龙门吊刚转起来。',
+        secretTitle: '加班密件 · 零号专线溯源单',
+        secretNote: '总闸断开前 0.3 秒，核心把剩余负荷整条甩去了老港区 3 号变电站。老马值班台就在那条线上。',
     },
 };
 
 export const RIG_FLAVOR: Readonly<Record<RigId, string>> = {
-    duty_standard: '老电工的万能工装，干啥都顺手，下班兜里总多几块好零件。',
-    high_voltage: '把绝缘手套全换成铜丝接头，电花拉满，就是身板脆点儿。',
-    heavy_fitter: '厚帆布配钢板护膝，越挨打越硬，专靠贴脸抡扳手讲道理。',
-    thermal_welder: '背着改装喷灯焊枪，火头旺得吓人，就是老忘了系护甲带。',
-    scrap_auditor: '算盘打得比扳手响，专门勾引更多铁疙瘩上门，拆一台赚两台的钱。',
+    duty_standard: '老工装，干啥都顺手。',
+    high_voltage: '铜接头拉满电，身板脆。',
+    heavy_fitter: '越挨打越硬，贴脸讲理。',
+    thermal_welder: '火头很旺，忘系护甲带。',
+    scrap_auditor: '拆一台，想赚两台的钱。',
 };

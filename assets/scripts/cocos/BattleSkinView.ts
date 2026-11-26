@@ -4,7 +4,7 @@ import type { Battle, MeleeWindup, WeaponCast } from '../m1/Battle';
 import type { ChapterBossView, MissionView } from '../m1/Encounter';
 import type { CombatBounds, EnemyId, ToolId } from '../m1/content';
 import { FIELD, TICK_RATE } from '../m1/content';
-import { MELEE_RETURN_TICKS, WEAPON_DOCK_HEIGHT, isMeleeTool, sampleMeleeHead, weaponDock } from '../m1/WeaponMotion';
+import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, weaponMount, isMeleeTool, sampleMeleeHead } from '../m1/WeaponMotion';
 import { FLOATING_WEAPON_ART, sampleGunPose } from './FloatingWeaponArt';
 import type { WeaponMuzzle } from './FloatingWeaponArt';
 import { CAMPAIGN_MACHINE_ART, CAMPAIGN_TOOL_ART, PIXEL_ARENAS, PIXEL_DISPATCH_CHAPTERS, PIXEL_MENU_ART } from '../campaign/CampaignArt';
@@ -41,6 +41,7 @@ const offlineCore = new Color(108, 123, 134, 223);
 const recovering = new Color(169, 187, 197);
 type Enemy = Battle['enemies'][number];
 type Actor = Readonly<{ x: number; y: number }>;
+type GunAim = { tool: ToolId; tick: number; time: number; bearing: number; desired: number; lastTarget: number };
 type Pose = 'idle' | 'step-a' | 'step-b' | 'windup' | 'strike' | 'recover' | 'hit';
 type ActorMotion = { x: number; y: number; dx: number; dy: number; tick: number; stride: number; heading: number };
 const poses: readonly Pose[] = ['idle', 'step-a', 'step-b', 'windup', 'strike', 'recover', 'hit'];
@@ -134,6 +135,11 @@ function gunRotation(view: PixelTool, heading: number, flip: boolean): number {
     return heading - (flip ? Math.PI - axis : axis);
 }
 
+// Only close-mounted guns need extra travel to clear the torso.
+function gunExtension(gripX: number, heading: number): number {
+    return Math.max(0, 20 - Math.abs(gripX)) * ease(-Math.sign(gripX) * Math.cos(heading));
+}
+
 function enemyPose(battle: Readonly<Battle>, enemy: Enemy, chapterBoss: ChapterBossView | null): number {
     const step = Math.floor((battle.tick + enemy.id * 3) / 5);
     const remaining = enemy.next - battle.tick;
@@ -221,6 +227,7 @@ export class BattleSkinView {
     private pixelMechanic?: PixelMechanicAtlas;
     private readonly pixelTools = new Map<ToolId, PixelTool>();
     private readonly weaponOrigins = new WeakMap<WeaponCast, Actor>();
+    private readonly gunAims = new WeakMap<Actor, GunAim[]>();
     private readonly floatingCasts = new WeakMap<WeaponCast, WeaponMuzzle>();
     readonly weaponOrigin = (cast: WeaponCast): Actor | undefined => this.weaponOrigins.get(cast);
     readonly floatingWeaponOrigin = (cast: WeaponCast): WeaponMuzzle | undefined => this.floatingCasts.get(cast);
@@ -605,10 +612,11 @@ export class BattleSkinView {
         const injuryAge = age(tick, player.hurtAt);
         const tint = injuryAge < 5 || tick < player.invulnerableUntil && tick % 6 < 3 ? hurt : Color.WHITE;
         if (floatingTick !== undefined) {
-            if (!this.pixelMechanic || !this.drawFloatingBody(this.pixelMechanic, player, motion, injuryAge, tint)) {
-                this.drawLegacyMechanic(player, motion, injuryAge, tint);
-            }
-            this.drawFloatingTools(battle, floatingTick);
+            this.drawFloatingTools(battle, floatingTick, () => {
+                if (!this.pixelMechanic || !this.drawFloatingBody(this.pixelMechanic, player, motion, injuryAge, tint)) {
+                    this.drawLegacyMechanic(player, motion, injuryAge, tint);
+                }
+            });
             return;
         }
         if (this.pixelMechanic && this.drawPixelMechanic(this.pixelMechanic, battle, motion, attackAge, injuryAge, tint)) return;
@@ -659,7 +667,7 @@ export class BattleSkinView {
         return true;
     }
 
-    private drawFloatingTools(battle: Readonly<Battle>, time: number): void {
+    private drawFloatingTools(battle: Readonly<Battle>, time: number, drawBody: () => void): void {
         const windups = battle.meleeWindups();
         for (const cast of battle.weaponCasts) {
             if (cast.melee) continue;
@@ -670,77 +678,132 @@ export class BattleSkinView {
             }
             const view = this.pixelTools.get(cast.tool);
             if (!view) continue;
-            const dock = weaponDock(cast.slot);
-            const dx = cast.ux * cast.targetRange - dock.x, dy = cast.uy * cast.targetRange - dock.y;
-            const heading = (dx !== 0 || dy !== 0) ? Math.atan2(dy, dx) : Math.atan2(cast.uy, cast.ux);
-            const flip = Math.cos(heading) < -1e-9;
-            const tip = toolOffset(view, view.tip, gunRotation(view, heading, flip), pixelWeaponScale, flip);
-            this.floatingCasts.set(cast, { x: cast.x + dock.x + tip.x, y: cast.y + dock.y + tip.y, heading });
+            const grip = weaponMount(cast.slot, battle.tools.length).grip;
+            const dx = cast.ux * cast.targetRange - grip.x, dy = cast.uy * cast.targetRange - grip.y;
+            const heading = (dx || dy) ? Math.atan2(dy, dx) : Math.atan2(cast.uy, cast.ux);
+            const length = Math.hypot(view.tip[0] - view.grip[0], view.tip[1] - view.grip[1]) * pixelWeaponScale;
+            const reach = length + gunExtension(grip.x, heading);
+            this.floatingCasts.set(cast, {
+                x: cast.x + grip.x + Math.cos(heading) * reach,
+                y: cast.y + grip.y + Math.sin(heading) * reach,
+                heading,
+            });
         }
-        for (let slot = 0; slot < battle.tools.length; slot++) {
-            const tool = battle.tools[slot].id;
+        const drawSlot = (slot: number) => {
+            const tool = battle.tools[slot]?.id;
+            if (!tool) return;
             const latest = battle.weaponCasts.reduce<WeaponCast | undefined>(
                 (previous, cast) => cast.slot === slot && cast.tool === tool ? cast : previous, undefined);
             const windup = windups.find(cue => cue.slot === slot && cue.tool === tool);
-            this.drawFloatingTool(battle.player, slot, tool, time, latest, windup);
+            this.drawFloatingTool(battle, slot, tool, time, latest, windup);
+        };
+        const count = battle.tools.length;
+        for (let slot = 0; slot < count; slot++) {
+            if (weaponMount(slot, count).behind) drawSlot(slot);
+        }
+        drawBody();
+        for (let slot = 0; slot < count; slot++) {
+            if (!weaponMount(slot, count).behind) drawSlot(slot);
         }
     }
 
-    private drawFloatingTool(player: Actor, slot: number, tool: ToolId, time: number,
+    private gunBearing(battle: Readonly<Battle>, slot: number, time: number, rest: number, firing?: number): number {
+        let aims = this.gunAims.get(battle.player);
+        if (!aims) {
+            aims = [];
+            this.gunAims.set(battle.player, aims);
+        }
+        const tool = battle.tools[slot].id;
+        let aim = aims[slot];
+        if (!aim || aim.tool !== tool || time < aim.time) {
+            aim = aims[slot] = { tool, tick: -1, time, desired: rest, bearing: rest, lastTarget: -Infinity };
+        }
+        if (aim.tick !== battle.tick) {
+            aim.tick = battle.tick;
+            const target = battle.rangedAimTarget(slot);
+            if (target) {
+                const grip = weaponMount(slot, battle.tools.length).grip;
+                const dx = target.x - battle.player.x - grip.x, dy = target.y - battle.player.y - grip.y;
+                if (dx || dy) aim.desired = Math.atan2(dy, dx);
+                aim.lastTarget = time;
+            }
+        }
+        if (firing !== undefined) {
+            aim.bearing = aim.desired = firing;
+            aim.lastTarget = time;
+        } else {
+            // Hold briefly after losing a target, then ease back into the holster pose.
+            const parked = time - aim.lastTarget > 5;
+            const dt = time - aim.time;
+            aim.bearing = blendAngle(aim.bearing, parked ? rest : aim.desired, 1 - Math.exp(-dt * (parked ? 0.32 : 0.85)));
+        }
+        aim.time = time;
+        return aim.bearing;
+    }
+
+    private drawFloatingTool(battle: Readonly<Battle>, slot: number, tool: ToolId, time: number,
         cast?: WeaponCast, windup?: MeleeWindup): void {
+        const player = battle.player;
         const art = FLOATING_WEAPON_ART[tool];
         const view = this.pixelTools.get(tool);
-        const dock = weaponDock(slot);
+        const mount = weaponMount(slot, battle.tools.length);
+        const rest = Math.atan2(mount.head.y - mount.grip.y, mount.head.x - mount.grip.x);
         const elapsed = cast ? Math.max(0, time - cast.tick) : Infinity;
         if (isMeleeTool(tool)) {
-            this.drawSweptTool(player, tool, dock, view, elapsed, cast, windup);
+            this.drawSweptTool(player, tool, mount.head, mount.grip, rest, view, elapsed, cast, windup, time - battle.tick);
             return;
         }
-        const rest = Math.atan2(dock.y - WEAPON_DOCK_HEIGHT, dock.x);
+        const grip = mount.grip;
         const launched = cast && this.floatingCasts.get(cast);
-        const aim = launched?.heading ?? (cast ? Math.atan2(cast.uy, cast.ux) : rest);
+        const aim = launched?.heading ?? rest;
         const pose = sampleGunPose(art.motion, elapsed);
-        const settle = art.motion[art.motion.length - 1][0];
         const strength = cast?.modified ? 1.22 : 1;
         const hold = art.effect === 'jet' || art.effect === 'pull' || art.effect === 'arc' ? 6 : 2;
-        const bearing = blendAngle(aim, rest, ease((elapsed - hold) / settle));
+        const bearing = this.gunBearing(battle, slot, time, rest, elapsed <= hold ? launched?.heading : undefined);
         const flip = Math.cos(bearing) < -1e-9;
         const heading = bearing + (flip ? -pose.turn : pose.turn);
         const sprite = this.frames.get('pixel-tool:' + tool);
-        // Gentle out-of-phase magnetic hover bob so idle floating tools feel alive!
-        const hover = elapsed > settle ? Math.round(Math.sin(time * 0.14 + slot * 1.15) * 1.5) : 0;
-        const x = player.x + dock.x + (Math.cos(aim) * pose.travel - Math.sin(aim) * pose.side) * strength;
-        const y = player.y + dock.y + hover + (Math.sin(aim) * pose.travel + Math.cos(aim) * pose.side) * strength;
+        const extension = gunExtension(grip.x, bearing);
+        const x = player.x + grip.x + Math.cos(bearing) * extension + (Math.cos(aim) * pose.travel - Math.sin(aim) * pose.side) * strength;
+        const y = player.y + grip.y + Math.sin(bearing) * extension + (Math.sin(aim) * pose.travel + Math.cos(aim) * pose.side) * strength;
         if (!sprite || !view) {
             this.icon(this.world, tool, x, y, 18, 0, Color.WHITE);
             return;
         }
         const { width, height } = sprite.rect;
         const scale = pixelWeaponScale * pose.scale;
-        this.drawModelShadow(x, player.y - 2, 4, 1.3);
         const rotation = gunRotation(view, heading, flip);
-        this.world.put(sprite, x, y, width * scale, height * scale, rotation * 180 / Math.PI, Color.WHITE, false, flip);
+        const pivot = toolOffset(view, view.grip, rotation, scale, flip);
+        const cx = x - pivot.x, cy = y - pivot.y;
+        this.world.put(sprite, cx, cy, width * scale, height * scale, rotation * 180 / Math.PI, Color.WHITE, false, flip);
         if (launched) {
             const tip = toolOffset(view, view.tip, rotation, scale, flip);
-            launched.flash = { x: x + tip.x, y: y + tip.y, heading };
+            launched.flash = { x: cx + tip.x, y: cy + tip.y, heading };
         }
     }
 
-    private drawSweptTool(player: Actor, tool: ToolId, dock: Actor, view: PixelTool | undefined,
-        elapsed: number, cast?: WeaponCast, windup?: MeleeWindup): void {
+    private drawSweptTool(player: Actor, tool: ToolId, dock: Actor, grip: Actor, rest: number,
+        view: PixelTool | undefined, elapsed: number, cast: WeaponCast | undefined, windup: MeleeWindup | undefined,
+        fraction: number): void {
         const home = { x: player.x + dock.x, y: player.y + dock.y };
         const motion = cast?.melee;
-        const rest = Math.atan2(dock.y - WEAPON_DOCK_HEIGHT, dock.x);
+        const cock = (ux: number, uy: number) => {
+            const turn = blendAngle(rest, Math.atan2(uy, ux), 1) - rest;
+            return rest - Math.sign(turn || dock.x) * (0.35 + 0.4 * Math.abs(turn) / Math.PI);
+        };
         let head = home;
         let heading = rest;
         if (cast && motion && elapsed < motion.last + MELEE_RETURN_TICKS) {
             const sample = sampleMeleeHead(motion, Math.min(elapsed, motion.last));
             const back = ease((elapsed - motion.last) / MELEE_RETURN_TICKS);
             head = { x: sample.x + (home.x - sample.x) * back, y: sample.y + (home.y - sample.y) * back };
-            const pivot = Math.atan2(sample.y - player.y, sample.x - player.x);
-            heading = blendAngle(blendAngle(rest, pivot, ease(elapsed / motion.first)), rest, back);
+            const pivot = Math.atan2(sample.y - player.y - grip.y, sample.x - player.x - grip.x);
+            heading = blendAngle(blendAngle(cock(cast.ux, cast.uy), pivot, ease(elapsed / motion.first)), rest, back);
         } else if (windup) {
-            heading -= 0.25 * Math.sin(Math.PI * (windup.ageTicks + 1) / 4);
+            const ready = ease((windup.ageTicks + fraction + 1) / MELEE_WINDUP_TICKS);
+            heading = blendAngle(rest, cock(windup.ux, windup.uy), ready);
+            const pull = 2 * Math.sin(Math.PI * ready);
+            head = { x: home.x - windup.ux * pull, y: home.y - windup.uy * pull };
         }
         const sprite = this.frames.get('pixel-tool:' + tool);
         if (!sprite || !view) {

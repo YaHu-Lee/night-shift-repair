@@ -2,7 +2,7 @@ import type { CombatBounds } from './content';
 import type { Position } from './Encounter';
 
 export const FLOATING_WEAPON_LIMIT = 6;
-export const WEAPON_DOCK_HEIGHT = 19;
+export const MELEE_WINDUP_TICKS = 4;
 export const MELEE_RETURN_TICKS = 4;
 export const MELEE_TOOL_STATS = {
     wrench: { reach: 57, radius: 8 },
@@ -15,15 +15,30 @@ export function isMeleeTool(id: string): id is MeleeTool {
     return id === 'wrench' || id === 'bypass_wrench';
 }
 
-// Offsets from the player's feet. Equipping another weapon leaves occupied slots in place.
-const weaponDocks = [
-    { x: -37, y: WEAPON_DOCK_HEIGHT }, { x: 37, y: WEAPON_DOCK_HEIGHT },
-    { x: -21, y: 48 }, { x: 21, y: 48 },
-    { x: -21, y: -10 }, { x: 21, y: -10 },
-] as const;
+// Feet are the actor origin. Centre the ring on the mechanic's torso.
+export const WEAPON_RING_CENTER_Y = 20;
+const gripRadii = [0, 0, 20, 26, 30, 33, 36];
+const mountLayouts = Array.from({ length: FLOATING_WEAPON_LIMIT + 1 }, (_, count) =>
+    Array.from({ length: count }, (_, slot) => {
+        if (count === 1) return { grip: { x: -10, y: 21 }, head: { x: -23, y: 15 }, behind: false };
+        const step = 2 * Math.PI / count;
+        const start = count === 2 ? Math.PI : Math.PI / 2 + step;
+        const angle = start - slot * step;
+        const atRadius = (radius: number) => ({
+            x: Math.round(radius * Math.cos(angle)) || 0,
+            y: WEAPON_RING_CENTER_Y + Math.round(radius * Math.sin(angle)),
+        });
+        const grip = atRadius(gripRadii[count]);
+        return { grip, head: atRadius(gripRadii[count] + 14), behind: grip.y > WEAPON_RING_CENTER_Y };
+    }),
+);
 
-export function weaponDock(slot: number): Readonly<Position> {
-    return weaponDocks[slot];
+export function weaponMount(slot: number, count: number) {
+    return mountLayouts[count][slot];
+}
+
+export function weaponDock(slot: number, count = FLOATING_WEAPON_LIMIT): Readonly<Position> {
+    return weaponMount(slot, count).head;
 }
 
 const swings = {

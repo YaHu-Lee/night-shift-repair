@@ -1,5 +1,7 @@
 # 《夜班修理局》UI 实机审查与剧情／文案重塑方案
 
+> **实现状态**：本文方案已落地至 `assets/scripts/roguelite/` 与 `PatrolCampaignUi.ts`，并在后续迭代中补齐了去教练腔文案精修、逐章／危急双轴解锁、轻量化商店合成指引与激励视频／留存接入。现行完整架构以 [`PATROL-ARCHITECTURE.md`](PATROL-ARCHITECTURE.md) 为准。
+>
 > 配套 [`ROGUELITE-NUMERICAL-AUDIT-AND-REFACTOR.md`](ROGUELITE-NUMERICAL-AUDIT-AND-REFACTOR.md)（方案 A：4 章 × 12 波巡线肉鸽大重构）。本文基于 12 张实机竖屏截图（`360×640` / `393×852`）和 `M1Bootstrap.ts`、`CampaignCatalog.ts`、`EquipmentDetails.ts` 全量代码审查，系统拆解 UI 排版交互问题与“AI 公文味”文案根源，并给出可直接落地的 UI 线框规范与全新剧本／界面文案。
 
 ---

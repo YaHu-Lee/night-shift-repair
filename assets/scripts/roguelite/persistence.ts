@@ -1,12 +1,17 @@
+import type { ToolId } from '../m1/content';
 import { makePlatform } from '../platform/platform';
 import { CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WEAPON_CATALOG, WORKSHOP_TALENTS } from './catalog';
 import type { ShopCheckpoint } from './shop';
 import { STAT_KEYS } from './formulas';
+import { DAILY_SHIFT_MODIFIERS } from './engagement';
+import { PRE_RUN_SUPPLIES, unlockedRigsForProfile } from './progression';
 import { createDefaultProfile, createPatrolId, PatrolSession } from './session';
 import type {
     BattleWaveSummary,
     ChapterDefinition,
+    DailyShiftModifierId,
     DangerLevel,
+    PreRunSupplyId,
     RigId,
     ShopSlot,
     StatDelta,
@@ -37,6 +42,15 @@ export interface PatrolSnapshot {
     readonly chapterId: ChapterDefinition['id'];
     readonly rigId: RigId;
     readonly danger: DangerLevel;
+    readonly supply?: PreRunSupplyId;
+    readonly starterWeapon?: ToolId;
+    readonly dailyShiftKey?: string;
+    readonly dailyMod?: DailyShiftModifierId;
+    readonly endlessMode?: boolean;
+    readonly trialRig?: boolean;
+    readonly revivesUsed?: number;
+    readonly levelUpAdUsed?: boolean;
+    readonly shopAdUsed?: number;
     readonly seed: number;
     readonly phase: 'battle' | 'shop' | 'won' | 'lost';
     readonly waveIndex: number;
@@ -68,6 +82,8 @@ export function validWorkshopProfile(value: unknown): value is WorkshopProfile {
     if (!Array.isArray(p.bannedModules) || !p.bannedModules.every(id => typeof id === 'string' && owns(MODULE_BY_ID, id))) return false;
     if (!p.maxDangerCleared || typeof p.maxDangerCleared !== 'object' || Array.isArray(p.maxDangerCleared)
         || !Object.entries(p.maxDangerCleared).every(([id, danger]) => VALID_CHAPTERS.has(id) && [0, 1, 2, 3, 4].includes(danger))) return false;
+    if (p.maxDangerByRig !== undefined && (!p.maxDangerByRig || typeof p.maxDangerByRig !== 'object' || Array.isArray(p.maxDangerByRig)
+        || !Object.entries(p.maxDangerByRig).every(([id, danger]) => VALID_RIGS.has(id) && [0, 1, 2, 3, 4].includes(danger)))) return false;
     if (Array.isArray(p.talents)) return false;
     if (!p.talents || typeof p.talents !== 'object') return false;
     for (const [k, v] of Object.entries(p.talents)) {
@@ -75,6 +91,18 @@ export function validWorkshopProfile(value: unknown): value is WorkshopProfile {
         if (!VALID_TALENTS.has(k) || !spec || typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0 || v > spec.maxRank) {
             return false;
         }
+    }
+    if (p.onboardingDone !== undefined && typeof p.onboardingDone !== 'boolean') return false;
+    if (p.adFreePass !== undefined && typeof p.adFreePass !== 'boolean') return false;
+    if (p.bestEndlessWave !== undefined && !natural(p.bestEndlessWave)) return false;
+    if (p.daily !== undefined) {
+        const d = p.daily;
+        if (!d || typeof d !== 'object' || Array.isArray(d) || typeof d.dateKey !== 'string' || d.dateKey.length < 8) return false;
+        if (d.checkInClaimed !== undefined && typeof d.checkInClaimed !== 'boolean') return false;
+        if (d.dailyShiftCleared !== undefined && typeof d.dailyShiftCleared !== 'boolean') return false;
+        if (d.freeSupplyCharges !== undefined && !natural(d.freeSupplyCharges)) return false;
+        if (d.adDoubleUsed !== undefined && !natural(d.adDoubleUsed)) return false;
+        if (d.adPrepUsed !== undefined && !natural(d.adPrepUsed)) return false;
     }
     return true;
 }
@@ -109,8 +137,18 @@ export function validPatrolSnapshot(value: unknown): value is PatrolSnapshot {
     const s = value as PatrolSnapshot;
     if ((s.version !== 3 && s.version !== 4) || !VALID_CHAPTERS.has(s.chapterId) || !VALID_RIGS.has(s.rigId)) return false;
     if (![0, 1, 2, 3, 4].includes(s.danger)) return false;
+    if (s.supply !== undefined && !owns(PRE_RUN_SUPPLIES, s.supply)) return false;
+    if (s.starterWeapon !== undefined && !owns(WEAPON_CATALOG, s.starterWeapon)) return false;
+    if (s.dailyShiftKey !== undefined && typeof s.dailyShiftKey !== 'string') return false;
+    if (s.dailyMod !== undefined && !owns(DAILY_SHIFT_MODIFIERS, s.dailyMod)) return false;
+    if (s.endlessMode !== undefined && typeof s.endlessMode !== 'boolean') return false;
+    if (s.trialRig !== undefined && typeof s.trialRig !== 'boolean') return false;
+    if (s.revivesUsed !== undefined && !natural(s.revivesUsed)) return false;
+    if (s.levelUpAdUsed !== undefined && typeof s.levelUpAdUsed !== 'boolean') return false;
+    if (s.shopAdUsed !== undefined && !natural(s.shopAdUsed)) return false;
     if (!['battle', 'shop', 'won', 'lost'].includes(s.phase)) return false;
-    if (!Number.isSafeInteger(s.waveIndex) || s.waveIndex < 0 || s.waveIndex >= 12) return false;
+    const maxWaves = s.endlessMode ? 200 : 12;
+    if (!Number.isSafeInteger(s.waveIndex) || s.waveIndex < 0 || s.waveIndex >= maxWaves) return false;
     if (!Number.isSafeInteger(s.parts) || s.parts < 0) return false;
     if (!Array.isArray(s.weapons) || s.weapons.length < 1 || s.weapons.length > 6) return false;
     if (s.version === 4 && (typeof s.runId !== 'string' || !s.runId.length
@@ -123,7 +161,7 @@ export function validPatrolSnapshot(value: unknown): value is PatrolSnapshot {
         || new Set(s.weapons.map(w => w.uid)).size !== s.weapons.length) return false;
     if (!Array.isArray(s.modules) || !s.modules.every(id => owns(MODULE_BY_ID, id))
         || !Array.isArray(s.carriedLocks) || !s.carriedLocks.every(validSlot)) return false;
-    return Array.isArray(s.reports) && s.reports.length <= 12 && s.reports.every(r => r
+    return Array.isArray(s.reports) && s.reports.length <= maxWaves && s.reports.every(r => r
         && typeof r.cleared === 'boolean' && natural(r.kills) && Number.isFinite(r.elapsedSeconds)
         && Array.isArray(r.damageByWeapon) && r.damageByWeapon.every((w: BattleWaveSummary['damageByWeapon'][number]) => w && owns(WEAPON_CATALOG, w.id)
             && [1, 2, 3, 4].includes(w.tier) && [w.slot, w.totalDamage, w.crits, w.kills].every(natural)));
@@ -147,6 +185,7 @@ export function migrateLegacyCampaignProfile(legacy?: { clearedStages?: readonly
         credits,
         clearedChapters: chapters,
         maxDangerCleared: Object.fromEntries(chapters.map(id => [id, 0 as DangerLevel])),
+        unlockedRigs: unlockedRigsForProfile({ clearedChapters: chapters, unlockedRigs: base.unlockedRigs }),
     };
 }
 
@@ -221,6 +260,12 @@ export class PatrolStorage {
     saveActiveRun(session: PatrolSession): boolean {
         if (!this.current || this.current.lastSettledRunId === session.runId) return false;
         return this.commit({ ...this.current, run: session.snapshot(), revision: this.current.revision + 1 });
+    }
+
+    /** Atomically commits profile (e.g. pre-run supply payment) together with the new run snapshot. */
+    startRun(profile: WorkshopProfile, session: PatrolSession): boolean {
+        if (!this.current || this.current.lastSettledRunId === session.runId) return false;
+        return this.commit({ ...this.current, profile, run: session.snapshot(), revision: this.current.revision + 1 });
     }
 
     settleRun(session: PatrolSession): WorkshopProfile | null {

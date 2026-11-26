@@ -17,9 +17,14 @@ import {
 } from './formulas';
 import type { ResolvedBuild } from './formulas';
 import { STAT_LABELS } from './narrative';
+import { SHOP_EMERGENCY_PARTS } from './engagement';
+import { isModuleUnlocked, unlockedWeaponsForProfile } from './progression';
 import type {
+    DailyShiftModifierId,
+    DangerLevel,
     LevelUpOption,
     ModuleSpec,
+    PreRunSupplyId,
     RigId,
     ShopSlot,
     StatDelta,
@@ -29,6 +34,12 @@ import type {
     WeaponTag,
     WorkshopProfile,
 } from './types';
+
+export type ShopProfileSlice = Pick<WorkshopProfile, 'talents' | 'bannedModules'> & {
+    readonly clearedChapters?: WorkshopProfile['clearedChapters'];
+    readonly maxDangerCleared?: WorkshopProfile['maxDangerCleared'];
+    readonly onboardingDone?: WorkshopProfile['onboardingDone'];
+};
 
 export const MAX_WEAPONS = 6;
 export const SHOP_SLOTS = 4;
@@ -51,9 +62,12 @@ const LEVEL_UP_TABLE: Readonly<Record<StatKey, readonly [number, number, number,
 const LEVEL_UP_KEYS = Object.keys(LEVEL_UP_TABLE) as StatKey[];
 
 export interface IntermissionState {
-    readonly wave: number; // wave just finished (1..11)
+    readonly wave: number; // wave just finished (1..11+)
     readonly seed: number;
     readonly rigId: RigId;
+    readonly danger?: DangerLevel;
+    readonly supply?: PreRunSupplyId;
+    readonly dailyMod?: DailyShiftModifierId;
     parts: number;
     level: number;
     pendingLevelUps: number;
@@ -93,9 +107,13 @@ export interface ShopViewModel {
     readonly maxLocks: number;
 }
 
-function legalToolsForRig(rigId: RigId): ToolId[] {
-    const banned = new Set(RIG_CATALOG[rigId].bannedTags ?? []);
-    return ALL_TOOL_IDS.filter(id => !WEAPON_CATALOG[id].tags.some(t => banned.has(t)));
+function legalToolsForRig(rigId: RigId, profile?: ShopProfileSlice): ToolId[] {
+    const rig = RIG_CATALOG[rigId];
+    const banned = new Set(rig.bannedTags ?? []);
+    const unlocked = profile?.clearedChapters ? unlockedWeaponsForProfile({ clearedChapters: profile.clearedChapters }) : ALL_TOOL_IDS;
+    const tools = unlocked.filter(id => !WEAPON_CATALOG[id].tags.some(t => banned.has(t)));
+    if (!tools.includes(rig.starterWeapon)) tools.unshift(rig.starterWeapon);
+    return tools;
 }
 
 function pickWeighted<T>(items: readonly T[], rand: () => number): T | undefined {
@@ -151,17 +169,18 @@ export function rollLevelUpOptions(
 
 function rollShopSlots(
     state: IntermissionState,
-    profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    profile?: ShopProfileSlice,
     previousIds: ReadonlySet<string> = new Set(),
 ): ShopSlot[] {
     const rand = randomStream(
         state.seed ^ Math.imul(state.wave + 1, 0x45d9f3b) ^ Math.imul(++state.rollSerial, 0x119de1f3),
     );
-    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile);
+    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile, state.danger ?? 0, state.supply ?? 'none', state.dailyMod);
     const rig = RIG_CATALOG[state.rigId];
     const bannedModules = new Set(profile?.bannedModules ?? []);
     const ownedUnique = new Set(state.modules.filter(id => MODULE_BY_ID[id]?.unique));
-    const legalTools = legalToolsForRig(state.rigId);
+    const dangerSlice = profile?.maxDangerCleared ? { maxDangerCleared: profile.maxDangerCleared } : undefined;
+    const legalTools = legalToolsForRig(state.rigId, profile);
     const ownedTools = Array.from(new Set(state.weapons.map(w => w.id)));
     const ownedTags = new Set<WeaponTag>(state.weapons.flatMap(w => WEAPON_CATALOG[w.id].tags));
     if (rig.allArcTag) ownedTags.add('arc');
@@ -192,6 +211,32 @@ function rollShopSlots(
 
     // Same-class bonus fades linearly from +15% on W1 to 0% on W6+ (Brotato-style anti-dilution)
     const classBonus = state.wave <= 5 ? 0.18 - (state.wave - 1) * 0.03 : 0;
+
+    // Lightweight onboarding guarantee: first Wave-1 shop for a brand-new player always includes
+    // an affordable Tier-1 copy of their starter weapon in slot 0 so they can try buying AND 2-in-1 merging!
+    const guaranteeOnboardingMerge = state.wave === 1
+        && state.rollSerial === 1
+        && !!profile
+        && !profile.onboardingDone
+        && !(profile.clearedChapters?.length)
+        && !result[0]
+        && state.weapons.length >= 1;
+    if (guaranteeOnboardingMerge) {
+        const starterId = state.weapons[0].id;
+        const basePrice = WEAPON_CATALOG[starterId].tiers[0].price;
+        result[0] = {
+            slotIndex: 0,
+            kind: 'weapon',
+            itemId: starterId,
+            tier: 1,
+            price: shopOfferPrice(basePrice, state.wave, build.shopPriceScale),
+            locked: false,
+            sold: false,
+            canAutoMerge: willAutoMergeOnBuy(state.weapons, starterId, 1),
+        };
+        usedInShelf.add(`weapon:${starterId}:1`);
+        weaponsNeeded = Math.max(0, weaponsNeeded - 1);
+    }
 
     for (let i = 0; i < SHOP_SLOTS; i++) {
         if (result[i]) continue;
@@ -236,6 +281,7 @@ function rollShopSlots(
             const targetTier = rollTier(state.wave, build.stats.luck, rand, 1);
             const eligible = (tier: Tier): ModuleSpec[] => MODULE_CATALOG.filter(m =>
                 m.tier === tier
+                && isModuleUnlocked(dangerSlice, m.id)
                 && !bannedModules.has(m.id)
                 && !ownedUnique.has(m.id)
                 && !usedModuleIds.has(m.id),
@@ -244,7 +290,7 @@ function rollShopSlots(
             for (let fallback = targetTier - 1; !pool.length && fallback >= 1; fallback--) {
                 pool = eligible(fallback as Tier);
             }
-            if (!pool.length) pool = MODULE_CATALOG.filter(m => !usedModuleIds.has(m.id) && !ownedUnique.has(m.id));
+            if (!pool.length) pool = MODULE_CATALOG.filter(m => isModuleUnlocked(dangerSlice, m.id) && !usedModuleIds.has(m.id) && !ownedUnique.has(m.id));
             // Tag affinity: 22% chance to pull from owned/wanted tags to curb pool dilution
             const wanted = new Set<WeaponTag>(Array.from(ownedTags).concat(rig.wantedTags));
             const tagged = pool.filter(m => m.tags.some(t => wanted.has(t)));
@@ -271,6 +317,9 @@ export function createIntermission(
         readonly wave: number;
         readonly seed: number;
         readonly rigId: RigId;
+        readonly danger?: DangerLevel;
+        readonly supply?: PreRunSupplyId;
+        readonly dailyMod?: DailyShiftModifierId;
         readonly parts: number;
         readonly level: number;
         readonly pendingLevelUps: number;
@@ -280,14 +329,20 @@ export function createIntermission(
         readonly carryLockedSlots?: readonly ShopSlot[];
         readonly nextWeaponUid: number;
     },
-    profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    profile?: ShopProfileSlice,
     checkpoint?: ShopCheckpoint,
 ): IntermissionState {
-    const build = resolveBuild(params.rigId, params.level, params.levelStats, params.weapons, params.modules, profile);
+    const danger = params.danger ?? 0;
+    const supply = params.supply ?? 'none';
+    const build = resolveBuild(params.rigId, params.level, params.levelStats, params.weapons, params.modules, profile, danger, supply, params.dailyMod);
+    const supplyFreeReroll = supply === 'extra_crate' && params.wave <= 2 ? 1 : 0;
     const state: IntermissionState = {
         wave: params.wave,
         seed: params.seed,
         rigId: params.rigId,
+        danger,
+        supply,
+        dailyMod: params.dailyMod,
         parts: params.parts,
         level: params.level,
         pendingLevelUps: params.pendingLevelUps,
@@ -298,7 +353,7 @@ export function createIntermission(
         modules: [...params.modules],
         slots: (params.carryLockedSlots ?? []).map(s => ({ ...s })),
         paidRerolls: 0,
-        freeRerollsLeft: build.freeRerollsPerShop,
+        freeRerollsLeft: build.freeRerollsPerShop + supplyFreeReroll,
         buyoutBonusUsed: false,
         nextWeaponUid: params.nextWeaponUid,
         rollSerial: 0,
@@ -326,7 +381,7 @@ export function createIntermission(
 export function pickLevelUp(
     state: IntermissionState,
     optionIndex: number,
-    profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    profile?: ShopProfileSlice,
 ): boolean {
     if (state.pendingLevelUps <= 0) return false;
     const opt = state.levelUpOptions[optionIndex];
@@ -334,7 +389,7 @@ export function pickLevelUp(
     state.levelStats[opt.stat] = (state.levelStats[opt.stat] ?? 0) + opt.amount;
     state.pendingLevelUps--;
     if (state.pendingLevelUps > 0) {
-        const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile);
+        const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile, state.danger ?? 0, state.supply ?? 'none', state.dailyMod);
         const nextLvl = state.level - state.pendingLevelUps + 1;
         state.levelUpOptions = rollLevelUpOptions(nextLvl, build.stats.luck, state.seed, ++state.rollSerial, state.rigId);
     } else {
@@ -345,14 +400,14 @@ export function pickLevelUp(
 
 export function rerollLevelUp(
     state: IntermissionState,
-    profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    profile?: ShopProfileSlice,
 ): boolean {
     if (state.pendingLevelUps <= 0) return false;
     const cost = rerollPrice(state.wave, state.levelUpRerolls);
     if (state.parts < cost) return false;
     state.parts -= cost;
     state.levelUpRerolls++;
-    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile);
+    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile, state.danger ?? 0, state.supply ?? 'none', state.dailyMod);
     const nextLvl = state.level - state.pendingLevelUps + 1;
     state.levelUpOptions = rollLevelUpOptions(nextLvl, build.stats.luck, state.seed, ++state.rollSerial, state.rigId);
     return true;
@@ -361,7 +416,7 @@ export function rerollLevelUp(
 export function toggleLockSlot(
     state: IntermissionState,
     slotIndex: number,
-    profile?: Pick<WorkshopProfile, 'talents'>,
+    profile?: Pick<WorkshopProfile, 'talents'> & { readonly maxDangerCleared?: WorkshopProfile['maxDangerCleared'] },
 ): boolean {
     const slot = state.slots[slotIndex];
     if (!slot || slot.sold) return false;
@@ -369,7 +424,7 @@ export function toggleLockSlot(
         state.slots[slotIndex] = { ...slot, locked: false };
         return true;
     }
-    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile);
+    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile, state.danger ?? 0, state.supply ?? 'none', state.dailyMod);
     const currentLocks = state.slots.filter(s => s.locked && !s.sold).length;
     if (currentLocks >= build.maxLocks) return false;
     state.slots[slotIndex] = { ...slot, locked: true };
@@ -387,7 +442,7 @@ function refreshMergeHints(state: IntermissionState): void {
 export function buyShopSlot(
     state: IntermissionState,
     slotIndex: number,
-    profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    profile?: ShopProfileSlice,
 ): { readonly ok: boolean; readonly merged?: boolean; readonly freeBuyoutReroll?: boolean; readonly reason?: string } {
     if (state.pendingLevelUps > 0) return { ok: false, reason: '请先挑完升级属性' };
     const slot = state.slots[slotIndex];
@@ -439,12 +494,12 @@ export function mergeOwnedWeapons(state: IntermissionState, slotA: number, slotB
 export function sellOwnedWeapon(
     state: IntermissionState,
     slotIndex: number,
-    profile?: Pick<WorkshopProfile, 'talents'>,
+    profile?: Pick<WorkshopProfile, 'talents'> & { readonly maxDangerCleared?: WorkshopProfile['maxDangerCleared'] },
 ): number {
     if (state.weapons.length <= 1) return 0;
     const w = state.weapons[slotIndex];
     if (!w) return 0;
-    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile);
+    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile, state.danger ?? 0, state.supply ?? 'none', state.dailyMod);
     const refund = weaponSellRefund(w.id, w.tier, state.wave, build.shopPriceScale);
     state.weapons.splice(slotIndex, 1);
     state.parts += refund;
@@ -454,7 +509,7 @@ export function sellOwnedWeapon(
 
 export function rerollShop(
     state: IntermissionState,
-    profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    profile?: ShopProfileSlice,
 ): boolean {
     if (state.pendingLevelUps > 0) return false;
     if (state.freeRerollsLeft > 0) {
@@ -474,9 +529,9 @@ export function rerollShop(
 
 export function shopViewModel(
     state: IntermissionState,
-    profile?: Pick<WorkshopProfile, 'talents' | 'bannedModules'>,
+    profile?: ShopProfileSlice,
 ): ShopViewModel {
-    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile);
+    const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile, state.danger ?? 0, state.supply ?? 'none', state.dailyMod);
     return {
         wave: state.wave,
         parts: state.parts,
@@ -500,6 +555,11 @@ export function shopViewModel(
         lockCount: state.slots.filter(s => s.locked && !s.sold).length,
         maxLocks: build.maxLocks,
     };
+}
+
+export function grantShopEmergencyAid(state: IntermissionState): void {
+    state.parts += SHOP_EMERGENCY_PARTS;
+    state.freeRerollsLeft += 1;
 }
 
 export function describeSynergies(weapons: readonly WeaponInstance[], rigId: RigId): string[] {

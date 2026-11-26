@@ -6,13 +6,13 @@
 
 ## 试玩像素战役
 
-`main` 包含完整的 20 关战役。用 Cocos Creator 3.8.8 打开 `creator-m0/`，在构建面板导入 `creator-m0/build-campaign-web.json` 并构建。随后在仓库根目录运行：
+`main` 的默认战役是四章巡线，每章 12 波，从配电站修到中央调度台。用 Cocos Creator 3.8.8 打开 `creator-m0/`，在构建面板导入 `creator-m0/build-campaign-web.json` 并构建。随后在仓库根目录运行：
 
 ```sh
 node scripts/serve.mjs creator-m0/build/campaign-web-review
 ```
 
-打开[战役首页](http://127.0.0.1:4173/)或[武器试打台](http://127.0.0.1:4173/?weaponShowcase=bench)。逐关数值、群怪与首领实录见[战斗评审单](docs/CAMPAIGN-COMBAT-REVIEW.md)。
+打开[战役首页](http://127.0.0.1:4173/)（调试预览可加 `?mockAd=1` 体验激励视频点位）或[武器试打台](http://127.0.0.1:4173/?weaponShowcase=bench)。地址加上 `?legacyCampaign=1` 会进入旧的 20 关工单。现行系统架构、章×危急奖励与商业化／留存设计见[四章巡线架构文档](docs/PATROL-ARCHITECTURE.md)，逐关数值、群怪与首领实录见[战斗评审单](docs/CAMPAIGN-COMBAT-REVIEW.md)。
 
 ## M0 压测与自动验证
 
@@ -33,7 +33,7 @@ npm run preview
 
 主角、8 种小怪和 7 种 Boss 均使用固定斜俯视八向图。素材和更新步骤见[像素战役资产](art/pixel/README.md)。
 
-正式战役中，武器固定悬浮在维修工两侧，随人移动。先占左右两侧，再依次启用斜上方和斜下方的槽位。远程武器在原位转向目标并后坐。第 2 波后的整备台开放其余武器位，最多同时装备 6 把已解锁武器。电弧扳手交替正手横扫和反手挥扫，旁路扳手交替钩扫和压击。近战先按角色周围的射程筛选，再优先瞄向距离该武器最近的敌机，挥击沿途每台敌机最多受击一次。
+正式战役中，单把武器贴在腰侧。装备两至六把时，武器沿维修工周围的圆环等角排列，随人移动。远程武器在原位转向目标并后坐。整备台最多同时带 6 把武器。电弧扳手交替正手横扫和反手挥扫，旁路扳手交替钩扫和压击。近战先按角色周围的射程筛选，再优先瞄向距离该武器最近的敌机，挥击沿途每台敌机最多受击一次。
 
 武器组合的战力公式、20 站敌群与首领参数、数值复跑命令见[战役战力与难度校准](docs/CAMPAIGN-POWER-BALANCE.md)。
 
@@ -65,7 +65,8 @@ npm run preview
 
 ## 战役切片
 
-- 20 关战场使用 660 × 650 的可移动区域。镜头随人物移动，摇杆、暂停和波次信息固定在屏幕上。每关前五波击倒全部敌人后整备，第六波击败关底机后结单。
+- 默认巡线是四章、每章 12 波：先把江岸点亮、抢出救命电、喊醒黑夜、把灯抢回来。打完一波就整备，第 12 波击败关底机后结单。
+- 旧 20 关工单每关六波，战场 660 × 650。只在 `?legacyCampaign=1` 时进入。镜头随人物移动，摇杆、暂停和波次信息固定在屏幕上。
 - [项目宪章与素材验收准则](docs/PROJECT-CHARTER.md)
 - [战役 01→02 交接与验收](docs/CAMPAIGN-SLICE-PLAYTEST.md)：Linux 自动化覆盖和 Windows／Mac 真机清单。
 - [游戏策划 v0.3](docs/GDD-v0.3.md) · [MVP 剧情与关卡规划](docs/CAMPAIGN-STORY-OUTLINE.md) · [技术与制作 v0.2](docs/TECHNICAL-DESIGN-v0.2.md) · [免费素材与授权](docs/ASSET-SOURCES.md)。

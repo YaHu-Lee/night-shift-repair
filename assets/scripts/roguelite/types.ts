@@ -3,8 +3,12 @@ import type { ChapterBossKind, Position } from '../m1/Encounter';
 
 export type WeaponTag = 'melee' | 'arc' | 'ballistic' | 'thermal' | 'control';
 export type Tier = 1 | 2 | 3 | 4;
+export type ChapterId = '01' | '02' | '03' | '04';
 export type DangerLevel = 0 | 1 | 2 | 3 | 4;
 export type RigId = 'duty_standard' | 'high_voltage' | 'heavy_fitter' | 'thermal_welder' | 'scrap_auditor';
+export type PreRunSupplyId = 'none' | 'extra_crate' | 'spare_parts' | 'hot_thermos';
+export type DailyShiftModifierId = 'bargain_horde' | 'arc_overdrive' | 'cold_supply' | 'turbo_shift';
+export type RewardedPlacement = 'revive' | 'levelup_extra' | 'shop_supply' | 'prep_supply' | 'result_double';
 export type StatKey =
     | 'maxHp'
     | 'torque'
@@ -83,7 +87,8 @@ export interface ModuleSpec {
         | 'arc_shock'
         | 'burn_spread'
         | 'armor_thorns'
-        | 'extra_enemies';
+        | 'extra_enemies'
+        | 'breaker_surge';
     readonly flavor: string;
 }
 
@@ -160,7 +165,7 @@ export interface WaveDefinition {
 }
 
 export interface ChapterDefinition {
-    readonly id: '01' | '02' | '03' | '04';
+    readonly id: ChapterId;
     readonly index: number;
     readonly title: string;
     readonly routeName: string;
@@ -235,14 +240,28 @@ export interface WorkshopTalentSpec {
     readonly detail: (rank: number) => string;
 }
 
+export interface DailyEngagementState {
+    readonly dateKey: string;
+    readonly checkInClaimed?: boolean;
+    readonly freeSupplyCharges?: number;
+    readonly dailyShiftCleared?: boolean;
+    readonly adDoubleUsed?: number;
+    readonly adPrepUsed?: number;
+}
+
 export interface WorkshopProfile {
     readonly schemaVersion: 3;
     readonly credits: number;
-    readonly clearedChapters: readonly ('01' | '02' | '03' | '04')[];
-    readonly maxDangerCleared: Readonly<Partial<Record<'01' | '02' | '03' | '04', DangerLevel>>>;
+    readonly clearedChapters: readonly ChapterId[];
+    readonly maxDangerCleared: Readonly<Partial<Record<ChapterId, DangerLevel>>>;
+    readonly maxDangerByRig?: Readonly<Partial<Record<RigId, DangerLevel>>>;
     readonly unlockedRigs: readonly RigId[];
     readonly talents: Readonly<Partial<Record<WorkshopTalentSpec['id'], number>>>;
     readonly bannedModules: readonly string[];
+    readonly onboardingDone?: boolean;
+    readonly adFreePass?: boolean;
+    readonly bestEndlessWave?: number;
+    readonly daily?: DailyEngagementState;
 }
 
 export interface PatrolFieldConfig {
