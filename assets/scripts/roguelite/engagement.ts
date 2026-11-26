@@ -29,23 +29,23 @@ export interface DailyShiftModifierSpec {
 export const DAILY_SHIFT_MODIFIERS: Readonly<Record<DailyShiftModifierId, DailyShiftModifierSpec>> = {
     bargain_horde: {
         id: 'bargain_horde',
-        name: '夜市大甩卖',
-        ruleText: '商店全场 75 折，但敌机多 30%',
+        name: '老库清仓夜',
+        ruleText: '阿阮清仓料斗 75 折，巡检机多三成',
     },
     arc_overdrive: {
         id: 'arc_overdrive',
-        name: '高压抢通',
-        ruleText: '全队攻速 +20%，第 4 波起出干扰机',
+        name: '零号线漏压',
+        ruleText: '全架出手快 20%，第 4 波起混进干扰机',
     },
     cold_supply: {
         id: 'cold_supply',
-        name: '寒夜急补',
-        ruleText: '开局送 40 零件，波间回血减至 18%',
+        name: '寒风借料单',
+        ruleText: '开局预支 40 铜件，江风冷得波间只回 18%',
     },
     turbo_shift: {
         id: 'turbo_shift',
-        name: '极速巡线',
-        ruleText: '移速 +18% 且伤害 +12%，首领出招提速',
+        name: '抢修加急令',
+        ruleText: '步速 +18% 且增伤 12%，首领也解了限速',
     },
 };
 

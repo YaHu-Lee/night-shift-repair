@@ -9,7 +9,7 @@ import {
     isDailyShiftClearedToday,
 } from './engagement';
 import { DANGER_MULTIPLIERS, resolveBuild, workshopTalentCost, xpRequiredForLevel } from './formulas';
-import { CHAPTER_NARRATIVES } from './narrative';
+import { CHAPTER_NARRATIVES, defeatRadioLine } from './narrative';
 import {
     CHAPTER_CLEAR_BONUS,
     PRE_RUN_SUPPLIES,
@@ -605,6 +605,15 @@ export class PatrolSession {
                 ? `好家伙，撑过 ${wavesCleared} 波！码头这几台龙门吊总算老实一会儿了！`
                 : `撑到第 ${wavesCleared} 波已经够硬了！歇口热茶，下回咱再冲更高波！`,
         };
+        const failedReport = this.reports.length ? this.reports[this.reports.length - 1] : undefined;
+        const failedWave = failedReport?.wave ?? (this.waveIndex + 1);
+        const failRadio = defeatRadioLine({
+            chapterId: this.chapter.id,
+            wavesCleared,
+            failedWave,
+            isBossWave: failedWave === 12 || this.currentWaveDef.bossWave === true,
+            danger: this.danger,
+        });
         return {
             chapterId: this.chapter.id,
             chapterTitle: this.endlessMode ? '港区无尽夜班' : this.chapter.title,
@@ -623,7 +632,7 @@ export class PatrolSession {
             damageByWeapon,
             outroRadio: this.endlessMode
                 ? endlessRadio
-                : won ? narrative.clearOutro : { speaker: '阿阮', line: '先回值班室喘口气。这班没打完，装备改改再出去。' },
+                : won ? narrative.clearOutro : failRadio,
             ...(!this.endlessMode && won && narrative.epilogueHook ? { epilogueHook: narrative.epilogueHook } : {}),
         };
     }

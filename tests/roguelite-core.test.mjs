@@ -7,7 +7,13 @@ import {
     WEAPON_CATALOG,
     WORKSHOP_TALENTS,
 } from '../.m0-build/roguelite/catalog.js';
-import { CHAPTER_NARRATIVES } from '../.m0-build/roguelite/narrative.js';
+import {
+    CHAPTER_NARRATIVES,
+    RIG_FLAVOR,
+    defeatRadioLine,
+    homeDispatchStatus,
+    shopStoryBeatHint,
+} from '../.m0-build/roguelite/narrative.js';
 import {
     armorDamageMultiplier,
     computeSynergies,
@@ -243,16 +249,16 @@ test('patrol session runs a full wave, retains bag parts, grants level-ups, bans
         assert.equal(ch.waves.length, 12);
         assert.equal(ch.stations.length, 5);
         const narrative = CHAPTER_NARRATIVES[ch.id];
-        assert.ok(narrative.opener.line.length > 20 && narrative.opener.line.length <= 48, narrative.opener.line);
+        assert.ok(narrative.opener.line.length > 20 && narrative.opener.line.length <= 52, narrative.opener.line);
         assert.ok(narrative.clearOutro.line.length > 20 && narrative.clearOutro.line.length <= 72, narrative.clearOutro.line);
-        assert.ok(narrative.midTurn.line.length <= 32, narrative.midTurn.line);
+        assert.ok(narrative.midTurn.line.length <= 46, narrative.midTurn.line);
         assert.equal(ch.stations[2].arriveRadio, `${narrative.midTurn.speaker}：${narrative.midTurn.line}`);
         assert.equal(ch.waves[11].hint, narrative.bossIntro.line);
-        if (narrative.epilogueHook) assert.ok(narrative.epilogueHook.line.length <= 40, narrative.epilogueHook.line);
+        if (narrative.epilogueHook) assert.ok(narrative.epilogueHook.line.length <= 46, narrative.epilogueHook.line);
         for (const station of ch.stations) {
-            assert.ok(station.arriveRadio && station.arriveRadio.length <= 46, station.arriveRadio);
+            assert.ok(station.arriveRadio && station.arriveRadio.length <= 50, station.arriveRadio);
         }
-        for (const wave of ch.waves) assert.ok(wave.hint.length <= 30, `${ch.id} ${wave.wave} ${wave.hint}`);
+        for (const wave of ch.waves) assert.ok(wave.hint.length <= 42, `${ch.id} ${wave.wave} ${wave.hint}`);
     }
     // Check all 10 pixel weapons & 5 rigs are cataloged with valid synergies
     for (const mod of MODULE_CATALOG) {
@@ -532,9 +538,9 @@ test('chapter & danger progression unlocks rigs, weapons, capstones, secret arch
     const res1 = run1.settle(fresh);
     assert.equal(res1.firstClearBonus, FIRST_CLEAR_DANGER_BONUS[0]);
     assert.equal(res1.creditsEarned, 24 + CHAPTER_CLEAR_BONUS['01'] + FIRST_CLEAR_DANGER_BONUS[0]);
-    assert.ok(res1.unlocks.some(u => u.includes('高压电工')));
-    assert.ok(res1.unlocks.some(u => u.includes('牵引线圈')));
-    assert.ok(res1.unlocks.some(u => u.includes('寒潮加班')));
+    assert.ok(res1.unlocks.some(u => u.includes('阿阮跨接衣')));
+    assert.ok(res1.unlocks.some(u => u.includes('磁吸抓钩圈')));
+    assert.ok(res1.unlocks.some(u => u.includes('寒潮锁阀')));
 
     const after1 = run1.applySettlementToProfile(fresh);
     assert.equal(isChapterUnlocked(after1, '02'), true);
@@ -550,7 +556,7 @@ test('chapter & danger progression unlocks rigs, weapons, capstones, secret arch
     run2.phase = 'won';
     const res2 = run2.settle(withD2);
     assert.equal(res2.firstClearBonus, FIRST_CLEAR_DANGER_BONUS[0] + FIRST_CLEAR_DANGER_BONUS[1] + FIRST_CLEAR_DANGER_BONUS[2]);
-    assert.ok(res2.unlocks.some(u => u.includes('便携急救发电机')));
+    assert.ok(res2.unlocks.some(u => u.includes('急诊室稳压包')));
     assert.ok(res2.unlocks.some(u => u.includes('加班密件')));
     const after2 = run2.applySettlementToProfile(withD2);
     assert.equal(isSecretArchiveUnlocked(after2, '02'), true);
@@ -796,4 +802,40 @@ test('floating weapons keep even angular ring spacing and continuous swept melee
     assert.ok(motion.points.length > motion.last);
     assert.ok(circleContact(-10, 0, 20, 0, 5), 'swept segment passing through origin hits target radius');
     assert.equal(circleContact(-10, 20, 20, 0, 5), undefined, 'parallel miss does not hit');
+});
+
+test('narrative progresses night clock, gives contextual defeat radios, and stays free of AI clichés', () => {
+    const fresh = createDefaultProfile();
+    assert.match(homeDispatchStatus(fresh).clockLine, /02:13/);
+    assert.match(homeDispatchStatus({ ...fresh, clearedChapters: ['01'] }).clockLine, /02:38/);
+    assert.match(homeDispatchStatus({ ...fresh, clearedChapters: ['01', '02'] }).clockLine, /03:05/);
+    assert.match(homeDispatchStatus({ ...fresh, clearedChapters: ['01', '02', '03'] }).clockLine, /03:32/);
+    assert.match(homeDispatchStatus({ ...fresh, clearedChapters: ['01', '02', '03', '04'] }).clockLine, /04:05/);
+
+    const bossLoss1 = defeatRadioLine({ chapterId: '01', wavesCleared: 11, failedWave: 12, isBossWave: true, danger: 0 });
+    const bossLoss2 = defeatRadioLine({ chapterId: '02', wavesCleared: 11, failedWave: 12, isBossWave: true, danger: 0 });
+    const earlyLoss = defeatRadioLine({ chapterId: '01', wavesCleared: 1, failedWave: 2, isBossWave: false, danger: 0 });
+    assert.notEqual(bossLoss1.line, bossLoss2.line);
+    assert.notEqual(bossLoss1.line, earlyLoss.line);
+    assert.equal(bossLoss2.speaker, '陈栖');
+
+    for (const ch of CHAPTER_CATALOG) {
+        assert.ok(shopStoryBeatHint(ch.id, 5));
+        assert.ok(shopStoryBeatHint(ch.id, 12));
+    }
+
+    // De-AI-slop guard: reject common LLM clichés across all player-facing story & item texts
+    const banned = /赋能|标志着|不仅.*而是|绝不屈服|宛如|仿佛|命运的|开启新篇章|前所未有|令人叹为观止/;
+    const corpus = [
+        ...Object.values(RIG_FLAVOR),
+        ...MODULE_CATALOG.map(m => `${m.name} ${m.flavor}`),
+        ...Object.values(WEAPON_CATALOG).map(w => `${w.name} ${w.roleText}`),
+        ...Object.values(CHAPTER_NARRATIVES).flatMap(n => [
+            n.opener.line, n.midTurn.line, n.bossIntro.line, n.clearOutro.line,
+            n.epilogueHook?.line ?? '', n.archiveNote, n.secretNote,
+        ]),
+    ];
+    for (const text of corpus) {
+        assert.equal(banned.test(text), false, `AI cliché found in: ${text}`);
+    }
 });

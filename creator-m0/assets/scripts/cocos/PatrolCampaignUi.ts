@@ -9,7 +9,15 @@ import {
     WORKSHOP_TALENTS,
 } from '../roguelite/catalog';
 import { DANGER_MULTIPLIERS, armorDamageMultiplier, workshopTalentCost, xpRequiredForLevel } from '../roguelite/formulas';
-import { CHAPTER_NARRATIVES, RIG_FLAVOR, STAT_LABELS, TAG_LABELS, UI_COPY } from '../roguelite/narrative';
+import {
+    CHAPTER_NARRATIVES,
+    RIG_FLAVOR,
+    STAT_LABELS,
+    TAG_LABELS,
+    UI_COPY,
+    homeDispatchStatus,
+    shopStoryBeatHint,
+} from '../roguelite/narrative';
 import { PatrolStorage } from '../roguelite/persistence';
 import {
     CHAPTER_CLEAR_BONUS,
@@ -166,17 +174,17 @@ const RIG_ORDER: readonly RigId[] = ['duty_standard', 'heavy_fitter', 'high_volt
 // Plain, self-explanatory Chinese stat names (NO cryptic 1-character jargon!)
 const CARD_STAT: Readonly<Record<StatKey, string>> = {
     maxHp: '生命',
-    torque: '物理伤',
-    voltage: '电火伤',
-    overclock: '总伤',
-    cycleSpeed: '攻速',
-    critChance: '暴击',
+    torque: '撬拆',
+    voltage: '电火',
+    overclock: '全架伤',
+    cycleSpeed: '出手',
+    critChance: '重击',
     armor: '护甲',
-    repair: '回血',
-    salvage: '每波零件',
-    luck: '幸运',
-    moveSpeed: '移速',
-    pickupRadius: '拾取',
+    repair: '自修',
+    salvage: '拆铜',
+    luck: '手气',
+    moveSpeed: '步速',
+    pickupRadius: '吸件',
 };
 
 const SPECIAL_DESC: Readonly<Record<string, string>> = {
@@ -204,9 +212,9 @@ const SPECIAL_SHORT: Readonly<Record<string, string>> = {
 };
 
 const SHORT_WEAPON: Readonly<Record<ToolId, string>> = {
-    wrench: '扳手', bypass_wrench: '旁路', arc_gun: '电弧', riveter: '铆钉',
-    hydraulic_nailer: '钉枪', torch: '喷火', pulse_nozzle: '喷管',
-    induction: '感应', traction_coil: '牵引', split_probe: '探针',
+    wrench: '扳手', bypass_wrench: '撬棍', arc_gun: '电枪', riveter: '铆枪',
+    hydraulic_nailer: '钉枪', torch: '焊管', pulse_nozzle: '吹管',
+    induction: '感圈', traction_coil: '抓钩', split_probe: '测针',
 };
 
 // Distinct 1-to-1 pixel workshop icons for all 32 modules (no duplicate icons on adjacent shop cards!)
@@ -850,7 +858,8 @@ export class PatrolCampaignUi {
         drawLobbyScrim(g, WIDTH, HEIGHT, pad);
 
         const topY = Math.min(this.host.top - 10, this.host.capsuleCeiling - 16);
-        this.host.text(UI_COPY.home.subtitle, 130, topY + 6, { left: true, width: 224, size: 12, bold: true, color: GOLD });
+        const dispatch = homeDispatchStatus(this.profile);
+        this.host.text(dispatch.clockLine, 130, topY + 6, { left: true, width: 232, size: 12, bold: true, color: GOLD });
         this.host.text(UI_COPY.home.title, 140, topY - 26, { left: true, width: 244, height: 46, size: 34, bold: true, color: BENCH.paper });
 
         drawCreditTicket(g, 43, topY - 68);
@@ -902,6 +911,14 @@ export class PatrolCampaignUi {
             benchPlate(g, 16, bottom + 36, 328, 28, new Color(14, 22, 29, 230), GOLD, 5);
             this.host.text(this.homeNotice, 180, bottom + 50, { width: 312, size: 11, bold: true, color: GOLD });
         } else if (!hasActive && !isFirstTimePlayer(this.profile)) {
+            if (dispatch.radio) {
+                const ry = bottom + 72;
+                benchPlate(g, 16, ry, 328, 38, new Color(14, 22, 29, 218), BENCH.edge, 5);
+                const portrait = dispatch.radio.speaker === '陈栖' ? 'radio-chenqi' : 'radio-aruan';
+                this.host.skin?.uiIcon(portrait, 36, ry + 19, 28);
+                this.host.text(`${dispatch.radio.speaker}：${dispatch.radio.line}`, 196, ry + 19,
+                    { left: true, width: 278, height: 34, size: 10, color: BENCH.paper });
+            }
             const daily = getDailyShift(dateKey);
             const dailyDone = isDailyShiftClearedToday(this.profile, dateKey);
             benchPlate(g, 16, bottom + 36, 328, 30, new Color(14, 22, 29, 224), dailyDone ? GREEN : CYAN, 5);
@@ -1278,8 +1295,9 @@ export class PatrolCampaignUi {
         // Top-right: Pause button
         this.pixelBtn('暂停', 312, top - 5, 64, 46, () => { this.suspend(); });
 
-        // FIXED: Boss HP bar & human warning banner anchored at TOP of playfield (never covered by bottom thumb!)
+        // FIXED: Boss HP bar & live story radio anchored cleanly at TOP of playfield (never covered by bottom thumb!)
         const boss = battle.bossView;
+        const chNarr = CHAPTER_NARRATIVES[battle.chapter.id];
         if (boss) {
             const by = FIELD.top - 48;
             benchPlate(g, 24, by, 312, 44, new Color(14, 22, 29, 224), boss.vulnerable ? GOLD : RED, 6);
@@ -1290,8 +1308,17 @@ export class PatrolCampaignUi {
             if (boss.instruction) {
                 this.host.text(boss.instruction, 180, by + 8, { width: 296, size: 11, bold: true, color: boss.vulnerable ? GREEN : GOLD });
             }
-        } else if (battle.tick < 150) {
-            // Brief station arrival radio line at top of arena
+            // Show pivotal Wave-5 midTurn or Wave-12 bossIntro radio cleanly beneath Boss bar for first 4.5 seconds!
+            if (battle.tick < 135 && !session.endlessMode && (battle.waveDef.wave === 5 || battle.waveDef.wave === 12)) {
+                const beat = battle.waveDef.wave === 5 ? chNarr.midTurn : chNarr.bossIntro;
+                const ry = by - 40;
+                benchPlate(g, 20, ry, 320, 36, new Color(14, 22, 29, 228), GOLD, 6);
+                const portrait = beat.speaker === '陈栖' ? 'radio-chenqi' : 'radio-aruan';
+                this.host.skin?.uiIcon(portrait, 40, ry + 18, 28);
+                this.host.text(`${beat.speaker}：${beat.line}`, 196, ry + 18, { left: true, width: 274, height: 32, size: 10, color: BENCH.paper });
+            }
+        } else if (battle.tick < 180 && !session.endlessMode) {
+            // Station arrival story radio at top of arena
             const station = battle.chapter.stations[battle.waveDef.stationIndex];
             const radio = station.waves[0] === battle.waveDef.wave ? station.arriveRadio : undefined;
             if (radio) {
@@ -1299,7 +1326,7 @@ export class PatrolCampaignUi {
                 benchPlate(g, 20, ry, 320, 36, new Color(14, 22, 29, 224), BENCH.edge, 6);
                 const portrait = radio.startsWith('陈栖') ? 'radio-chenqi' : 'radio-aruan';
                 this.host.skin?.uiIcon(portrait, 40, ry + 18, 28);
-                this.host.text(radio, 196, ry + 18, { left: true, width: 274, height: 32, size: 11, color: BENCH.paper });
+                this.host.text(radio, 196, ry + 18, { left: true, width: 274, height: 32, size: 10, color: BENCH.paper });
             }
         }
 
@@ -1309,7 +1336,7 @@ export class PatrolCampaignUi {
         this.host.skin?.uiIcon('scrap', 210, botY + 2, 16);
         const totalParts = session.parts + battle.partsCollected;
         const bagTxt = battle.bagRemaining > 0 ? ` (+${battle.bagRemaining}袋)` : '';
-        this.host.text(`零件 ${totalParts}${bagTxt}`, 280, botY + 2, { width: 122, size: 12, bold: true, color: GOLD });
+        this.host.text(`铜件 ${totalParts}${bagTxt}`, 280, botY + 2, { width: 122, size: 12, bold: true, color: GOLD });
 
         const activeSyns = battle.build.synergies.filter(s => s.activeTier > 0).slice(0, 3);
         if (activeSyns.length) {
@@ -1318,11 +1345,11 @@ export class PatrolCampaignUi {
             this.host.text(label, 269, botY + 33, { width: 142, size: 11, bold: true, color: GREEN });
         }
 
-        // Lightweight Wave-1 onboarding tip: disappears automatically once player starts moving!
+        // Lightweight Wave-1 onboarding tip in A-Ruan's voice: disappears once player starts moving!
         if (battle.waveDef.wave === 1 && needsShopOnboarding(this.profile) && this.movedTicksInWave < 20 && !boss) {
             const tipY = FIELD.bottom + 36;
             benchPlate(g, 24, tipY - 16, 312, 32, new Color(14, 22, 29, 230), GOLD, 5);
-            this.host.text('拖动走位，悬浮工具自动开火 · 靠近零件自动吸', 180, tipY,
+            this.host.text('阿阮：拖屏幕走位，六臂架自动拆怪，靠过去吸铜件', 180, tipY,
                 { width: 300, size: 11, bold: true, color: GOLD });
         }
     }
@@ -1412,7 +1439,7 @@ export class PatrolCampaignUi {
         const barY = top - 22;
         benchPlate(g, 16, barY - 14, 158, 30, BENCH.recess, BENCH.edge, 5);
         this.host.skin?.uiIcon('scrap', 32, barY + 1, 17);
-        this.host.text(`零件 ${view.parts}${session.bagParts ? ` · 袋${session.bagParts}` : ''}`, 106, barY + 1,
+        this.host.text(`铜件 ${view.parts}${session.bagParts ? ` · 袋${session.bagParts}` : ''}`, 106, barY + 1,
             { left: true, width: 132, size: 13, bold: true, color: GOLD });
 
         const showShopAid = session.shopAidRemaining > 0 && this.canOfferAd();
@@ -1451,17 +1478,17 @@ export class PatrolCampaignUi {
                 const inspected = this.inspectWeaponSlot !== null ? view.weapons[this.inspectWeaponSlot] : undefined;
                 if (inspected && inspected.canMergeWith !== null) {
                     guideStep = 'tap_merge';
-                    guideText = '指引 2/3 · 点「合成升阶」两把合一件Ⅱ阶（或留着齐挥）';
+                    guideText = '阿阮 2/3 · 点「并机升阶」合出Ⅱ阶，或留着两把齐挥';
                 } else {
                     guideStep = 'tap_slot';
-                    guideText = '指引 2/3 · 底部绿点是同名武器，点它试试 2合1 合成！';
+                    guideText = '阿阮 2/3 · 底部绿点是同款工具，点它试试并机升阶！';
                 }
             } else if (view.weapons.length === 1 && anyAffordableWeaponIdx >= 0) {
                 guideStep = 'buy';
-                guideText = '指引 1/3 · 点亮框武器买下，可同时挥多把家伙！';
+                guideText = '阿阮 1/3 · 点亮框把家伙买下来，六臂架能同时挥！';
             } else {
                 guideStep = 'ready';
-                guideText = '指引 3/3 · 齐活！点「锁」留货，点「开干」进第 2 波';
+                guideText = '阿阮 3/3 · 齐活！点「压」留货，点「出勤」进第 2 波';
             }
             const gy = barY - 34;
             benchPlate(g, 16, gy - 12, 328, 26, BENCH.weapon.fill, GOLD, 5);
@@ -1507,12 +1534,12 @@ export class PatrolCampaignUi {
             // Top strip: tier badge + Lock toggle button
             this.host.text(isWeapon ? `武器 ${TIER_ROMAN[slot.tier]}` : TIER_NAME[slot.tier], x + 44, y + cardH - 12,
                 { left: true, width: 78, size: 11, bold: true, color: TIER_EDGE[slot.tier] });
-            this.pixelBtn(slot.locked ? '已锁' : '锁', x + cardW - 22, y + cardH - 13, 36, 20, () => {
+            this.pixelBtn(slot.locked ? '已压' : '压', x + cardW - 22, y + cardH - 13, 36, 20, () => {
                 if (session.toggleLock(idx)) {
-                    this.shopFeedback = slot.locked ? '已解锁该货位' : '已锁住 · 下波不涨价';
+                    this.shopFeedback = slot.locked ? '已松开该货位' : '已压货 · 下波不涨价';
                     this.saveRun(session);
                 } else {
-                    this.shopFeedback = `最多同时锁 ${view.maxLocks} 件（去工坊扩充）`;
+                    this.shopFeedback = `最多同时压住 ${view.maxLocks} 件（回工坊加压货牌）`;
                 }
             }, slot.locked);
 
@@ -1582,10 +1609,10 @@ export class PatrolCampaignUi {
             this.host.text(spec.tags.map(t => TAG_LABELS[t].slice(0, 2)).join('+'), 96, infoY - 5,
                 { left: true, width: 148, size: 10, color: CYAN });
             if (w.canMergeWith !== null) {
-                this.pixelBtn('合成升阶', 216, infoY + 5, 72, 30, () => {
+                this.pixelBtn('并机升阶', 216, infoY + 5, 72, 30, () => {
                     if (session.mergeWeapons(this.inspectWeaponSlot!, w.canMergeWith!)) {
                         this.host.play('unlock');
-                        this.shopFeedback = `${w.name} 升至 ${TIER_ROMAN[(w.tier + 1) as Tier]} 阶！`;
+                        this.shopFeedback = `并机改接成功，${w.name} 升至 ${TIER_ROMAN[(w.tier + 1) as Tier]} 阶！`;
                         this.inspectWeaponSlot = null;
                         this.saveRun(session);
                     }
@@ -1609,12 +1636,13 @@ export class PatrolCampaignUi {
             benchPlate(g, 16, infoY - 12, 328, 36, BENCH.recess, BENCH.edge, 5);
             this.host.text(synText || '凑两把同系武器，这一系就亮', 180, infoY + 11, { width: 312, size: 11, bold: true, color: GREEN });
             const hasManualMerge = view.weapons.some(w => w.canMergeWith !== null);
+            const storyBeat = !session.endlessMode ? shopStoryBeatHint(session.chapter.id, view.wave + 1) : null;
             const upcomingHint = session.endlessMode && session.waveIndex + 1 >= session.chapter.waves.length
-                ? `港区无尽第 ${session.waveIndex + 2} 波即将来袭`
-                : session.chapter.waves[session.waveIndex + 1]?.hint || '';
+                ? `老马码头第 ${session.waveIndex + 2} 波即将顶上来`
+                : storyBeat || session.chapter.waves[session.waveIndex + 1]?.hint || '';
             const nextHint = this.shopFeedback
-                || (hasManualMerge ? '绿点是同名武器，点它能两把合成' : upcomingHint);
-            this.host.text(nextHint, 180, infoY - 4, { width: 312, size: 10, color: this.shopFeedback || hasManualMerge ? GOLD : BENCH.muted });
+                || (hasManualMerge ? '绿点是同款工具，点它能并机升阶' : upcomingHint);
+            this.host.text(nextHint, 180, infoY - 4, { width: 312, size: 10, color: this.shopFeedback || hasManualMerge || storyBeat ? GOLD : BENCH.muted });
         }
 
         // Bottom Actions: Reroll (escalating/free) + Next Wave primary CTA
@@ -1647,10 +1675,10 @@ export class PatrolCampaignUi {
 
     private drawLevelUpOverlay(view: NonNullable<PatrolSession['shopView']>): void {
         this.backdrop();
-        const top = this.header(`手艺涨了 · ${view.level}级`, '', undefined, `零件 ${view.parts}`, undefined);
+        const top = this.header(`手艺涨了 · ${view.level}级`, '', undefined, `铜件 ${view.parts}`, undefined);
         const g = this.host.ui;
         const levelHint = needsShopOnboarding(this.profile)
-            ? '升级白拿属性！挑一项最顺手的，选完进店买武器'
+            ? '阿阮：手艺涨了！白挑一项顺手的，挑完放料斗买家伙'
             : `还要选 ${view.pendingLevelUps} 项。5 级和 10 级选项更好`;
         this.host.text(levelHint, 180, top - 16,
             { width: 320, size: 11, color: needsShopOnboarding(this.profile) ? GOLD : CYAN });
@@ -1773,7 +1801,7 @@ export class PatrolCampaignUi {
             const bonusBan = bonusBanSlotsForProfile(this.profile);
             const banHead = bonusBan > 0
                 ? `可排除 ${this.profile.bannedModules.length}/${limit} 件（含危急二赠+${bonusBan}）`
-                : `可排除 ${this.profile.bannedModules.length}/${limit} 件。先升「废件黑名单」`;
+                : `可封掉 ${this.profile.bannedModules.length}/${limit} 件。先升「废件封条」`;
             this.host.text(banHead, 180, tabY - 34,
                 { width: 320, size: 11, color: limit ? CYAN : GOLD });
             const pageSize = 6;
@@ -1855,7 +1883,7 @@ export class PatrolCampaignUi {
                 this.host.text(narr.secretNote, 180, secTop - 58, { left: true, width: 292, height: 60, size: 11, color: CYAN });
             } else {
                 this.host.text('加班密件 · 未解密', 180, secTop - 26, { width: 292, size: 12, bold: true, color: BENCH.muted });
-                this.host.text('通本章「电网过载（危急二）」及以上解锁加密附页', 180, secTop - 56,
+                this.host.text('通本章「清退加急（危急二）」及以上解锁加密附页', 180, secTop - 56,
                     { width: 292, height: 36, size: 11, color: GOLD });
             }
 

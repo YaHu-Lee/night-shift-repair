@@ -41,11 +41,11 @@ export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
 };
 
 export const DANGER_MULTIPLIERS: Readonly<Record<DangerLevel, { readonly hp: number; readonly dmg: number; readonly count: number; readonly creditBonus: number; readonly label: string }>> = {
-    0: { hp: 1.0, dmg: 1.0, count: 1.0, creditBonus: 0, label: '标准夜班' },
-    1: { hp: 1.15, dmg: 1.1, count: 1.08, creditBonus: 6, label: '寒潮加班' },
-    2: { hp: 1.32, dmg: 1.22, count: 1.15, creditBonus: 12, label: '电网过载' },
-    3: { hp: 1.52, dmg: 1.35, count: 1.22, creditBonus: 20, label: '全面封控' },
-    4: { hp: 1.75, dmg: 1.5, count: 1.3, creditBonus: 30, label: '极限值守' },
+    0: { hp: 1.0, dmg: 1.0, count: 1.0, creditBonus: 0, label: '02:13 断电夜' },
+    1: { hp: 1.15, dmg: 1.1, count: 1.08, creditBonus: 6, label: '寒潮锁阀' },
+    2: { hp: 1.32, dmg: 1.22, count: 1.15, creditBonus: 12, label: '清退加急' },
+    3: { hp: 1.52, dmg: 1.35, count: 1.22, creditBonus: 20, label: '全区封控' },
+    4: { hp: 1.75, dmg: 1.5, count: 1.3, creditBonus: 30, label: '03:55 死线' },
 };
 
 export const STAT_KEYS: readonly StatKey[] = [

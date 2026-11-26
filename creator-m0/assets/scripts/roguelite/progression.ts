@@ -37,19 +37,19 @@ export const FIRST_CLEAR_DANGER_BONUS: Readonly<Record<DangerLevel, number>> = {
 };
 
 export const DANGER_SHORT_LABELS: Readonly<Record<DangerLevel, string>> = {
-    0: '标',
+    0: '断',
     1: '寒',
-    2: '过',
+    2: '急',
     3: '封',
-    4: '极',
+    4: '死',
 };
 
 export const DANGER_RULE_TEXT: Readonly<Record<DangerLevel, string>> = {
-    0: '标准巡线节奏',
-    1: '波间回血减至 18%',
-    2: '货价 +10%，第 4 波起出干扰机',
-    3: '精英带护卫，第 8 波增派精英',
-    4: '首领出招提速，敞开窗口缩短',
+    0: '常规夜班抢修节奏',
+    1: '寒潮锁阀，波间回血减至 18%',
+    2: '料斗涨价 10%，第 4 波起出干扰机',
+    3: '中段精英带护卫，第 8 波增派精英',
+    4: '首领解限速提招，敞开窗口更短',
 };
 
 export const STARTER_RIGS: readonly RigId[] = ['duty_standard', 'heavy_fitter'];
@@ -94,10 +94,10 @@ export const PRE_RUN_SUPPLY_ORDER: readonly PreRunSupplyId[] = [
 ];
 
 export const PRE_RUN_SUPPLIES: Readonly<Record<PreRunSupplyId, PreRunSupplySpec>> = {
-    none: { id: 'none', name: '不带特供', cost: 0, detail: '标准空手出勤，不花凭证' },
-    extra_crate: { id: 'extra_crate', name: '备用撬棍', cost: 12, detail: '前两次翻箱，各多送一次免费翻' },
-    spare_parts: { id: 'spare_parts', name: '旧零件袋', cost: 15, detail: '带 35 零件进场，首店多买一件' },
-    hot_thermos: { id: 'hot_thermos', name: '热茶加料', cost: 18, detail: '本班生命 +10，波间多回 10% 血' },
+    none: { id: 'none', name: '不带特供', cost: 0, detail: '轻装背架出门，不花凭证' },
+    extra_crate: { id: 'extra_crate', name: '老站撬棍', cost: 12, detail: '前两次翻料斗，各多白翻一箱' },
+    spare_parts: { id: 'spare_parts', name: '拆机铜袋', cost: 15, detail: '带 35 铜件进场，首店多买一件' },
+    hot_thermos: { id: 'hot_thermos', name: '浓茶加料', cost: 18, detail: '本班生命 +10，波间多回 10% 血' },
 };
 
 export type ProgressionProfileSlice = Pick<WorkshopProfile, 'clearedChapters' | 'maxDangerCleared'> & {
@@ -139,7 +139,7 @@ export function isDangerUnlocked(profile: Pick<WorkshopProfile, 'maxDangerCleare
 
 export function dangerUnlockHint(danger: DangerLevel): string {
     if (danger <= 0) return '';
-    return `先通任意一章「${danger === 1 ? '标准夜班' : danger === 2 ? '寒潮加班' : danger === 3 ? '电网过载' : '全面封控'}」开启`;
+    return `先通任意一章「${danger === 1 ? '02:13 断电夜' : danger === 2 ? '寒潮锁阀' : danger === 3 ? '清退加急' : '全区封控'}」开启`;
 }
 
 export function unlockedRigsForProfile(profile?: Pick<WorkshopProfile, 'clearedChapters' | 'unlockedRigs'>): RigId[] {
@@ -284,9 +284,9 @@ export function computeRunUnlocks(
     const nextMaxD = maxUnlockedDanger(next);
     if (nextMaxD > prevMaxD) {
         const names: Record<DangerLevel, string> = {
-            0: '标准夜班', 1: '寒潮加班', 2: '电网过载', 3: '全面封控', 4: '极限值守',
+            0: '02:13 断电夜', 1: '寒潮锁阀', 2: '清退加急', 3: '全区封控', 4: '03:55 死线',
         };
-        list.push(`解锁新危急：${names[nextMaxD]}`);
+        list.push(`解锁升级令：${names[nextMaxD]}`);
     }
 
     // 3. Global Danger capstone module + meta perks (checks every newly crossed danger threshold!)
