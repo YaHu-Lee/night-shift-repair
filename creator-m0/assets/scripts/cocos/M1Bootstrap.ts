@@ -120,6 +120,7 @@ export class M1Bootstrap extends Component {
     private backdrop!: Sprite;
     private embers!: Graphics;
     private ui!: Graphics;
+    private loadingPulse!: Graphics;
     private stickView!: Graphics;
     private labelLayer!: Node;
 
@@ -193,6 +194,8 @@ export class M1Bootstrap extends Component {
         this.embers = this.layer('SceneryEffects').addComponent(Graphics);
 
         this.ui = this.layer('Overlay').addComponent(Graphics);
+        this.loadingPulse = this.layer('LoadingPulse').addComponent(Graphics);
+        this.loadingPulse.node.active = false;
         this.stickView = this.layer('MovementControl').addComponent(Graphics);
         const uiSprites = this.layer('InterfaceArt');
         this.labelLayer = this.layer('Labels');
@@ -239,6 +242,7 @@ export class M1Bootstrap extends Component {
             profiler?.hideStats();
             qaHost.__nightShiftCampaignState = () => ({
                 ...this.patrol.inspect(), battleArtReady: this.skin?.battleArtReady,
+                loadingAnimation: this.loadingPulse.node.active,
                 homeArtReady: !!this.scenery['night-depot'] && !!this.skin?.uiIconFrame('ui/receipt'),
                 settings: this.settings.current, autoMovement: !!this.autoMovement,
                 stick: { x: this.stickCenter.x, y: this.stickCenter.y, visible: this.showStick },
@@ -309,6 +313,7 @@ export class M1Bootstrap extends Component {
         }
 
         this.tilt.stop();
+        this.patrol.tickLoadingAnimation(clampedDt);
         const frame = screen.windowSize;
         const scale = Math.max(1e-6, view.getScaleY());
         if (`patrol:${frame.width}:${frame.height}:${scale}` !== this.layout) this.uiDirty = true;
@@ -715,6 +720,7 @@ export class M1Bootstrap extends Component {
     private createPatrolUi(): PatrolCampaignUi {
         const self = this;
         return new PatrolCampaignUi({
+            loadingPulse: this.loadingPulse,
             get ui() { return self.ui; },
             get art() { return self.art; },
             get skillEffects() { return self.skillEffects; },

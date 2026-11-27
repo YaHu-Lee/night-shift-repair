@@ -12,15 +12,18 @@ for (const [label, image] of [
         await page.goto('/', { waitUntil:'domcontentloaded' });
         await expect.poll(() => !!pending).toBe(true);
         await expect.poll(async () => (await state(page))?.labels).toContain('正在加载战斗资源…');
-        expect(await state(page)).toMatchObject({battleArtReady:false,battleVisible:false,tick:0});
+        expect(await state(page)).toMatchObject({battleArtReady:false,battleVisible:false,loadingAnimation:true,tick:0});
         expect((await state(page)).hitAreas).toHaveLength(0);
-        await screen(page, info, 'waiting-for-art');
+        const canvas = page.locator('#GameCanvas');
+        const firstFrame = await canvas.screenshot({ path: info.outputPath('waiting-for-art.png') });
+        await expect.poll(async () => firstFrame.equals(await canvas.screenshot())).toBe(false);
+        await screen(page, info, 'loading-pulse');
         expect((await state(page)).tick).toBe(0);
 
         await pending.continue();
         await page.waitForFunction(() => {
             const s = globalThis.__nightShiftCampaignState();
-            return s.battleArtReady && s.battleVisible && s.tick > 0;
+            return s.battleArtReady && s.battleVisible && !s.loadingAnimation && s.tick > 0;
         });
         expect((await readSave(page)).run).toMatchObject({chapterId:'01',waveIndex:0});
         await screen(page, info, 'first-battle-ready');

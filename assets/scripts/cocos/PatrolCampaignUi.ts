@@ -92,6 +92,11 @@ const WIDTH = 360;
 const HEIGHT = 640;
 const VIEW_CENTER_X = (FIELD.left + FIELD.right) / 2;
 const VIEW_CENTER_Y = (FIELD.bottom + FIELD.top) / 2;
+const LOADING_LAMP_COUNT = 8;
+const LOADING_LAMP_LEFT = 105;
+const LOADING_LAMP_PITCH = 19;
+const LOADING_LAMP_Y = 312;
+const LOADING_LAMP_TRAIL = new Color(152, 106, 56);
 
 const TIER_FILL: Record<Tier, Color> = {
     1: new Color(34, 50, 61),
@@ -146,6 +151,7 @@ export interface PatrolTextOptions {
 
 export interface PatrolHost {
     readonly ui: Graphics;
+    readonly loadingPulse: Graphics;
     readonly art: Graphics;
     readonly skillEffects: Graphics;
     readonly threats?: Graphics;
@@ -323,6 +329,8 @@ export class PatrolCampaignUi {
     private saving = false;
     private retrySave: (() => void) | null = null;
     private renderedBattle?: NonNullable<PatrolSession['battle']>;
+    private loadingTime = 0;
+    private loadingStep = 0;
 
     // Audio & VFX juice serial tracking for RogueliteBattle
     private readonly juice = new PixelJuiceEngine();
@@ -741,6 +749,7 @@ export class PatrolCampaignUi {
         const skin = this.host.skin;
         if (battle) skin?.prepareBattle(battle.chapter.stations[battle.waveDef.stationIndex].id, battle.arena);
         const loading = !!battle && !!skin && !skin.isBattleArtReady(battle.arena);
+        this.setLoadingAnimation(loading && !skin.battleArtFailed);
         const isBattle = !!battle && !loading && !this.saving;
         if (!isBattle) {
             this.renderedBattle = undefined;
@@ -758,13 +767,7 @@ export class PatrolCampaignUi {
         }
         this.host.skin?.beginUi();
         if (loading) {
-            this.host.block(-360, -640, 1080, 1920, BENCH.ink);
-            const failed = skin.battleArtFailed;
-            this.host.text(failed ? '战斗资源加载失败' : '正在加载战斗资源…', 180, 320,
-                { width: 290, size: 17, color: BENCH.paper });
-            if (failed) {
-                this.pixelBtn('重试加载', 180, 260, 196, 48, () => skin.retryBattleArt(), true);
-            }
+            this.drawLoadingScreen(skin);
             skin.endUi();
             return;
         }
@@ -804,6 +807,91 @@ export class PatrolCampaignUi {
             this.host.text(this.toastText, 180, ty, { width: 298, size: 11, bold: true, color: GOLD });
         }
         this.host.skin?.endUi();
+    }
+
+    private drawLoadingScreen(skin: BattleSkinView): void {
+        const g = this.host.ui;
+        const failed = skin.battleArtFailed;
+        const lamp = failed ? RED : GOLD;
+        this.backdrop();
+        benchPlate(g, 54, 244, 252, 152, BENCH.steel, BENCH.edge, 8);
+        benchScrew(g, 66, 384);
+        benchScrew(g, 294, 384);
+        benchScrew(g, 66, 256);
+        benchScrew(g, 294, 256);
+
+        // Terminals feed a pixel lightning bolt in the center of the panel.
+        g.fillColor = BENCH.edge;
+        g.rect(85, 352, 68, 2);
+        g.rect(207, 352, 68, 2);
+        g.fill();
+        g.fillColor = lamp;
+        g.rect(84, 350, 6, 6);
+        g.rect(270, 350, 6, 6);
+        g.fill();
+        benchPlate(g, 153, 331, 54, 44, BENCH.recess, BENCH.edge, 5);
+        g.fillColor = lamp;
+        if (failed) {
+            g.rect(178, 350, 4, 12);
+            g.rect(178, 344, 4, 3);
+        } else {
+            g.moveTo(182, 367);
+            g.lineTo(190, 367);
+            g.lineTo(183, 355);
+            g.lineTo(192, 355);
+            g.lineTo(174, 338);
+            g.lineTo(179, 351);
+            g.lineTo(169, 351);
+            g.close();
+        }
+        g.fill();
+
+        if (failed) {
+            this.host.text('战斗资源加载失败', 180, 314, { width: 220, size: 16, bold: true });
+            this.pixelBtn('重试加载', 180, 276, 168, 34, () => skin.retryBattleArt(), true);
+            return;
+        }
+        g.fillColor = BENCH.recess;
+        g.rect(99, LOADING_LAMP_Y - 4, 162, 13);
+        g.fill();
+        g.fillColor = BENCH.edge;
+        for (let i = 0; i < LOADING_LAMP_COUNT; i++) {
+            g.rect(LOADING_LAMP_LEFT + i * LOADING_LAMP_PITCH, LOADING_LAMP_Y, 17, 5);
+        }
+        g.fill();
+        this.host.text('正在加载战斗资源…', 180, 280, { width: 220, size: 16, bold: true });
+    }
+
+    private setLoadingAnimation(active: boolean): void {
+        const indicator = this.host.loadingPulse.node;
+        if (indicator.active === active) return;
+        indicator.active = active;
+        if (!active) return;
+        this.loadingTime = 0;
+        this.loadingStep = 0;
+        this.drawLoadingPulse();
+    }
+
+    tickLoadingAnimation(dt: number): void {
+        if (!this.host.loadingPulse.node.active) return;
+        this.loadingTime += dt;
+        const step = Math.floor(this.loadingTime * 10);
+        if (step === this.loadingStep) return;
+        this.loadingStep = step;
+        this.drawLoadingPulse();
+    }
+
+    private drawLoadingPulse(): void {
+        const g = this.host.loadingPulse;
+        g.clear();
+        const head = this.loadingStep % LOADING_LAMP_COUNT;
+        const tail = (head + LOADING_LAMP_COUNT - 1) % LOADING_LAMP_COUNT;
+        g.fillColor = LOADING_LAMP_TRAIL;
+        g.rect(LOADING_LAMP_LEFT + tail * LOADING_LAMP_PITCH, LOADING_LAMP_Y, 17, 5);
+        g.fill();
+        g.fillColor = GOLD;
+        g.rect(LOADING_LAMP_LEFT + head * LOADING_LAMP_PITCH, LOADING_LAMP_Y, 17, 5);
+        g.fill();
     }
 
     // ─────────────────────────── BATTLE WORLD ───────────────────────────
