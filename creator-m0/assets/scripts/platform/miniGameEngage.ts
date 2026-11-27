@@ -50,12 +50,11 @@ function isSidebarLaunch(opts?: LaunchOptions | null): boolean {
 
 export function createMiniGameEngage(
     rewardedAd: RewardedRevive | null,
-    options: { readonly host?: EngageHost; readonly mockAds?: boolean } = {},
+    options: { readonly host?: EngageHost } = {},
 ): MiniGameEngage {
     const host = options.host ?? (globalThis as EngageHost);
     const kind = miniGamePlatform(host);
     const native = kind === 'douyin' ? host.tt : kind === 'wechat' ? host.wx : undefined;
-    const mockAds = options.mockAds === true;
     let sidebarEntry = false;
     let sidebarSupported: boolean | undefined;
     let busy = false;
@@ -86,7 +85,7 @@ export function createMiniGameEngage(
 
     return {
         get platform() { return kind ?? 'browser'; },
-        get hasRewardedAd() { return !!rewardedAd || mockAds; },
+        get hasRewardedAd() { return !!rewardedAd; },
         get isDouyinSidebarEntry() { return sidebarEntry; },
         get canOpenSidebar() {
             return kind === 'douyin' && sidebarSupported !== false && typeof native?.navigateToScene === 'function';
@@ -96,11 +95,7 @@ export function createMiniGameEngage(
         async requestReward(_placement, opts = {}) {
             if (disposed || busy) return false;
             if (opts.adFreePass) return true;
-            if (!rewardedAd) {
-                if (!mockAds) return false;
-                opts.onShown?.();
-                return true;
-            }
+            if (!rewardedAd) return false;
             busy = true;
             try {
                 return await rewardedAd.show(opts.onShown);

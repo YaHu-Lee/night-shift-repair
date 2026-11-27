@@ -628,7 +628,8 @@ test('danger mechanical rules (D1-D4), D4 capstone surge, and pre-run supplies w
     });
     assert.equal(surgeBattle.build.hasBreakerSurge, true);
     surgeBattle.step(0, 0);
-    assert.ok(surgeBattle.effects.some(e => e.shape === 'circle' && e.radius === 140), 'breaker surge emits shock ring on tick 1');
+    assert.equal(surgeBattle.effects.filter(e => e.shape === 'circle' && e.radius === 140).length, 1,
+        'breaker surge emits exactly one shock ring on tick 1');
     assert.ok(surgeBattle.floaters.some(f => f.text === '开场电震'));
 
     // Pre-run supply spare_parts & atomic storage.startRun (failed write must not spend credits)

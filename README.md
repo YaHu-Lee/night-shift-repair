@@ -6,7 +6,7 @@
 - **架构与设计文档**：[四章巡线技术架构与商业化／留存设计](docs/PATROL-ARCHITECTURE.md)
 - **项目协作约定**：[AGENTS.md](AGENTS.md)
 - **像素美术流程与资产**：[像素美术 Skill](.agents/skills/night-shift-pixel-art/SKILL.md) · [像素资产说明](art/pixel/README.md) · [武器素材](art/pixel/weapons/README.md) · [免费素材与授权](docs/ASSET-SOURCES.md)
-- **Cocos 构建与双端发布**：[Creator 3.8.8 构建说明](docs/COCOS-EDITOR.md) · [存档、广告与发布包校验](cloud/README.md) · [上线前人工核验清单](docs/PRE-LAUNCH-CHECKLIST.md)
+- **Cocos 构建与双端发布**：[Creator 3.8.8 构建说明](docs/COCOS-EDITOR.md) · [存档、广告与发布包校验](cloud/README.md) · [上线前人工核验清单](docs/PRE-LAUNCH-CHECKLIST.md) · [上线就绪评估与待办](docs/LAUNCH-READINESS.md)
 
 ## 本地试玩与自动验证
 

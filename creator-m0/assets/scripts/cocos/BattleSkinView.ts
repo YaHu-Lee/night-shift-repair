@@ -1,6 +1,6 @@
 import { Color, Graphics, JsonAsset, Node, Rect, resources, Sprite, SpriteFrame, Texture2D, UITransform } from 'cc';
 import type { AssetManager } from 'cc';
-import { FIELD, TICK_RATE } from '../roguelite/constants';
+import { FIELD, PART_PICKUP_FLIGHT_TICKS, TICK_RATE, clamp } from '../roguelite/constants';
 import type {
     ChapterBossView,
     CombatBounds,
@@ -15,7 +15,7 @@ import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, weaponMount, isMeleeTool, sampl
 import { FLOATING_WEAPON_ART, sampleGunPose } from './FloatingWeaponArt';
 import type { WeaponMuzzle } from './FloatingWeaponArt';
 import { CAMPAIGN_MACHINE_ART, CAMPAIGN_TOOL_ART, PIXEL_ARENAS, PIXEL_DISPATCH_CHAPTERS, PIXEL_MENU_ART, chapterForStationId } from './CampaignArt';
-import { loadCampaignBundle, loadCampaignPixelTexture, loadCampaignTexture } from './CampaignAssetLoader';
+import { loadBundleJson, loadBundleTexture, loadCampaignBundle, loadCampaignPixelTexture, loadCampaignTexture } from './CampaignAssetLoader';
 import { drawCampaignEncounter } from './CampaignCombatView';
 
 // All coordinates passed to the view use the existing 360 × 640 game space.
@@ -221,6 +221,10 @@ export class BattleSkinView {
     private readonly pendingPixelFloors = new Set<string>();
     private pixelFloorBounds?: CombatBounds;
     private prepared = false;
+    private menuIcons?: Promise<boolean>;
+    private battleArt: 'idle' | 'loading' | 'failed' | 'ready' = 'idle';
+    private readonly failedPixelFloors = new Set<string>();
+    private readonly atlasTextures = new Set<Texture2D>();
     private disposed = false;
     private readonly motion = new WeakMap<Actor, ActorMotion>();
     private pixelMechanic?: PixelMechanicAtlas;
@@ -242,44 +246,46 @@ export class BattleSkinView {
         this.ui = new SpritePool(uiRoot);
     }
 
+    prepareMenuIcons(): void {
+        this.menuIcons ??= this.commonBundle().then(bundle =>
+            !!bundle && this.loadPixelAtlas(bundle, 'pixel/items', 'workshop', 'pixel-item:'));
+    }
+
+    private commonBundle(): Promise<AssetManager.Bundle | null> {
+        return new Promise(resolve => loadCampaignBundle('campaign-ch01', resolve));
+    }
+
     prepare(): void {
         if (this.prepared) return;
         this.prepared = true;
-        this.setStage(this.stageId, this.arena);
         this.prepareSpriteArt();
-        const { root, invalidate } = this;
-        resources.load(root + '/frames', JsonAsset, (error, manifest) => {
-            if (error || this.disposed) return;
-            resources.load(root + '/sheet/texture', Texture2D, (loadError, texture) => {
-                if (loadError || this.disposed) return;
-                const rectangles = manifest.json as Record<string, number[]>;
-                for (const key of Object.keys(rectangles)) {
-                    const rect = rectangles[key];
-                    if (!Array.isArray(rect) || rect.length !== 4) continue;
-                    const [x, y, w, h] = rect;
-                    if (!rect.every(Number.isFinite) || x < 0 || y < 0 || w <= 0 || h <= 0
-                        || x + w > texture.width || y + h > texture.height) continue;
-                    const frame = new SpriteFrame();
-                    frame.reset({ texture, rect: new Rect(x, y, w, h) });
-                    frame.packable = false;
-                    if (key === 'panel') {
-                        frame.insetTop = frame.insetBottom = 9;
-                        frame.insetLeft = frame.insetRight = 10;
-                    }
-                    this.frames.set(key, frame);
-                }
-                const torch = this.frames.get('torch');
-                if (torch) {
-                    const { x, y, width, height } = torch.rect;
-                    const flameWidth = 43;
-                    const heldTorch = new SpriteFrame();
-                    heldTorch.reset({ texture, rect: new Rect(x + flameWidth, y, width - flameWidth, height) });
-                    heldTorch.packable = false;
-                    this.frames.set('held-torch', heldTorch);
-                }
-                invalidate();
-            });
-        });
+    }
+
+    private async loadBattleUi(): Promise<boolean> {
+        const { root } = this;
+        const manifest = await loadBundleJson(resources, root + '/frames');
+        if (!manifest || this.disposed) return false;
+        return this.loadAtlasTexture(resources, root + '/sheet', texture => {
+            const rectangles = manifest.json as Record<string, number[]>;
+            for (const [key, rect] of Object.entries(rectangles)) {
+                if (!Array.isArray(rect) || rect.length !== 4) continue;
+                const [x, y, w, h] = rect;
+                if (!rect.every(Number.isFinite) || x < 0 || y < 0 || w <= 0 || h <= 0
+                    || x + w > texture.width || y + h > texture.height) continue;
+                this.addPixelFrame(key, [x, y, w, h], texture);
+            }
+            const panel = this.frames.get('panel');
+            if (panel) {
+                panel.insetTop = panel.insetBottom = 9;
+                panel.insetLeft = panel.insetRight = 10;
+            }
+            const torch = this.frames.get('torch');
+            if (torch) {
+                const { x, y, width, height } = torch.rect;
+                const flameWidth = 43;
+                this.addPixelFrame('held-torch', [x + flameWidth, y, width - flameWidth, height], texture);
+            }
+        }, false);
     }
 
     private prepareSpriteArt(): void {
@@ -297,24 +303,10 @@ export class BattleSkinView {
             shutter.reset({ texture, rect: new Rect(0, 0, texture.width, Math.round(texture.width / 3)) });
             shutter.packable = false;
             this.frames.set('shutter', shutter);
-            this.setStage(this.stageId, this.arena);
+            if (this.stageId) this.setStage(this.stageId, this.arena);
             invalidate();
         });
         this.loadPixelArt();
-        resources.load(root + '/pump-floor/texture', Texture2D, (error, texture) => {
-            if (error || this.disposed) return;
-            const frame = new SpriteFrame();
-            frame.texture = texture;
-            this.frames.set('pump-floor', frame);
-            this.setStage(this.stageId, this.arena);
-            invalidate();
-        });
-        this.loadAtlas('campaign-machines', CAMPAIGN_MACHINE_ART.map(key => 'machine-' + key), 4);
-        this.loadAtlas('campaign-tools', CAMPAIGN_TOOL_ART, 3);
-        this.loadAtlas('radio-portraits', ['radio-aruan', 'radio-chenqi'], 2);
-    }
-
-    private loadPixelArt(): void {
         loadCampaignBundle('campaign-ch01', bundle => {
             if (!bundle || this.disposed) return;
             for (const key of ['dispatch-01', 'dispatch-02']) {
@@ -326,61 +318,102 @@ export class BattleSkinView {
                     this.invalidate();
                 });
             }
-            bundle.load(pixelMechanicRoot + '/frames', JsonAsset, (error, asset) => {
-                if (error || this.disposed) return;
-                const atlas = asset.json as PixelMechanicAtlas;
-                bundle.load(pixelMechanicRoot + '/mechanic-atlas/texture', Texture2D, (loadError, texture) => {
-                    if (loadError || this.disposed) return;
-                    this.setPixelMechanic(atlas, texture);
-                });
-            });
-            this.loadPixelAtlas(bundle, 'pixel/enemies', 'actors', 'pixel-enemy:');
-            this.loadPixelAtlas(bundle, 'pixel/items', 'workshop', 'pixel-item:');
-            bundle.load('pixel/ui/radio-portraits/texture', Texture2D, (error, texture) => {
-                if (error || this.disposed) return;
-                const side = texture.height;
-                if (side * 2 !== texture.width) return;
-                texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
-                this.addPixelFrame('pixel-item:radio-aruan', [0, 0, side, side], texture);
-                this.addPixelFrame('pixel-item:radio-chenqi', [side, 0, side, side], texture);
-                this.invalidate();
-            });
-            for (const tool of Object.keys(FLOATING_WEAPON_ART) as ToolId[]) {
-                const { folder } = FLOATING_WEAPON_ART[tool];
-                const root = 'pixel/' + folder;
-                bundle.load(root + '/sprite', JsonAsset, (error, asset) => {
-                    if (error || this.disposed) return;
-                    bundle.load(root + '/weapon/texture', Texture2D, (loadError, texture) => {
-                        if (loadError || this.disposed) return;
-                        const view = asset.json as PixelTool;
-                        texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
-                        this.addPixelFrame('pixel-tool:' + tool, view.rect, texture);
-                        this.pixelTools.set(tool, view);
-                        this.invalidate();
-                    });
-                });
-            }
+        });
+        resources.load(root + '/pump-floor/texture', Texture2D, (error, texture) => {
+            if (error || this.disposed) return;
+            const frame = new SpriteFrame();
+            frame.texture = texture;
+            this.frames.set('pump-floor', frame);
+            if (this.stageId) this.setStage(this.stageId, this.arena);
+            invalidate();
+        });
+        this.loadAtlas('campaign-machines', CAMPAIGN_MACHINE_ART.map(key => 'machine-' + key), 4);
+        this.loadAtlas('campaign-tools', CAMPAIGN_TOOL_ART, 3);
+        this.loadAtlas('radio-portraits', ['radio-aruan', 'radio-chenqi'], 2);
+    }
+
+    private loadPixelArt(retry = false): void {
+        if (this.battleArt !== 'idle' && !(retry && this.battleArt === 'failed')) return;
+        if (retry) this.menuIcons = undefined;
+        this.battleArt = 'loading';
+        void this.loadBattleSprites().then(ready => {
+            this.battleArt = ready ? 'ready' : 'failed';
+            this.invalidate();
+        }, () => {
+            this.battleArt = 'failed';
+            this.invalidate();
         });
     }
 
-    private loadPixelAtlas(bundle: AssetManager.Bundle, root: string, filename: string, framePrefix: string): void {
-        bundle.load(root + '/frames', JsonAsset, (error, asset) => {
-            if (error || this.disposed) return;
-            type Page = { texture: string; frames: Record<string, PixelRect> };
-            const index = asset.json as { pages?: Page[] };
-            const pages = index.pages ?? [{ texture: filename, frames: asset.json as Record<string, PixelRect> }];
-            for (const page of pages) {
-                bundle.load(root + '/' + page.texture + '/texture', Texture2D, (loadError, texture) => {
-                    if (loadError || this.disposed) return;
-                    texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
-                    for (const [key, rect] of Object.entries(page.frames)) this.addPixelFrame(framePrefix + key, rect, texture);
-                    this.invalidate();
-                });
-            }
+    private async loadBattleSprites(): Promise<boolean> {
+        const ui = this.loadBattleUi();
+        const bundle = await this.commonBundle();
+        if (!bundle || this.disposed) { await ui; return false; }
+        this.prepareMenuIcons();
+        const portraits = this.loadAtlasTexture(bundle, 'pixel/ui/radio-portraits', texture => {
+            const side = texture.height;
+            if (side * 2 !== texture.width) return;
+            this.addPixelFrame('pixel-item:radio-aruan', [0, 0, side, side], texture);
+            this.addPixelFrame('pixel-item:radio-chenqi', [side, 0, side, side], texture);
         });
+        const mechanic = this.loadPixelPair<PixelMechanicAtlas>(bundle, pixelMechanicRoot + '/frames',
+            pixelMechanicRoot + '/mechanic-atlas', (atlas, texture) => this.setPixelMechanic(atlas, texture));
+        const weapons = (Object.keys(FLOATING_WEAPON_ART) as ToolId[]).map(tool => {
+            const root = 'pixel/' + FLOATING_WEAPON_ART[tool].folder;
+            return this.loadPixelPair<PixelTool>(bundle, root + '/sprite', root + '/weapon', (model, texture) => {
+                this.addPixelFrame('pixel-tool:' + tool, model.rect, texture);
+                this.pixelTools.set(tool, model);
+            });
+        });
+        const enemies = this.loadPixelAtlas(bundle, 'pixel/enemies', 'actors', 'pixel-enemy:');
+        const assets = await Promise.all([ui, this.menuIcons, portraits, mechanic, enemies, ...weapons]);
+        return assets.every(Boolean) && !!this.pixelMechanic && this.frames.has('panel') && this.frames.has('bullet')
+            && this.frames.has('pixel-item:scrap')
+            && this.frames.has('pixel-item:radio-aruan') && this.frames.has('pixel-item:radio-chenqi');
+    }
+
+    private async loadPixelPair<T>(bundle: AssetManager.Bundle, manifest: string, image: string,
+        install: (data: T, texture: Texture2D) => void): Promise<boolean> {
+        const asset = await loadBundleJson(bundle, manifest);
+        return !!asset && !this.disposed && this.loadAtlasTexture(bundle, image, texture => install(asset.json as T, texture));
+    }
+
+    private loadAtlasTexture(bundle: AssetManager.Bundle, path: string, install: (texture: Texture2D) => void,
+        nearest = true): Promise<boolean> {
+        return new Promise(resolve => {
+            loadBundleTexture(bundle, path + '/texture', texture => {
+                if (!texture || this.disposed) { resolve(false); return; }
+                if (nearest) texture.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
+                try {
+                    if (!this.atlasTextures.has(texture)) {
+                        texture.addRef();
+                        this.atlasTextures.add(texture);
+                    }
+                    install(texture);
+                    this.invalidate();
+                    resolve(true);
+                } catch {
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    private async loadPixelAtlas(bundle: AssetManager.Bundle, root: string, filename: string, framePrefix: string): Promise<boolean> {
+        const asset = await loadBundleJson(bundle, root + '/frames');
+        if (!asset || this.disposed) return false;
+        type Page = { texture: string; frames: Record<string, PixelRect> };
+        const index = asset.json as { pages?: Page[] };
+        const pages = index.pages ?? [{ texture: filename, frames: asset.json as Record<string, PixelRect> }];
+        const loaded = await Promise.all(pages.map(page =>
+            this.loadAtlasTexture(bundle, root + '/' + page.texture, texture => {
+                for (const [key, rect] of Object.entries(page.frames)) this.addPixelFrame(framePrefix + key, rect, texture);
+            })));
+        return loaded.length > 0 && loaded.every(Boolean);
     }
 
     private addPixelFrame(key: string, [x, y, width, height]: PixelRect, texture: Texture2D): void {
+        if (this.frames.has(key)) return;
         const frame = new SpriteFrame();
         frame.reset({ texture, rect: new Rect(x, y, width, height) });
         frame.packable = false;
@@ -398,6 +431,30 @@ export class BattleSkinView {
             }
         }
         this.pixelMechanic = atlas;
+        this.invalidate();
+    }
+
+    get battleArtReady(): boolean {
+        return this.battleArt === 'ready' && this.pixelFloors.has(this.arena);
+    }
+
+    isBattleArtReady(arena: string): boolean {
+        return this.arena === arena && this.battleArtReady;
+    }
+
+    get battleArtFailed(): boolean {
+        return this.battleArt === 'failed' || this.failedPixelFloors.has(this.arena);
+    }
+
+    prepareBattle(id: string, arena: string): void {
+        if (this.stageId !== id || this.arena !== arena) this.setStage(id, arena);
+        this.loadPixelFloor(arena);
+    }
+
+    retryBattleArt(): void {
+        this.failedPixelFloors.delete(this.arena);
+        this.loadPixelFloor(this.arena);
+        this.loadPixelArt(true);
         this.invalidate();
     }
 
@@ -449,11 +506,16 @@ export class BattleSkinView {
 
     private loadPixelFloor(arena: string): void {
         const name = PIXEL_ARENAS[arena];
-        if (!this.prepared || !name || this.pixelFloors.has(arena) || this.pendingPixelFloors.has(arena)) return;
+        if (!name || this.pixelFloors.has(arena) || this.pendingPixelFloors.has(arena) || this.failedPixelFloors.has(arena)) return;
         this.pendingPixelFloors.add(arena);
         loadCampaignPixelTexture(name, 'arenas/' + arena, texture => {
             this.pendingPixelFloors.delete(arena);
-            if (!texture || this.disposed) return;
+            if (this.disposed) return;
+            if (!texture) {
+                this.failedPixelFloors.add(arena);
+                this.invalidate();
+                return;
+            }
             texture.addRef();
             const frame = new SpriteFrame();
             frame.reset({ texture, rect: new Rect(0, 0, texture.width, texture.height) });
@@ -1091,10 +1153,15 @@ export class BattleSkinView {
                     this.icon(this.world, 'machine-core', core.x, core.y - 14, unitSize.inspector * 0.83, 0, offlineCore);
                 }
             }
-            for (const part of battle.parts) {
-                if (!this.icon(this.world, 'pixel-item:scrap', part.x, part.y, 13)) {
-                    this.icon(this.world, 'scrap', part.x, part.y, 9);
-                }
+            for (const part of battle.parts) this.drawPart(part.x, part.y);
+            const tickNow = floatingTick ?? tick;
+            for (const part of battle.partPickups) {
+                const t = clamp((tickNow - part.tick) / PART_PICKUP_FLIGHT_TICKS, 0, 1);
+                const travel = t * (0.65 + 0.35 * t);
+                // The endpoint follows the player, even if they turn after collecting the part.
+                const x = part.x + (player.x - part.x) * travel;
+                const y = part.y + (player.y + 6 - part.y) * travel;
+                this.drawPart(x, y, 1 - 0.55 * t ** 3);
             }
             if (floatingTick !== undefined) {
                 for (const enemy of battle.defeatedEnemies) {
@@ -1166,6 +1233,12 @@ export class BattleSkinView {
         this.ui.finish();
     }
 
+    private drawPart(x: number, y: number, scale = 1): void {
+        if (!this.icon(this.world, 'pixel-item:scrap', x, y, 13 * scale)) {
+            this.icon(this.world, 'scrap', x, y, 9 * scale);
+        }
+    }
+
     uiIconFrame(key: string, fallback?: string): SpriteFrame | undefined {
         const divider = key.indexOf('/');
         const attachment = divider < 0 ? undefined : this.frames.get('pixel-item:part/' + key.slice(divider + 1));
@@ -1212,5 +1285,7 @@ export class BattleSkinView {
         this.pixelFloors.forEach((_surface, arena) => this.releasePixelFloor(arena));
         this.frames.forEach(frame => frame.destroy());
         this.frames.clear();
+        this.atlasTextures.forEach(texture => texture.decRef());
+        this.atlasTextures.clear();
     }
 }

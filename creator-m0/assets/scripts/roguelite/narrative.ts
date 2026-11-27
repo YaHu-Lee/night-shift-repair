@@ -39,7 +39,7 @@ export const STAT_LABELS: Readonly<Record<StatKey, { readonly name: string; read
     salvage: { name: '铜件收益', unit: '', hint: '提高每波结束时额外获得的铜件数量。' },
     luck: { name: '幸运', unit: '', hint: '更容易刷出高阶商品，也更容易掉医疗包。' },
     moveSpeed: { name: '移动速度', unit: '%', hint: '提高移动速度，躲冲车更容易。' },
-    pickupRadius: { name: '拾取范围', unit: '%', hint: '离掉落物更远时也能拾取。' },
+    pickupRadius: { name: '拾取范围', unit: '%', hint: '让更远处的铜件飞向你。' },
 };
 
 export const UI_COPY = {

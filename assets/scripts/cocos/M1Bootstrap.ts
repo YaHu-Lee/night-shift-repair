@@ -7,11 +7,14 @@ import { FIELD } from '../roguelite/constants';
 import { makePlatform } from '../platform/platform';
 import type { Platform } from '../platform/platform';
 import { createRewardedRevive } from '../platform/rewardedRevive';
+import { createMockRewardedVideo } from '../platform/mockRewardedVideo';
 import type { RewardedRevive } from '../platform/rewardedRevive';
 import { createMiniGameEngage } from '../platform/miniGameEngage';
 import type { MiniGameEngage } from '../platform/miniGameEngage';
 import { createMiniGameRuntime } from '../platform/miniGameRuntime';
 import type { MiniGameRuntime } from '../platform/miniGameRuntime';
+import { TiltMovement } from '../platform/tiltMovement';
+import { PatrolAutoMovement } from '../roguelite/autoMovement';
 import { CampaignSettings } from '../platform/settings';
 import type { CampaignPreferences } from '../platform/settings';
 import { PIXEL_MENU_ART } from './CampaignArt';
@@ -44,6 +47,7 @@ interface HitArea {
     bottom: number;
     top: number;
     action: () => void;
+    readyAt: number;
 }
 interface TextOptions { size?: number; color?: Color; width?: number; height?: number; left?: boolean; bold?: boolean }
 
@@ -63,6 +67,7 @@ interface CachedLabelSlot {
 }
 
 function queryParams(): URLSearchParams | null {
+    if (typeof URLSearchParams !== 'function') return null;
     const search = (globalThis as { location?: { search?: string } }).location?.search;
     return typeof search === 'string' && search.length > 1 ? new URLSearchParams(search) : null;
 }
@@ -120,6 +125,8 @@ export class M1Bootstrap extends Component {
 
     private readonly labels: CachedLabelSlot[] = [];
     private readonly actions: HitArea[] = [];
+    private previousReward?: HitArea;
+    private visibleReward?: HitArea;
     private readonly scenery: Partial<Record<string, SpriteFrame>> = {};
     private readonly pendingScenery = new Set<string>();
     private readonly missingScenery = new Set<string>();
@@ -127,6 +134,10 @@ export class M1Bootstrap extends Component {
     private readonly worldPoint = new Vec3();
     private readonly localPoint = new Vec3();
     private readonly battleOffset = new Vec2();
+    private readonly tilt = new TiltMovement();
+    private tiltFailed = false;
+    private holdReviewFrame = false;
+    private autoMovement?: PatrolAutoMovement;
     private readonly stickAxis = new Vec2();
     private readonly stickCenter = new Vec2();
     private readonly stickKnob = new Vec2();
@@ -189,11 +200,10 @@ export class M1Bootstrap extends Component {
         if (this.skinRoot) {
             this.skin = new BattleSkinView(this.skinRoot, floor, this.actorSprites, uiSprites, () => { this.uiDirty = true; });
         }
-        this.loadScenery('night-depot');
-
-        const query = queryParams();
-        this.reviveAd = createRewardedRevive({ douyin: this.reviveAdUnitId, wechat: this.wechatReviveAdUnitId });
-        this.engage = createMiniGameEngage(this.reviveAd, { mockAds: DEBUG && query?.get('mockAd') === '1' });
+        const query = DEBUG && sys.isBrowser ? queryParams() : null;
+        this.reviveAd = DEBUG && query?.get('mockAd') === '1' ? createMockRewardedVideo()
+            : createRewardedRevive({ douyin: this.reviveAdUnitId, wechat: this.wechatReviveAdUnitId });
+        this.engage = createMiniGameEngage(this.reviveAd);
         this.audio = new CampaignAudio(this.node, sys.isBrowser, retry => this.scheduleOnce(retry, 1));
         this.patrol = this.createPatrolUi();
 
@@ -219,11 +229,22 @@ export class M1Bootstrap extends Component {
             },
         );
 
+        if (DEBUG && query?.get('autoMove') === '1') this.autoMovement = new PatrolAutoMovement();
         const dbg = query?.get('patrolDebug');
-        if (DEBUG && dbg) this.patrol.jumpDebugState(dbg);
+        if (DEBUG && dbg) {
+            this.patrol.jumpDebugState(dbg);
+            this.holdReviewFrame = dbg === 'arc';
+        } else this.patrol.startFirstPatrol();
         if (DEBUG) {
             profiler?.hideStats();
-            qaHost.__nightShiftCampaignState = () => this.patrol.inspect();
+            qaHost.__nightShiftCampaignState = () => ({
+                ...this.patrol.inspect(), battleArtReady: this.skin?.battleArtReady,
+                homeArtReady: !!this.scenery['night-depot'] && !!this.skin?.uiIconFrame('ui/receipt'),
+                settings: this.settings.current, autoMovement: !!this.autoMovement,
+                stick: { x: this.stickCenter.x, y: this.stickCenter.y, visible: this.showStick },
+                hitAreas: this.actions.map(({ key, left, right, top, bottom, readyAt }) => ({ key, left, right, top, bottom, readyAt })),
+                labels: this.labels.filter(slot => slot.active).map(slot => slot.value),
+            });
         }
         this.draw();
     }
@@ -260,7 +281,7 @@ export class M1Bootstrap extends Component {
         this.audio?.dispose();
         this.skin?.dispose();
         for (const asset of Object.keys(this.scenery)) this.releaseScenery(asset);
-        delete qaHost.__nightShiftCampaignState;
+        if (DEBUG) delete qaHost.__nightShiftCampaignState;
     }
 
     update(dt: number): void {
@@ -271,11 +292,23 @@ export class M1Bootstrap extends Component {
         if (this.patrol.tickToast(clampedDt)) this.uiDirty = true;
 
         if (this.patrol.inBattle) {
-            this.patrol.update(clampedDt, this.stickAxis.x, this.stickAxis.y);
+            const b = this.patrol.session!.battle!;
+            let x = this.stickAxis.x, y = this.stickAxis.y;
+            if (this.autoMovement) {
+                [x, y] = this.autoMovement.sample(b);
+            } else if (this.usesTilt) {
+                this.tilt.start(() => {
+                    this.tiltFailed = true;
+                    this.patrol.showToast('体感暂时不可用，点按战场可移动。');
+                });
+                ({ x, y } = this.tilt.axis);
+            }
+            if (!this.holdReviewFrame) this.patrol.update(clampedDt, x, y);
             this.draw();
             return;
         }
 
+        this.tilt.stop();
         const frame = screen.windowSize;
         const scale = Math.max(1e-6, view.getScaleY());
         if (`patrol:${frame.width}:${frame.height}:${scale}` !== this.layout) this.uiDirty = true;
@@ -324,6 +357,7 @@ export class M1Bootstrap extends Component {
     }
 
     private suspend(): void {
+        this.tilt.stop();
         this.clearInput();
         this.patrol?.suspend();
         this.uiDirty = true;
@@ -336,12 +370,14 @@ export class M1Bootstrap extends Component {
     private syncMusic(gesture = false): void {
         const wanted = this.settings.current.music && !this.musicSuspended && !this.background;
         const inCombat = this.patrol?.page === 'battle';
-        this.audio?.syncMusic(wanted ? (inCombat ? 'combat' : 'workshop') : undefined, gesture);
+        const track = inCombat ? (this.patrol.battleVisible ? 'combat' : undefined) : 'workshop';
+        this.audio?.syncMusic(wanted ? track : undefined, gesture);
     }
 
     private updateSettings(patch: Partial<CampaignPreferences>): boolean {
         if (!this.settings.update(patch)) return false;
         this.soundEnabled = this.settings.current.sound;
+        if (patch.movement) { this.tilt.stop(); this.tiltFailed = false; }
         if (patch.movement || patch.stickPlacement || patch.sideMargin !== undefined || patch.bottomMargin !== undefined) {
             this.layout = '';
             this.cancelMovement();
@@ -351,6 +387,10 @@ export class M1Bootstrap extends Component {
         return true;
     }
 
+    private get usesTilt(): boolean { return this.settings.current.movement === 'tilt' && !this.tiltFailed; }
+    private get showStick(): boolean {
+        return this.joystickMode && (this.patrol.inBattle || this.patrol.page === 'settings') && !this.background;
+    }
     private get joystickMode(): boolean { return this.settings.current.movement === 'joystick'; }
     private clearInput(): void {
         this.cancelMovement();
@@ -405,13 +445,13 @@ export class M1Bootstrap extends Component {
         const p = this.point(event);
         const area = this.actions.find(candidate => this.contains(candidate, p.x, p.y));
         if (area) {
-            if (!this.press) {
+            if (!this.press && Date.now() >= area.readyAt) {
                 this.press = { id: event.getID(), area, inside: true };
                 this.uiDirty = true;
             }
             return;
         }
-        if (!this.patrol.inBattle || this.movementTouch !== null) return;
+        if (!this.patrol.inBattle || this.movementTouch !== null || this.usesTilt || this.autoMovement) return;
         if (this.joystickMode) {
             if (this.patrol.session?.battle) this.patrol.session.battle.destination = null;
             // On the pad, even the first contact steers relative to its fixed center.
@@ -462,7 +502,7 @@ export class M1Bootstrap extends Component {
         this.uiDirty = true;
         const p = this.point(event);
         const area = this.actions.find(candidate => this.sameTarget(candidate, pressed));
-        if (!this.background && area && this.contains(area, p.x, p.y)) {
+        if (!this.background && area && area.readyAt === pressed.readyAt && this.contains(area, p.x, p.y)) {
             area.action();
             this.syncMusic();
             this.draw();
@@ -583,10 +623,15 @@ export class M1Bootstrap extends Component {
         return a.key === b.key && a.left === b.left && a.right === b.right && a.bottom === b.bottom && a.top === b.top;
     }
 
-    private touchTarget(x: number, y: number, width: number, height: number, key: string, action: () => void): boolean {
+    private touchTarget(x: number, y: number, width: number, height: number, key: string, action: () => void, reward = false): boolean {
         const left = x - width / 2;
         const bottom = y - height / 2;
-        const area = { key: this.patrol.page + ':' + key, left, right: left + width, bottom, top: bottom + height, action };
+        const area = { key: this.patrol.page + ':' + key, left, right: left + width, bottom, top: bottom + height, action, readyAt: this.patrol.inputGuardUntil };
+        if (reward) {
+            const previous = this.previousReward;
+            area.readyAt = Math.max(area.readyAt, previous && this.sameTarget(previous, area) ? previous.readyAt : Date.now() + 300);
+            this.visibleReward = area;
+        }
         this.actions.push(area);
         return !!this.press?.inside && this.sameTarget(this.press.area, area);
     }
@@ -632,6 +677,7 @@ export class M1Bootstrap extends Component {
         const visible = key === 'night-depot';
         this.backdrop.node.active = visible;
         if (!visible) return;
+        this.loadScenery('night-depot');
         this.backdrop.spriteFrame = this.scenery['night-depot'] ?? null;
         this.backdrop.node.setPosition(0, 0, 0);
         this.backdrop.node.getComponent(UITransform)!.setContentSize(WIDTH * this.backdropScale, HEIGHT * this.backdropScale);
@@ -680,6 +726,8 @@ export class M1Bootstrap extends Component {
             get capsuleCeiling() { return self.capsuleCeiling; },
             get backdropScale() { return self.backdropScale; },
             get joystickMode() { return self.joystickMode; },
+            get tiltAvailable() { return self.tilt.available; },
+            get tiltActive() { return self.usesTilt; },
             get settings() { return self.settings.current; },
             updateSettings: patch => self.updateSettings(patch),
             play: sound => self.play(sound),
@@ -701,7 +749,7 @@ export class M1Bootstrap extends Component {
                 self.threats.clear();
                 self.skinFloor.active = false;
             },
-            addTouch: (x, y, w, h, key, action) => self.touchTarget(x, y, w, h, key, action),
+            addTouch: (x, y, w, h, key, action, reward) => self.touchTarget(x, y, w, h, key, action, reward),
             text: (value, x, y, opts) => self.text(value, x, y, opts),
             block: (x, y, w, h, color) => self.block(x, y, w, h, color),
             syncMusic: () => self.syncMusic(),
@@ -739,17 +787,20 @@ export class M1Bootstrap extends Component {
                 : Math.floor(HEIGHT - Math.max(0, insets.menuBottom * pixelRatio / scale - letterbox) - 8);
             this.footer = Math.ceil(Math.max(34, insets.bottom * pixelRatio / scale - letterbox + 16));
         }
-        if (this.patrol.page !== 'home') {
+        if (this.patrol.page === 'home') this.skin?.prepareMenuIcons();
+        else {
             this.audio?.prepareCombat();
             this.skin?.prepare();
         }
         this.embers.node.active = this.patrol.page === 'home';
+        this.previousReward = this.visibleReward;
+        this.visibleReward = undefined;
         this.actions.length = 0;
         this.labelIndex = 0;
         this.ui.clear();
         this.patrol.draw();
         if (this.patrol.page === 'home') this.drawMotes();
-        this.drawStick(this.joystickMode && this.patrol.inBattle && !this.background);
+        this.drawStick(this.showStick);
         for (let index = this.labelIndex; index < this.labels.length; index++) {
             const slot = this.labels[index];
             if (slot.active) {

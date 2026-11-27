@@ -62,6 +62,8 @@ export function drawSkillEffects(
 
     for (const effect of effects) {
         const { x, y, life } = effect;
+        // Damage is immediate; downstream contacts light up one simulation tick apart.
+        if (effect.shape === 'link' && life > 7) continue;
         const color = colors[effect.kind][life] ?? colors[effect.kind][12];
         const art = floatingTick !== undefined && effect.sourceCast ? FLOATING_WEAPON_ART[effect.sourceCast.tool] : undefined;
         if (contacts && (effect.shape === 'impact' || effect.shape === 'link')) {
@@ -89,7 +91,7 @@ export function drawSkillEffects(
                 if (art?.effect === 'pulse' || art?.effect === 'jet') {
                     const muzzle = weaponOrigin?.(effect.sourceCast!);
                     if (muzzle) {
-                        drawPixelJet(g, effect, effect.sourceCast!, art.effect === 'jet' ? muzzle.flash ?? muzzle : muzzle, fraction, detail);
+                        drawPixelJet(g, effect, effect.sourceCast!, muzzle.flash ?? muzzle, fraction, detail);
                     }
                     break;
                 }
@@ -115,18 +117,18 @@ export function drawSkillEffects(
             }
             case 'link': {
                 if (effect.mark) drawMarkFeedback(g, effect, fraction);
-                if (modelEffects) {
+                if (modelEffects && effect.fromWeapon) {
                     g.fillColor = color.edge;
                     g.rect(snap2(x) - 2, snap2(y) - 2, 4, 4);
                     g.fill();
                     break;
                 }
-                if (effect.sourceCast?.melee && art) {
+                if (effect.melee && art) {
                     drawMeleeSparks(g, effect, art.tint, fraction, detail);
                     break;
                 }
                 const muzzle = effect.fromWeapon && effect.sourceCast ? weaponOrigin?.(effect.sourceCast) : undefined;
-                if (art && effect.fromWeapon && !muzzle) break;
+                // Use the recorded origin while the muzzle sprite is loading.
                 const from = muzzle?.flash ?? muzzle ?? effect.from;
                 drawPixelArc(g, from, effect, fraction, detail);
                 break;
@@ -242,12 +244,23 @@ function drawPixelBolt(g: Graphics, strip: Strip, cast: WeaponCast, muzzle: Weap
 function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMuzzle, fraction: number, detail: number): void {
     const t = Math.max(0, (6 - e.life + fraction) / 6);
     const half = Math.atan(e.slope);
-    const angle = muzzle.heading ?? Math.atan2(e.uy, e.ux);
+    const angle = Math.atan2(e.uy, e.ux);
+    // Expand from the visible tip onto the simulation sector. At full reach
+    // the rim uses the cast origin even when recoil moves the tool.
+    const driftX = (e.x - muzzle.x) / e.radius;
+    const driftY = (e.y - muzzle.y) / e.radius;
     const ux = Math.cos(angle), uy = Math.sin(angle);
     const alpha = Math.round(248 * (1 - t * t) * detail);
     const front = cast.tool === 'torch'
         ? e.radius * Math.min(1, 0.48 + t * 0.9)
         : 6 + (e.radius - 6) * (1 - (1 - t) * (1 - t));
+
+    if (e.life >= 6) {
+        const tint = cast.tool === 'torch' ? oxide : plasma;
+        g.fillColor = scratchColor(...tint, Math.round(165 * detail));
+        pxRing(g, e.x, e.y, e.radius, 2, angle - half, 2 * half, 5);
+        g.fill();
+    }
 
     if (cast.tool === 'torch') {
         const blueFlame = cast.modified && cast.powered;
@@ -259,8 +272,8 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
         for (let s = 0; s < streams; s++) {
             const a = angle + half * ((s / (streams - 1)) * 2 - 1) * 0.85;
             const d = Math.min(e.radius, front * (0.85 + 0.15 * Math.sin(cast.tick + s * 2)));
-            const px = snap2(muzzle.x + Math.cos(a) * d);
-            const py = snap2(muzzle.y + Math.sin(a) * d + t * 6);
+            const px = snap2(muzzle.x + (driftX + Math.cos(a)) * d);
+            const py = snap2(muzzle.y + (driftY + Math.sin(a)) * d + t * 6);
             g.rect(px - 4, py - 4, 8, 8);
         }
         g.fill();
@@ -274,8 +287,8 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
                 const u = step / 4;
                 const d = front * u * (0.88 + 0.12 * Math.sin(cast.tick * 1.3 + s + step));
                 const jitter = Math.sin(cast.tick + s * 3 + step * 2 + t * 9) * 3;
-                const px = snap2(muzzle.x + lx * d - ly * jitter);
-                const py = snap2(muzzle.y + ly * d + lx * jitter);
+                const px = snap2(muzzle.x + (driftX + lx) * d - ly * jitter);
+                const py = snap2(muzzle.y + (driftY + ly) * d + lx * jitter);
                 const size = step === 4 ? 4 : step === 3 ? 6 : 8;
                 g.rect(px - size / 2, py - size / 2, size, size);
             }
@@ -288,8 +301,8 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
             const laneAngle = angle + half * ((s / (streams - 1)) * 2 - 1) * 0.65;
             for (let step = 1; step <= 3; step++) {
                 const d = front * (step / 4.2);
-                const px = snap2(muzzle.x + Math.cos(laneAngle) * d);
-                const py = snap2(muzzle.y + Math.sin(laneAngle) * d);
+                const px = snap2(muzzle.x + (driftX + Math.cos(laneAngle)) * d);
+                const py = snap2(muzzle.y + (driftY + Math.sin(laneAngle)) * d);
                 const size = step === 3 ? 4 : 6;
                 g.rect(px - size / 2, py - size / 2, size, size);
             }
@@ -302,7 +315,7 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
         for (let i = -1; i <= 1; i++) {
             const a = angle + i * half * 0.55;
             const d = Math.min(e.radius * 0.96, front * 1.05);
-            g.rect(snap2(muzzle.x + Math.cos(a) * d), snap2(muzzle.y + Math.sin(a) * d), 2, 2);
+            g.rect(snap2(muzzle.x + (driftX + Math.cos(a)) * d), snap2(muzzle.y + (driftY + Math.sin(a)) * d), 2, 2);
         }
         g.fill();
         return;
@@ -313,7 +326,7 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
     for (let i = 0; i < count; i++) {
         const radius = Math.max(6, front * (1 - i * 0.19));
         g.fillColor = i % 2 ? scratchColor(...whiteHot, alpha) : scratchColor(...plasma, alpha);
-        pxRing(g, muzzle.x, muzzle.y, radius, i === 0 ? 4 : 2, angle - half, half * 2, i === 0 ? 5 : 4);
+        pxRing(g, muzzle.x + driftX * radius, muzzle.y + driftY * radius, radius, i === 0 ? 4 : 2, angle - half, half * 2, i === 0 ? 5 : 4);
         g.fill();
     }
     if (cast.modified) {
@@ -321,7 +334,7 @@ function drawPixelJet(g: Graphics, e: Sector, cast: WeaponCast, muzzle: WeaponMu
         for (const aOff of [-half * 0.55, 0, half * 0.55]) {
             const a = angle + aOff;
             const d = front * 0.78;
-            g.rect(snap2(muzzle.x + Math.cos(a) * d) - 2, snap2(muzzle.y + Math.sin(a) * d) - 2, 4, 4);
+            g.rect(snap2(muzzle.x + (driftX + Math.cos(a)) * d) - 2, snap2(muzzle.y + (driftY + Math.sin(a)) * d) - 2, 4, 4);
         }
         g.fill();
     }

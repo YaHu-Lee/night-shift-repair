@@ -1,7 +1,7 @@
 import { makePlatform } from './platform';
 import type { Platform } from './platform';
 
-export type MovementMode = 'touch' | 'joystick';
+export type MovementMode = 'touch' | 'joystick' | 'tilt';
 
 export type StickPlacement = 'left' | 'center' | 'right';
 export const STICK_MARGIN = { min: 8, sideMax: 80, bottomMax: 104, step: 8 } as const;
@@ -36,7 +36,7 @@ function validMargin(value: unknown, max: number): boolean {
 function validSavedPreferences(value: unknown): value is LegacyPreferences | CampaignPreferences {
     if (!value || typeof value !== 'object') return false;
     const { music, sound, movement, stickPlacement, sideMargin, bottomMargin } = value as Partial<CampaignPreferences>;
-    if (typeof music !== 'boolean' || typeof sound !== 'boolean' || (movement !== 'touch' && movement !== 'joystick')) return false;
+    if (typeof music !== 'boolean' || typeof sound !== 'boolean' || (movement !== 'touch' && movement !== 'joystick' && movement !== 'tilt')) return false;
     const keys = Object.keys(value).length;
     if (keys === 3) return true;
     return keys === 6 && (stickPlacement === 'right' || stickPlacement === 'left' || stickPlacement === 'center')

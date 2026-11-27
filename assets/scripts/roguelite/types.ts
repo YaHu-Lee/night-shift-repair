@@ -96,7 +96,7 @@ type AttackArea = Position & (
 
 export type Attack = { life: number; weight?: HitWeight; sourceCast?: WeaponCast } & (
     | AttackArea
-    | (Position & { shape: 'link'; kind: 'arc'; from: Position; fromWeapon?: true; melee?: true; mark?: 'applied' | 'boosted' })
+    | (Position & { shape: 'link'; kind: 'arc'; from: Position; fromWeapon?: true; melee?: true; hop?: number; mark?: 'applied' | 'boosted' })
     | (Position & { shape: 'impact'; kind: Exclude<SkillKind, 'arc'>; pullFrom?: Position })
 );
 
@@ -136,6 +136,7 @@ export interface RenderBattleView {
     readonly defeatedEnemies: readonly { readonly id: number; readonly kind: EnemyId; readonly x: number; readonly y: number; readonly hitAt: number }[];
     readonly bullets: readonly RenderBullet[];
     readonly parts: readonly Readonly<Position>[];
+    readonly partPickups: readonly (Readonly<Position> & { readonly tick: number })[];
     readonly warnings: readonly (Readonly<Position> & { readonly kind: RegularEnemyId; readonly at: number })[];
     readonly chapterBoss: ChapterBossView | null;
     readonly boss: {

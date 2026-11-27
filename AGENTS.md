@@ -13,3 +13,4 @@
 - `assets/scripts/` 为权威脚本目录，任何修改必须同步到 `creator-m0/assets/scripts/`，新增 `.ts` 文件需配齐对应的 `.meta` 文件（由 `tests/campaign-scene.test.mjs` 自动校验）。
 - 核心战斗、商店、进度解锁、留存与存档逻辑放在 `assets/scripts/roguelite/` 与 `assets/scripts/platform/`，严禁依赖 `cc`，保证脱离引擎即可运行 `npm run typecheck`、`npm test` 与 `npm run sim`。
 - 涉及微信／抖音小游戏性能、发热、内存防 OOM、音频中断恢复、双端过审规范或引擎模块裁剪时，先阅读 [小游戏专项优化工作流](.agents/skills/night-shift-minigame-opt/SKILL.md)。
+- 处理上线验收、游戏 E2E 或 Canvas 视觉回归时，阅读 [游戏 E2E 与上线验收](.agents/skills/night-shift-game-e2e/SKILL.md)。当前优先微信上线，抖音因软著暂缓。Codex 执行工程 QA 并留证，项目经理只评审游戏体验。

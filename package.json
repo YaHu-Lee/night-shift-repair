@@ -13,9 +13,12 @@
     "build:web": "node scripts/build-web.mjs",
     "test": "npm run build:web && node --test tests/*.test.mjs",
     "sim": "npm run build:web && node scripts/roguelite-sim.mjs",
-    "typecheck": "tsc -p tsconfig.qa.json"
+    "typecheck": "tsc -p tsconfig.qa.json",
+    "pretest:e2e": "npm run build:web",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "typescript": "5.8.3"
   }
 }

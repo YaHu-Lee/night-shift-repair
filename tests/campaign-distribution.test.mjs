@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(new URL('../scripts/check-campaign-distribution.mjs', import.meta.url));
 const sceneId = JSON.parse(readFileSync(new URL('../creator-m0/assets/scenes/Campaign.scene.meta', import.meta.url), 'utf8')).uuid;
+const scenePath = `assets/main/import/${sceneId.slice(0, 2)}/${sceneId}.json`;
+const bootstrapId = '88fab2fqLNHgppW+nMRcIXb';
 const sceneUrl = 'db://assets/scenes/Campaign.scene';
 const imageUuid = '0c57fc78-efd5-44dd-b6dd-6b8ebf4dfef4';
 const compactImageUuid = '0cV/x479VE3bbda46/Tf70';
@@ -55,8 +57,8 @@ function fixture(t, platform = 'douyin') {
     put('assets/main/config.json', { importBase: 'import', scenes: { [sceneUrl]: 0 }, uuids: [sceneId] });
     put('assets/resources/config.json', resources);
     for (const clip of audioClips) putText(nativeAudioPath(clip), readFileSync(new URL('../' + clip.file, import.meta.url)));
-    const scene = (values = []) => put(`assets/main/import/${sceneId.slice(0, 2)}/${sceneId}.json`, [
-        1, 0, 0, [['TestComponent', ['campaignMode', 'fullRun', 'reviveAdUnitId', 'cloudEnvId', 'cloudServiceId', 'wechatReviveAdUnitId']]],
+    const scene = (values = []) => put(scenePath, [
+        1, 0, 0, [[bootstrapId, ['campaignMode', 'fullRun', 'reviveAdUnitId', 'cloudEnvId', 'cloudServiceId', 'wechatReviveAdUnitId']]],
         [[0, ...Array.from({ length: 2 + values.length }, (_, n) => n), 3 + values.length]],
         [[[0, true, true, ...values]]],
     ]);
@@ -81,6 +83,20 @@ test('release report fingerprints the actual bytes and distinguishes emulator pr
     assert.equal(JSON.parse(run().stdout).packageSha256, result.packageSha256);
     put('assets/resources/config.json', { ...resources, changed: true });
     assert.notEqual(JSON.parse(run().stdout).packageSha256, result.packageSha256);
+});
+
+test('release validation accepts Creator omitting default values on the actual bootstrap class', t => {
+    const { run, put } = fixture(t, 'wechat');
+    put(scenePath, [1, 0, ['node'], [[bootstrapId, ['node'], 3, 1]], [[0, 0, 1]], [[[0, -1]]]]);
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).platformConfiguration.rewardedAd, 'missing');
+
+    put(scenePath, [1, 0, ['node'], [[bootstrapId, ['campaignMode', 'node'], 2, 1]], [[0, 0, 1, 2]], [[[0, false, -1]]]]);
+    assert.match(run().stderr, /Campaign startup component is disabled/);
+
+    put(scenePath, [1, 0, 0, [['OtherComponent', ['campaignMode', 'fullRun']]], [[0, 0, 1, 3]], [[[0, true, true]]]]);
+    assert.match(run().stderr, /Expected exactly one campaign component/);
 });
 
 test('strict platform check requires the expected AppID and compiled feature fields without echoing identifiers', t => {

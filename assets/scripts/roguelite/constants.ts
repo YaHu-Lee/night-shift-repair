@@ -7,6 +7,7 @@ export const START: Readonly<Position> = { x: 180, y: 353 };
 export const CAMPAIGN_FIELD: CombatBounds = { left: -150, right: 510, bottom: 28, top: 678 };
 export const COMBAT_VIEWPORT = { width: FIELD.right - FIELD.left, height: FIELD.top - FIELD.bottom } as const;
 export const BASE_PICKUP_RADIUS = 21;
+export const PART_PICKUP_FLIGHT_TICKS = 9;
 
 export function combatViewport(field: CombatBounds, x: number, y: number, overscan = 0): CombatBounds {
     const width = Math.min(COMBAT_VIEWPORT.width, field.right - field.left);

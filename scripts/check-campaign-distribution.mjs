@@ -22,6 +22,7 @@ const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{1
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const packageMetadata = await json(new URL('../package.json', import.meta.url));
 const sceneMetadata = await json(new URL('../creator-m0/assets/scenes/Campaign.scene.meta', import.meta.url));
+const bootstrapMetadata = await json(new URL('../creator-m0/assets/scripts/cocos/M1Bootstrap.ts.meta', import.meta.url));
 const audioManifest = await json(new URL('../art/workshop/campaign-audio.json', import.meta.url));
 const project = await json(join(root, 'project.config.json'));
 const settings = await json(join(root, 'src', 'settings.json'));
@@ -46,6 +47,18 @@ function decodeAssetUuid(uuid) {
     return hex.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
 }
 
+// Cocos script class IDs keep five hex characters and encode each remaining 12-bit group.
+function compactScriptId(uuid) {
+    const hex = uuid.replaceAll('-', '');
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let id = hex.slice(0, 5);
+    for (const group of hex.slice(5).match(/.{3}/g)) {
+        const value = Number.parseInt(group, 16);
+        id += alphabet[value >> 6] + alphabet[value & 63];
+    }
+    return id;
+}
+
 function versionSuffix(entries = [], index, uuid) {
     for (let i = 0; i < entries.length; i += 2) {
         const key = entries[i];
@@ -59,29 +72,30 @@ function versionSuffix(entries = [], index, uuid) {
 
 // Cocos 3.8 scene files use shared class property lists, masks and instance rows.
 function campaignProperties(scene) {
-    if (Array.isArray(scene)) {
-        const editable = scene.find(entry => entry?.campaignMode === true);
-        if (editable) return editable;
-    }
-    const [version, , , classes, masks, instances] = scene;
-    assert.ok(version === 1 && Array.isArray(classes) && Array.isArray(masks) && Array.isArray(instances),
-        'Unsupported compiled campaign scene format');
+    const bootstrapId = compactScriptId(bootstrapMetadata.uuid);
     const candidates = [];
-    function visit(row) {
-        if (!Array.isArray(row)) return;
-        const mask = masks[row[0]];
-        const keys = classes[mask?.[0]]?.[1];
-        if (Array.isArray(keys) && keys.includes('campaignMode') && row.length === mask.length - 1) {
-            const simpleEnd = mask.at(-1);
-            const properties = {};
-            for (let index = 1; index < simpleEnd; index++) properties[keys[mask[index]]] = row[index];
-            if (properties.campaignMode === true) candidates.push(properties);
+    if (Array.isArray(scene) && typeof scene[0] === 'object') {
+        candidates.push(...scene.filter(entry => entry?.__type__ === bootstrapId));
+    } else {
+        const [version, , , classes, masks, instances] = scene;
+        assert.ok(version === 1 && Array.isArray(classes) && Array.isArray(masks) && Array.isArray(instances),
+            'Unsupported compiled campaign scene format');
+        function visit(row) {
+            if (!Array.isArray(row)) return;
+            const mask = masks[row[0]];
+            const [id, keys] = classes[mask?.[0]] ?? [];
+            if (id === bootstrapId && Array.isArray(keys) && row.length === mask.length - 1) {
+                const properties = {};
+                for (let index = 1; index < mask.at(-1); index++) properties[keys[mask[index]]] = row[index];
+                candidates.push(properties);
+            }
+            row.forEach(visit);
         }
-        row.forEach(visit);
+        visit(instances);
     }
-    visit(instances);
     assert.equal(candidates.length, 1, 'Expected exactly one campaign component in the built scene');
-    return candidates[0];
+    // Creator omits properties that equal the M1Bootstrap class defaults.
+    return { _enabled: true, campaignMode: true, fullRun: true, ...candidates[0] };
 }
 
 const mainConfig = await json(join(root, 'assets', 'main', 'config.json'));
@@ -93,6 +107,7 @@ assert.equal(decodeAssetUuid(mainConfig.uuids?.[sceneIndex]), sceneId, 'Startup 
 const sceneSuffix = versionSuffix(mainConfig.versions?.import, sceneIndex, sceneId);
 const scene = await json(join(root, 'assets', 'main', 'import', sceneId.slice(0, 2), sceneId + sceneSuffix + '.json'));
 const campaign = campaignProperties(scene);
+assert.ok(campaign._enabled === true && campaign.campaignMode === true, 'Campaign startup component is disabled');
 assert.equal(campaign.fullRun, true, 'Campaign startup component is not enabled for a full run');
 const resources = await json(join(root, 'assets', 'resources', 'config.json'));
 assert.equal(resources.nativeBase, 'native', 'Unexpected campaign audio native directory');

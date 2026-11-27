@@ -2,6 +2,7 @@ import {
     BASE_PICKUP_RADIUS,
     CAMPAIGN_FIELD,
     IMPACT_TICKS,
+    PART_PICKUP_FLIGHT_TICKS,
     START,
     TICK_RATE,
     clamp,
@@ -204,6 +205,7 @@ export class RogueliteBattle {
     readonly weaponCasts: WeaponCast[] = [];
     readonly weaponImpacts: WeaponImpact[] = [];
     readonly floaters: FloatingText[] = [];
+    private readonly partPickups: (Position & { readonly tick: number })[] = [];
     private readonly activeMelees: ActiveMeleeSwing[] = [];
 
     tick = 0;
@@ -427,6 +429,7 @@ export class RogueliteBattle {
             defeatedEnemies: this.defeatedEnemies,
             bullets: this.bullets,
             parts: this.drops.filter(d => d.kind === 'part'),
+            partPickups: this.partPickups,
             warnings: this.warnings,
             chapterBoss: bossView,
             boss: bossMapped && bossUnit ? {
@@ -470,6 +473,9 @@ export class RogueliteBattle {
         while (this.floaters.length && this.tick - this.floaters[0].bornTick >= 26) {
             this.floaters.shift();
         }
+        while (this.partPickups.length && this.tick - this.partPickups[0].tick >= PART_PICKUP_FLIGHT_TICKS) {
+            this.partPickups.shift();
+        }
 
         // 1. Passive repair regen
         if (this.build.stats.repair > 0 && this.player.hp > 0 && this.player.hp < this.player.maxHp) {
@@ -488,18 +494,6 @@ export class RogueliteBattle {
         // 3. Controlled dynamic wave spawning
         this.stepSpawner();
         if (!this.enemies.length && !this.warnings.length) this.emptyTicks++;
-
-        // Breaker surge (D4 capstone): wave-opening shock ring + 6s attack speed burst
-        if (this.tick === 1 && this.build.hasBreakerSurge) {
-            this.effects.push({ x: this.player.x, y: this.player.y, shape: 'circle', kind: 'induction', radius: 140, life: 16 });
-            this.pushFloater(this.player.x, this.player.y + 24, '开场电震', 'crit');
-            const surgeDmg = Math.max(24, Math.round(45 + this.build.stats.voltage * 2.5));
-            for (const e of [...this.enemies]) {
-                if (this.canTarget(e) && distance(this.player, e) <= 140) {
-                    this.applyDamage(e, surgeDmg, this.runtimes[0], false, false);
-                }
-            }
-        }
 
         // Breaker surge (D4 capstone): wave-opening shock ring + 6s attack speed burst
         if (this.tick === 1 && this.build.hasBreakerSurge) {
@@ -1130,11 +1124,13 @@ export class RogueliteBattle {
         return reach;
     }
 
-    private emitHitEffect(enemy: RogueliteEnemy, cast: WeaponCast, kind: SkillKind, from: Position, lethal: boolean, isPull = false): void {
+    private emitHitEffect(enemy: RogueliteEnemy, cast: WeaponCast, kind: SkillKind, from: Position, lethal: boolean, isPull = false, hop = 0): void {
         const weight = enemy === this.bossUnit ? (lethal ? 'boss-break' : 'armor') : (lethal ? 'break' : 'strike');
         const base = { x: enemy.x, y: enemy.y, life: 7, weight, sourceCast: cast } as const;
         if (kind === 'arc') {
-            this.effects.push({ ...base, kind: 'arc', shape: 'link', from: { x: from.x, y: from.y }, fromWeapon: from === this.player ? true : undefined });
+            this.effects.push({ ...base, kind: 'arc', shape: 'link', from: { x: from.x, y: from.y }, fromWeapon: from === this.player ? true : undefined, melee: from === this.player && cast.melee ? true : undefined,
+                life: 7 + Math.min(6, hop), hop,
+                mark: hop || this.isArcWeapon(cast.tool) ? (enemy.shockedUntil > this.tick ? 'boosted' : 'applied') : undefined });
         } else {
             this.effects.push({ ...base, kind, shape: 'impact', ...(isPull ? { pullFrom: { x: from.x, y: from.y } } : {}) });
         }
@@ -1466,8 +1462,8 @@ export class RogueliteBattle {
             if (!next) break;
             visited.add(next);
             const hit = computeWeaponHit(rt.instance.id, rt.instance.tier, this.build.stats, this.random, { bonusMultiplier: scale });
+            if (cast) this.emitHitEffect(next, cast, 'arc', origin, next.hp <= hit.damage, false, h + 1);
             next.shockedUntil = Math.max(next.shockedUntil, this.tick + 90);
-            if (cast) this.emitHitEffect(next, cast, 'arc', origin, next.hp <= hit.damage);
             this.applyDamage(next, hit.damage, rt, hit.isCrit, false);
             origin = next;
         }
@@ -1532,6 +1528,7 @@ export class RogueliteBattle {
         if (allowDeathChain && (this.build.hasArcShock || synergyTier(this.build.synergies, 'arc') === 6) && enemy.shockedUntil > this.tick) {
             for (const near of [...this.enemies]) {
                 if (near !== enemy && this.canTarget(near) && distance(enemy, near) <= 64) {
+                    this.effects.push({ shape: 'link', kind: 'arc', life: 7, from: { x: enemy.x, y: enemy.y }, x: near.x, y: near.y });
                     this.applyDamage(near, Math.max(8, Math.round(damage * 0.45)), rt, false, false);
                 }
             }
@@ -1562,11 +1559,13 @@ export class RogueliteBattle {
         const radius = BASE_PICKUP_RADIUS * 1.6 * (1 + this.build.stats.pickupRadius / 100);
         for (let i = this.drops.length - 1; i >= 0; i--) {
             const drop = this.drops[i];
-            if (distance(drop, this.player) > radius) continue;
+            const range = distance(drop, this.player);
+            if (range > radius) continue;
             this.drops.splice(i, 1);
             if (drop.kind === 'heal') {
                 this.healPlayer(drop.value, true);
             } else {
+                if (range > 4) this.partPickups.push({ x: drop.x, y: drop.y, tick: this.tick });
                 const doubled = this.build.doublePartChance > 0 && this.random() < this.build.doublePartChance ? 2 : 1;
                 const earned = drop.value * doubled;
                 this.partsCollected += earned;

@@ -201,6 +201,7 @@ export function validPatrolLocalSave(value: unknown): value is PatrolLocalSave {
 export class PatrolStorage {
     private current?: PatrolLocalSave;
     private stored: PatrolLocalSave | null = null;
+    isNewPlayer = false;
     needsReload = false;
 
     constructor(
@@ -211,6 +212,7 @@ export class PatrolStorage {
 
     loadProfile(legacyFallback?: { clearedStages?: readonly string[]; credits?: number } | null): WorkshopProfile {
         this.needsReload = false;
+        this.isNewPlayer = false;
         this.current = undefined;
         this.stored = this.local.readCheckpoint(STORAGE_VERSION, validPatrolLocalSave);
         if (this.stored) {
@@ -228,6 +230,7 @@ export class PatrolStorage {
         }
         const run = snap ? PatrolSession.fromSnapshot(snap, initial).snapshot() : null;
         this.current = { schemaVersion: 4, saveId: createPatrolId(), revision: 0, profile: initial, run, lastSettledRunId: null };
+        this.isNewPlayer = !profile && !snap && !legacyFallback;
         return initial;
     }
 

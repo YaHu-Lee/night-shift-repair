@@ -1,4 +1,4 @@
-import { assetManager, resources, Texture2D } from 'cc';
+import { assetManager, JsonAsset, resources, Texture2D } from 'cc';
 import type { AssetManager } from 'cc';
 import { campaignArtBundle } from './CampaignArt';
 
@@ -26,7 +26,7 @@ function boundedLoad<T>(start: (complete: (error: Error | null, asset?: T | null
 }
 
 // Each callback borrows the texture. Add a reference synchronously to retain it.
-function loadTexture(bundle: AssetManager.Bundle, path: string, done: (texture: Texture2D | null) => void): void {
+export function loadBundleTexture(bundle: AssetManager.Bundle, path: string, done: (texture: Texture2D | null) => void): void {
     void boundedLoad<Texture2D>(complete => {
         bundle.load(path, Texture2D, (error, texture) => {
             if (error || !texture) {
@@ -45,10 +45,14 @@ function loadTexture(bundle: AssetManager.Bundle, path: string, done: (texture: 
     });
 }
 
+export function loadBundleJson(bundle: AssetManager.Bundle, path: string): Promise<JsonAsset | null> {
+    return boundedLoad<JsonAsset>(complete => bundle.load(path, JsonAsset, complete));
+}
+
 export function loadCampaignTexture(root: string, key: string, done: (texture: Texture2D | null) => void): void {
     const name = campaignArtBundle(key);
     if (!name) {
-        loadTexture(resources, root + '/' + key + '/texture', done);
+        loadBundleTexture(resources, root + '/' + key + '/texture', done);
         return;
     }
     loadCampaignBundle(name, bundle => {
@@ -56,7 +60,7 @@ export function loadCampaignTexture(root: string, key: string, done: (texture: T
             done(null);
             return;
         }
-        loadTexture(bundle, key + '/texture', done);
+        loadBundleTexture(bundle, key + '/texture', done);
     });
 }
 
@@ -66,7 +70,7 @@ export function loadCampaignPixelTexture(name: string, key: string, done: (textu
             done(null);
             return;
         }
-        loadTexture(bundle, 'pixel/' + key + '/texture', texture => {
+        loadBundleTexture(bundle, 'pixel/' + key + '/texture', texture => {
             texture?.setFilters(Texture2D.Filter.NEAREST, Texture2D.Filter.NEAREST);
             done(texture);
         });

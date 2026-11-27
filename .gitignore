@@ -11,3 +11,4 @@ profiles/
 /project.config.json
 /project.private.config.json
 __pycache__/
+/test-results/
