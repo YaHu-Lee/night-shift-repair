@@ -1,13 +1,14 @@
 import {
     _decorator, Color, Component, EventTouch, Game, game, Graphics, input, Input, Label, Mask, Node,
-    profiler, screen, Sprite, SpriteFrame, sys, Texture2D, UITransform, Vec2, Vec3, view,
+    profiler, screen, settings, Settings, Sprite, SpriteFrame, sys, Texture2D, UITransform, Vec2, Vec3, view,
 } from 'cc';
-import { DEBUG } from 'cc/env';
+import { DEBUG, WECHAT } from 'cc/env';
 import { FIELD } from '../roguelite/constants';
 import { makePlatform } from '../platform/platform';
 import type { Platform } from '../platform/platform';
 import { createRewardedRevive } from '../platform/rewardedRevive';
-import { createMockRewardedVideo } from '../platform/mockRewardedVideo';
+import { createMockRewardedVideo, createWebMockRewardedVideo } from '../platform/mockRewardedVideo';
+import type { MockRewardedVideoPrompt } from '../platform/mockRewardedVideo';
 import type { RewardedRevive } from '../platform/rewardedRevive';
 import { createMiniGameEngage } from '../platform/miniGameEngage';
 import type { MiniGameEngage } from '../platform/miniGameEngage';
@@ -33,7 +34,8 @@ const VIEW_CENTER_X = (FIELD.left + FIELD.right) / 2;
 const VIEW_CENTER_Y = (FIELD.bottom + FIELD.top) / 2;
 const STICK_RADIUS = 52;
 const STICK_KNOB_RADIUS = 20;
-const STICK_DEAD_ZONE = 3;
+const STICK_DEAD_ZONE = 4;
+const STICK_FULL_SPEED = 26;
 const STICK_TRAVEL = STICK_RADIUS - STICK_KNOB_RADIUS;
 const PAPER = new Color(226, 237, 241);
 const STICK_BG = new Color(22, 29, 27, 105);
@@ -146,6 +148,7 @@ export class M1Bootstrap extends Component {
     private movementTouch: number | null = null;
     private lastAim?: Vec2;
     private stickOrigin?: Vec2;
+    private relativeStick = false;
     private press: { id: number; area: HitArea; inside: boolean } | null = null;
     private labelIndex = 0;
     private top = 589;
@@ -157,6 +160,7 @@ export class M1Bootstrap extends Component {
     private lastEmberStep = -1;
     private pulseAccum = 0;
     private uiDirty = true;
+    private mockRewardPrompt: MockRewardedVideoPrompt | null = null;
     private background = false;
     private musicSuspended = false;
     private soundEnabled = true;
@@ -204,8 +208,18 @@ export class M1Bootstrap extends Component {
             this.skin = new BattleSkinView(this.skinRoot, floor, this.actorSprites, uiSprites, () => { this.uiDirty = true; });
         }
         const query = DEBUG && sys.isBrowser ? queryParams() : null;
-        this.reviveAd = DEBUG && query?.get('mockAd') === '1' ? createMockRewardedVideo()
-            : createRewardedRevive({ douyin: this.reviveAdUnitId, wechat: this.wechatReviveAdUnitId });
+        const mockAd = query?.get('mockAd');
+        const canvasMock = (WECHAT && settings.querySettings(Settings.Category.LAUNCH, 'nightShiftMockRewardedVideo') === true)
+            || (DEBUG && mockAd === 'canvas');
+        if (canvasMock) {
+            this.reviveAd = createMockRewardedVideo(prompt => {
+                this.mockRewardPrompt = prompt;
+                this.uiDirty = true;
+            });
+        } else {
+            this.reviveAd = DEBUG && mockAd === '1' ? createWebMockRewardedVideo()
+                : createRewardedRevive({ douyin: this.reviveAdUnitId, wechat: this.wechatReviveAdUnitId });
+        }
         this.engage = createMiniGameEngage(this.reviveAd);
         this.audio = new CampaignAudio(this.node, sys.isBrowser, retry => this.scheduleOnce(retry, 1));
         this.patrol = this.createPatrolUi();
@@ -314,6 +328,7 @@ export class M1Bootstrap extends Component {
 
         this.tilt.stop();
         this.patrol.tickLoadingAnimation(clampedDt);
+        this.patrol.tickRewardPreview(clampedDt);
         const frame = screen.windowSize;
         const scale = Math.max(1e-6, view.getScaleY());
         if (`patrol:${frame.width}:${frame.height}:${scale}` !== this.layout) this.uiDirty = true;
@@ -407,6 +422,7 @@ export class M1Bootstrap extends Component {
         this.movementTouch = null;
         this.lastAim = undefined;
         this.stickOrigin = undefined;
+        this.relativeStick = false;
         this.stickKnob.set(0, 0);
         this.stickAxis.set(0, 0);
         if (this.patrol?.session?.battle) this.patrol.session.battle.destination = null;
@@ -416,12 +432,17 @@ export class M1Bootstrap extends Component {
         if (!this.stickOrigin) return;
         const dx = point.x - this.stickOrigin.x, dy = point.y - this.stickOrigin.y;
         const distance = Math.hypot(dx, dy);
-        const travel = Math.min(distance, STICK_TRAVEL);
-        const fraction = travel / (distance || 1);
-        this.stickKnob.set(dx * fraction, dy * fraction);
-        const magnitude = Math.max(0, (travel - STICK_DEAD_ZONE) / (STICK_TRAVEL - STICK_DEAD_ZONE));
-        const step = magnitude / (distance || 1);
-        this.stickAxis.set(dx * step, dy * step);
+        const ux = dx / (distance || 1), uy = dy / (distance || 1);
+        const travel = Math.min(distance, STICK_FULL_SPEED);
+        if (this.relativeStick && distance > STICK_FULL_SPEED) {
+            // Keep only one thumb stroke of history so a long swipe can reverse immediately.
+            this.stickOrigin.set(point.x - ux * travel, point.y - uy * travel);
+        }
+        const knobTravel = STICK_TRAVEL * travel / STICK_FULL_SPEED;
+        this.stickKnob.set(ux * knobTravel, uy * knobTravel);
+        const t = Math.max(0, (travel - STICK_DEAD_ZONE) / (STICK_FULL_SPEED - STICK_DEAD_ZONE));
+        const speed = t * t * (3 - 2 * t);
+        this.stickAxis.set(ux * speed, uy * speed);
     }
 
     private aimAt(point: Vec3): void {
@@ -456,6 +477,7 @@ export class M1Bootstrap extends Component {
             }
             return;
         }
+        if (this.patrol.moveTrial(p.x + this.battleOffset.x, p.y + this.battleOffset.y)) return;
         if (!this.patrol.inBattle || this.movementTouch !== null || this.usesTilt || this.autoMovement) return;
         if (this.joystickMode) {
             if (this.patrol.session?.battle) this.patrol.session.battle.destination = null;
@@ -463,6 +485,7 @@ export class M1Bootstrap extends Component {
             // Elsewhere, dragging is relative to the finger-down point.
             const { x, y } = this.stickCenter;
             const onPad = Math.hypot(p.x - x, p.y - y) <= STICK_RADIUS;
+            this.relativeStick = !onPad;
             this.stickOrigin = onPad ? new Vec2(x, y) : new Vec2(p.x, p.y);
             this.movementTouch = event.getID();
             this.steerStick(p);
@@ -761,6 +784,7 @@ export class M1Bootstrap extends Component {
             syncMusic: () => self.syncMusic(),
             onBattleStopped: () => self.clearInput(),
             get engage() { return self.engage; },
+            get mockRewardPrompt() { return self.mockRewardPrompt; },
             get isLowEndDevice() { return self.runtime.isLowEndDevice; },
             invalidateUi: () => { self.uiDirty = true; },
             triggerGC: () => { self.runtime.triggerGC(); },

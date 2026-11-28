@@ -63,8 +63,9 @@ function fixture(t, platform = 'douyin') {
         [[[0, true, true, ...values]]],
     ]);
     scene();
-    const run = ({ strict = false, appId = '', expectedPlatform } = {}) => spawnSync(process.execPath,
-        [script, root, ...(strict ? ['--require-platform'] : []), ...(expectedPlatform ? ['--platform', expectedPlatform] : [])], {
+    const run = ({ strict = false, appId = '', expectedPlatform, preview = false } = {}) => spawnSync(process.execPath,
+        [script, root, ...(strict ? ['--require-platform'] : []), ...(preview ? ['--wechat-preview'] : []),
+            ...(expectedPlatform ? ['--platform', expectedPlatform] : [])], {
             encoding: 'utf8',
             env: { ...process.env, NIGHT_SHIFT_EXPECTED_DOUYIN_APP_ID: platform === 'douyin' ? appId : '',
                 NIGHT_SHIFT_EXPECTED_WECHAT_APP_ID: platform === 'wechat' ? appId : '' },
@@ -83,6 +84,18 @@ test('release report fingerprints the actual bytes and distinguishes emulator pr
     assert.equal(JSON.parse(run().stdout).packageSha256, result.packageSha256);
     put('assets/resources/config.json', { ...resources, changed: true });
     assert.notEqual(JSON.parse(run().stdout).packageSha256, result.packageSha256);
+});
+
+test('production validation rejects the WeChat simulated-ad preview marker', t => {
+    const { run, put } = fixture(t, 'wechat');
+    assert.match(run({preview:true}).stderr, /WeChat preview must enable simulated ads/);
+    put('src/settings.json', {CocosEngine:'3.8.8', engine:{platform:'wechatgame',debug:false},
+        launch:{launchScene:sceneUrl,nightShiftMockRewardedVideo:true},screen:{designResolution:{width:360,height:640}}});
+    assert.match(run().stderr, /Release must disable simulated ads/);
+    assert.match(run({preview:true,strict:true}).stderr, /Preview must use WeChat/);
+    const result = run({preview:true});
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).platformConfiguration.rewardedAd, 'simulated');
 });
 
 test('release validation accepts Creator omitting default values on the actual bootstrap class', t => {

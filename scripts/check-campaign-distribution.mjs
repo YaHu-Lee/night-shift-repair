@@ -5,7 +5,7 @@ import { extname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 const { values, positionals } = parseArgs({
-    options: { platform: { type: 'string' }, 'require-platform': { type: 'boolean' } },
+    options: { platform: { type: 'string' }, 'require-platform': { type: 'boolean' }, 'wechat-preview': { type: 'boolean' } },
     allowPositionals: true,
 });
 assert.ok(positionals.length <= 1, 'Supply at most one build directory');
@@ -29,6 +29,10 @@ const settings = await json(join(root, 'src', 'settings.json'));
 const platform = requested ?? Object.keys(targets).find(key => targets[key].engine === settings.engine.platform);
 const target = targets[platform];
 assert.ok(target, 'Expected a WeChat or Douyin Mini Game build');
+const wechatPreview = values['wechat-preview'] === true;
+assert.ok(!wechatPreview || (platform === 'wechat' && !values['require-platform']), 'Preview must use WeChat without the production gate');
+assert.equal(settings.launch?.nightShiftMockRewardedVideo === true, wechatPreview,
+    wechatPreview ? 'WeChat preview must enable simulated ads' : 'Release must disable simulated ads');
 assert.equal(settings.CocosEngine, packageMetadata.creator.version, 'Creator version mismatch');
 assert.equal(settings.engine.platform, target.engine, `Expected the ${platform} Mini Game build`);
 assert.equal(settings.engine.debug, false, 'Use the non-debug campaign release build');
@@ -223,7 +227,7 @@ console.log(JSON.stringify({
     subpackages,
     platformConfiguration: {
         appId: placeholder ? 'test-preview' : matched ? 'matches-expected' : 'unverified',
-        rewardedAd: adConfigured ? 'configured' : 'missing',
+        rewardedAd: wechatPreview ? 'simulated' : adConfigured ? 'configured' : 'missing',
         cloud: target.cloud ? ['missing', 'partial', 'configured'][cloudCount] : 'not-applicable',
         liveValidation: 'not-run',
     },

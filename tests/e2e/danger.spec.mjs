@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import {holdCombat, finishWave} from './combat-clock.mjs';
 import { createDefaultProfile, buyWorkshopTalent } from '../../.m0-build/roguelite/session.js';
 import { bossCheckpoint, installCheckpoint, readSave } from './campaign-fixtures.mjs';
 import { tap, state, screen } from './canvas.mjs';
@@ -7,7 +8,7 @@ let progression;
 test.beforeAll(() => {
     let profile = createDefaultProfile();
     progression = [];
-    for (const [danger,seed] of [1,1,1,1,10].entries()) {
+    for (const [danger,seed] of [1,1,1,1,1].entries()) {
         for (const id of ['chassis','capacitor','toolbox','chassis','capacitor','chassis','capacitor','toolbox','chassis','capacitor']) {
             profile = buyWorkshopTalent(profile,id) ?? profile;
         }
@@ -25,9 +26,14 @@ for (const danger of [1,2,3,4]) {
         expect(sample.result.firstClearBonus).toBe(bonus);
         await installCheckpoint(page,sample.entries);
         await page.goto('/');
+        await holdCombat(page);
         await tap(page,'home:dispatch');
         await page.waitForFunction(() => globalThis.__nightShiftCampaignState().boss);
-        await page.waitForFunction(() => globalThis.__nightShiftCampaignState().page === 'result',null,{timeout:120000});
+        await finishWave(page, sample.inputs);
+        await expect.poll(async ()=>(await state(page)).page).toBe('result');
+        await expect.poll(async ()=>(await state(page)).hitAreas.map(a=>a.key)).toContain('result:查看战报');
+        await screen(page, info, 'first-clear-rewards');
+        await tap(page, 'result:查看战报');
         await expect.poll(async () => (await state(page)).labels).toContain('首通额外 +' + bonus + ' 凭证');
         await expect.poll(async () => (await readSave(page)).profile.maxDangerCleared[sample.chapterId]).toBe(danger);
         const credit = (await readSave(page)).profile.credits;

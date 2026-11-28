@@ -22,7 +22,12 @@ export type ToolId =
     | 'pulse_nozzle'
     | 'traction_coil'
     | 'split_probe'
-    | 'bypass_wrench';
+    | 'bypass_wrench'
+    | 'rebound_saw'
+    | 'rivet_line'
+    | 'echo_horn'
+    | 'breaker_stake'
+    | 'patrol_welder';
 
 export type RegularEnemyId =
     | 'crawler'
@@ -57,6 +62,9 @@ export interface ChapterBossView {
     readonly instruction: string;
     readonly facing: number;
     readonly hazard?: ChapterHazard;
+    readonly devices?: readonly (Position & { kind: 'wreck' | 'relay' | 'switch'; active: boolean })[];
+    readonly nextRail?: number;
+    readonly pulses?: readonly (Position & { radius: number; gap: number; halfGap: number })[];
     readonly volley?: { readonly pattern: 'fan' | 'ring'; readonly state: 'warning' | 'active' };
 }
 
@@ -125,6 +133,8 @@ export interface RenderBullet extends Position {
 }
 
 export interface RenderBattleView {
+    readonly rigId?: RigId;
+    readonly rigRank?: Tier;
     readonly field: CombatBounds;
     readonly player: Readonly<Position> & { readonly hp: number; readonly maxHp: number; readonly invulnerableUntil: number; readonly hurtAt?: number };
     readonly tick: number;
@@ -159,7 +169,7 @@ export type WeaponTag = 'melee' | 'arc' | 'ballistic' | 'thermal' | 'control';
 export type Tier = 1 | 2 | 3 | 4;
 export type ChapterId = '01' | '02' | '03' | '04';
 export type DangerLevel = 0 | 1 | 2 | 3 | 4;
-export type RigId = 'duty_standard' | 'high_voltage' | 'heavy_fitter' | 'thermal_welder' | 'scrap_auditor';
+export type RigId = 'duty_standard' | 'high_voltage' | 'heavy_fitter' | 'thermal_welder' | 'scrap_auditor' | 'surveyor';
 export type PreRunSupplyId = 'none' | 'extra_crate' | 'spare_parts' | 'hot_thermos';
 export type DailyShiftModifierId = 'bargain_horde' | 'arc_overdrive' | 'cold_supply' | 'turbo_shift';
 export type RewardedPlacement = 'revive' | 'levelup_extra' | 'shop_supply' | 'prep_supply' | 'result_double';
@@ -403,7 +413,10 @@ export interface DailyEngagementState {
     readonly adPrepUsed?: number;
 }
 
+export type WeaponModLoadout = Readonly<Partial<Record<ToolId, import('./progression').WeaponMod>>>;
+
 export interface WorkshopProfile {
+    readonly weaponMods?: WeaponModLoadout;
     readonly schemaVersion: 3;
     readonly credits: number;
     readonly clearedChapters: readonly ChapterId[];

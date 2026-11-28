@@ -1,4 +1,4 @@
-// Full simulation harness for Plan A (4 Chapters x 12 Waves x 5 Mechanic Rigs).
+// Full simulation harness for Plan A (4 Chapters x 12 Waves x 6 Mechanic Rigs).
 // Run after `npm run build:web`.
 import { CHAPTER_CATALOG, RIG_CATALOG } from '../.m0-build/roguelite/catalog.js';
 import { PatrolSession, buyWorkshopTalent, createDefaultProfile } from '../.m0-build/roguelite/session.js';
@@ -33,7 +33,7 @@ function runOne(chapterId, rigId, seed, danger, profile) {
 const seeds = trial && process.argv.includes('--holdout') ? [199, 6271, 7135, 5189, 883, 1381, 547, 2237] : trial ? [42, 1729, 20261120, 3173, 73, 7919, 20261128, 3251] : [42, 1729, 20261120, 3173];
 let clearedWaves = 0, possibleWaves = 0;
 const rigs = Object.keys(RIG_CATALOG);
-console.log('=== PLAN A (4 CHAPTERS x 12 WAVES x 5 RIGS) LIVE SIMULATION ===');
+console.log('=== PLAN A (4 CHAPTERS x 12 WAVES x 6 RIGS) LIVE SIMULATION ===');
 
 for (const chapter of CHAPTER_CATALOG) {
     // Realistic workshop progression across chapters: Ch1=0 talents, Ch2=4, Ch3=8, Ch4=13

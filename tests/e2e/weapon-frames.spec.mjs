@@ -36,6 +36,7 @@ async function installFrameSampler(page,tool) {
             return result;
         };
         window.frameSample=(weight,side,recoil)=>{
+            const launch = weight === 'launch';
             const start=battle.tick;
             while(boot.patrol.inBattle) {
                 const prior=battle.tick;
@@ -52,8 +53,9 @@ async function installFrameSampler(page,tool) {
                 const tip=boot.skillEffects.node.getComponent(cc.UITransform).convertToNodeSpaceAR(world);
                 const hit=battle.weaponImpacts.find(h=>h.tick===battle.tick && h.cast.tool===tool &&
                     h.weight===weight && (!side || Math.sign(h.cast.ux)===side));
-                if(!recoil && !hit) continue;
-                const cast=recoil ? window.lastHit.cast : hit.cast;
+                const discharge = launch && battle.weaponCasts.find(c=>c.tick===battle.tick && c.tool===tool);
+                if(launch ? !discharge : !recoil && !hit) continue;
+                const cast=launch ? discharge : recoil ? window.lastHit.cast : hit.cast;
                 const muzzle=skin.floatingWeaponOrigin(cast)?.flash;
                 const melee=cast.melee;
                 const age=battle.tick-cast.tick;
@@ -66,6 +68,7 @@ async function installFrameSampler(page,tool) {
                 const coordError=Math.hypot(tip.x-expected.x,tip.y-expected.y);
                 const result={tick:battle.tick,age,tip:project(tip),coordError,side:Math.sign(cast.ux),weight,
                     aim:[cast.ux,cast.uy],heading:muzzle?.heading,scale};
+                if(launch) {window.lastHit={cast}; return result;}
                 if(recoil) return result;
                 const match=damage.find(d=>d.tick===battle.tick && d.x===hit.x && d.y===hit.y && (d.after<=0)===(weight==='break'));
                 if(!match) throw Error('No independent HP change at '+JSON.stringify(hit));
@@ -90,15 +93,17 @@ async function installFrameSampler(page,tool) {
     },tool);
 }
 
-async function capture(page,info,name,sample) {
+async function capture(page,info,name,sample,checkMuzzle=true) {
     const canvas=page.locator('#GameCanvas');
     const on=PNG.sync.read(await canvas.screenshot({path:info.outputPath(name+'.png')}));
     await page.evaluate(()=>{window.combatQA.boot.skillEffects.node.active=false;});
     const off=PNG.sync.read(await canvas.screenshot());
     await page.evaluate(()=>{window.combatQA.boot.skillEffects.node.active=true;});
     sample.tipPixels=changedPixels(on,off,sample.tip,Math.ceil(7*sample.scale));
-    expect(sample.coordError,'Sprite 贴图触点到战斗轨迹或渲染枪口的误差').toBeLessThan(1);
-    expect(sample.tipPixels,'可见触点附近应有特效像素').toBeGreaterThan(1);
+    if(checkMuzzle) {
+        expect(sample.coordError,'Sprite 贴图触点到战斗轨迹或渲染枪口的误差').toBeLessThan(1);
+        expect(sample.tipPixels,'发射触点附近应有特效像素').toBeGreaterThan(1);
+    }
     if(sample.target) {
         sample.hitPixels=changedPixels(on,off,sample.target,Math.ceil(8*sample.scale));
         expect(sample.hitPixels,'本帧实际扣血的目标附近应有命中特效').toBeGreaterThan(1);
@@ -121,6 +126,14 @@ for(const tool of ALL_TOOL_IDS) {
         await page.waitForFunction(()=>globalThis.__nightShiftCampaignState().battleVisible);
         await installFrameSampler(page,tool);
         const evidence=[];
+        const deployed=['rebound_saw','rivet_line','echo_horn','breaker_stake','patrol_welder'].includes(tool);
+        if(deployed) {
+            const launch=await page.evaluate(()=>window.frameSample('launch',0,false));
+            await capture(page,info,'launch',launch);
+            const recoil=await page.evaluate(()=>window.frameSample('recoil',0,true));
+            await capture(page,info,'launch-recoil',recoil);
+            evidence.push(launch,recoil);
+        }
         let side=0;
         for(const weight of ['strike','break']) {
             const sample=await page.evaluate(([w,s])=>window.frameSample(w,s,false),[weight,side]);
@@ -128,10 +141,10 @@ for(const tool of ALL_TOOL_IDS) {
             if(weight==='strike') expect(sample.after).toBeGreaterThan(0);
             else expect(sample.after).toBeLessThanOrEqual(0);
             if(tool==='traction_coil' && weight==='strike') expect(sample.pulled).toBeGreaterThan(0);
-            await capture(page,info,weight,sample);
+            await capture(page,info,weight,sample,!deployed);
             evidence.push(sample);
             side=-sample.side;
-            if(!['wrench','bypass_wrench'].includes(tool)) {
+            if(!deployed && !['wrench','bypass_wrench'].includes(tool)) {
                 const recoil=await page.evaluate(()=>window.frameSample('recoil',0,true));
                 await capture(page,info,weight+'-recoil',recoil);
                 evidence.push(recoil);

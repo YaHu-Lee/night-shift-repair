@@ -4,6 +4,16 @@ import { WEAPON_CATALOG } from './catalog';
 export function steerPatrol(battle: RogueliteBattle): [number, number] {
     const p = battle.player;
     const b = battle.field;
+    if (battle.chapter.id === '04' && battle.boss) {
+        const switchPad = battle.bossView?.devices?.filter(d => d.kind === 'switch' && d.active)
+            .sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
+        const target = switchPad ?? (battle.boss.state === 'open' ? battle.boss : undefined);
+        if (target) {
+            const dx = target.x - p.x, dy = target.y - p.y, distance = Math.hypot(dx, dy);
+            if (distance > (switchPad ? 12 : 48)) return [dx / distance, dy / distance];
+            return [0, 0];
+        }
+    }
     // Dodge active boss hazards first, then kite threats while sweeping nearby parts/heals.
     let vx = 0, vy = 0;
 

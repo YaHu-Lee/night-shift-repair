@@ -3,7 +3,7 @@ import { readSave, checkpoint, installCheckpoint } from './campaign-fixtures.mjs
 import { tap, state } from './canvas.mjs';
 import { createDefaultProfile } from '../../.m0-build/roguelite/session.js';
 
-test('RUN-03 首通前的章节、难度与三套锁定工装', async ({ page }) => {
+test('RUN-03 首通前的章节、难度与四套锁定工装', async ({ page }) => {
     await page.goto('/?patrolDebug=prep');
     for (const chapter of ['02','03','04']) {
         await tap(page,'prep:›');
@@ -22,7 +22,7 @@ test('RUN-03 首通前的章节、难度与三套锁定工装', async ({ page })
     await tap(page,'prep:难度 0');
     await tap(page,'prep:选择工装 ›');
     const locked = (await state(page)).hitAreas.filter(a => a.key.includes('锁定'));
-    expect(locked).toHaveLength(3);
+    expect(locked).toHaveLength(4);
     for (const area of locked) {
         await tap(page,area.key);
         expect((await state(page)).hitAreas.some(a => a.key.includes('开始抢修'))).toBe(false);

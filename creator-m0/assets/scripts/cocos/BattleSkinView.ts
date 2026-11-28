@@ -9,6 +9,7 @@ import type {
     RenderBattleView as Battle,
     RenderEnemy as Enemy,
     ToolId,
+    RigId, Tier,
     WeaponCast,
 } from '../roguelite/types';
 import { MELEE_RETURN_TICKS, MELEE_WINDUP_TICKS, weaponMount, isMeleeTool, sampleMeleeHead } from '../roguelite/weaponMotion';
@@ -65,12 +66,18 @@ type PixelMechanicAtlas = {
 type ToolMount = { grip: readonly [number, number]; tip: readonly [number, number]; size: number };
 type PixelTool = { rect: PixelRect; grip: [number, number]; tip: [number, number] };
 
+const coilLamp = new Color(140, 249, 255);
 const pixelMechanicRoot = 'pixel/mechanic';
 const pixelMechanicScale = 0.8;
 const pixelWeaponScale = 1;
 const walkFrameDistance = 19.5;
 // Grip and tip are local pixels in the existing workshop tool frames.
 const toolMounts: Record<ToolId, ToolMount> = {
+    rebound_saw: { grip: [10,13], tip: [26,20], size: 24 },
+    rivet_line: { grip: [10,16], tip: [28,18], size: 24 },
+    echo_horn: { grip: [10,20], tip: [28,14], size: 24 },
+    breaker_stake: { grip: [9,15], tip: [28,15], size: 24 },
+    patrol_welder: { grip: [12,17], tip: [28,20], size: 24 },
     wrench: { grip: [90, 96], tip: [21, 25], size: 21 },
     riveter: { grip: [78, 72], tip: [9, 27], size: 21 },
     torch: { grip: [68, 39], tip: [2, 28], size: 20 }, // Cropped to the nozzle, without the icon's flame.
@@ -366,7 +373,8 @@ export class BattleSkinView {
             });
         });
         const enemies = this.loadPixelAtlas(bundle, 'pixel/enemies', 'actors', 'pixel-enemy:');
-        const assets = await Promise.all([ui, this.menuIcons, portraits, mechanic, enemies, ...weapons]);
+        const clothing = this.loadPixelAtlas(bundle, 'pixel/rigs', 'gear', 'rig:');
+        const assets = await Promise.all([ui, this.menuIcons, portraits, mechanic, clothing, enemies, ...weapons]);
         return assets.every(Boolean) && !!this.pixelMechanic && this.frames.has('panel') && this.frames.has('bullet')
             && this.frames.has('pixel-item:scrap')
             && this.frames.has('pixel-item:radio-aruan') && this.frames.has('pixel-item:radio-chenqi');
@@ -659,8 +667,12 @@ export class BattleSkinView {
         const tint = injuryAge < 5 || tick < player.invulnerableUntil && tick % 6 < 3 ? hurt : Color.WHITE;
         if (floatingTick !== undefined) {
             this.drawFloatingTools(battle, floatingTick, () => {
-                if (!this.pixelMechanic || !this.drawFloatingBody(this.pixelMechanic, player, motion, injuryAge, tint)) {
+                if (!this.pixelMechanic || !this.drawFloatingBody(this.pixelMechanic, player, motion, injuryAge, tint, battle.rigId, battle.rigRank)) {
                     this.drawLegacyMechanic(player, motion, injuryAge, tint);
+                } else if (battle.rigId === 'high_voltage' && battle.rigRank === 4
+                    && battle.effects.some(e => e.shape === 'link' && (e.hop ?? 0) > 0)) {
+                    const left = motion.heading === 3 || motion.heading === 4 || motion.heading === 5;
+                    this.icon(this.world, 'bullet', player.x + (left ? 4 : -4), player.y + 14, 5, 0, coilLamp);
                 }
             });
             return;
@@ -691,7 +703,7 @@ export class BattleSkinView {
     }
 
     private drawFloatingBody(atlas: PixelMechanicAtlas, player: Actor, motion: ActorMotion,
-        injuryAge: number, tint: Color): boolean {
+        injuryAge: number, tint: Color, rig?: RigId, rank: Tier = 1): boolean {
         motion.heading = facing(motion.dx, motion.dy, motion.heading);
         const direction = pixelHeading(motion.heading);
         const stride = Math.floor(motion.stride / walkFrameDistance);
@@ -710,7 +722,30 @@ export class BattleSkinView {
         const h = height * scale * injuredSquash;
         this.world.put(frame, player.x + (width / 2 - atlas.pivot[0]) * scale,
             player.y + (atlas.pivot[1] - height / 2) * scale + breathe, w, h, 0, tint);
+        if (rig) this.outfit(this.world, rig, rank, motion.heading, player.x, player.y + breathe + (walking && index % 2 ? 1 : 0), scale, tint);
         return true;
+    }
+
+    private outfit(pool: SpritePool, rig: RigId, rank: Tier, heading: number, x: number, feet: number, scale: number, tint: Color): void {
+        const side = heading === 0 || heading === 4;
+        const back = heading === 1 || heading === 2 || heading === 3;
+        const view = side ? 'side' : heading === 2 ? 'back' : heading === 6 ? 'front' : back ? 'ne' : 'se';
+        const frame = this.frames.get('rig:' + rig + ':' + rank + ':' + view);
+        if (!frame) return;
+        const mirror = heading === 3 || heading === 4 || heading === 5;
+        const offset = (rig === 'surveyor' || rig === 'high_voltage') && !back ? -6 : rig === 'thermal_welder' ? 4 : 0;
+        const vertical = rig === 'thermal_welder' ? 31 : rig === 'scrap_auditor' ? 13 : 18;
+        const fit = scale * (rig === 'thermal_welder' ? .75 : .87);
+        pool.put(frame, x + (heading === 2 || heading === 6 ? 0 : mirror ? -offset : offset) * scale,
+            feet + vertical * scale, frame.rect.width * fit, frame.rect.height * fit, 0, tint, false, mirror);
+    }
+
+    rigPortrait(rig: RigId, rank: Tier, x: number, y: number, size: number): void {
+        const frame = this.frames.get(pixelFrameKey('idle', 'S', 0));
+        if (!frame || !this.pixelMechanic) return;
+        const scale = size / frame.rect.height;
+        this.ui.put(frame, x, y, frame.rect.width * scale, size, 0, Color.WHITE);
+        this.outfit(this.ui, rig, rank, 6, x, y - (this.pixelMechanic.pivot[1] - frame.rect.height / 2) * scale, scale, Color.WHITE);
     }
 
     private drawFloatingTools(battle: Readonly<Battle>, time: number, drawBody: () => void): void {
@@ -1246,12 +1281,12 @@ export class BattleSkinView {
             ?? (fallback && fallback !== key ? this.uiIconFrame(fallback) : undefined);
     }
 
-    uiIcon(key: string, x: number, y: number, size: number, fallback?: string): boolean {
+    uiIcon(key: string, x: number, y: number, size: number, fallback?: string, tint = Color.WHITE): boolean {
         const frame = this.uiIconFrame(key, fallback);
         if (!frame) return false;
         const { width, height } = frame.rect;
         const scale = size / Math.max(width, height);
-        this.ui.put(frame, x, y, width * scale, height * scale, 0, Color.WHITE);
+        this.ui.put(frame, x, y, width * scale, height * scale, 0, tint);
         return true;
     }
     shopfront(x: number, y: number): void {

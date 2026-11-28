@@ -191,6 +191,61 @@ export const WEAPON_CATALOG: Readonly<Record<ToolId, WeaponSpec>> = {
         tier3Unlock: '四路分线器',
         tier4Unlock: '集束电击阵',
     },
+    rebound_saw: {
+        id: 'rebound_saw', name: '回弹锯盘', tags: ['ballistic', 'control'],
+        torqueScale: 1, voltageScale: 0, baseCritChance: 12, roleText: '锯片碰到墙面后反弹，可切过多台敌机。',
+        tiers: [
+            { damage: 15, cooldownTicks: 30, critMult: 1.7, reach: 165, price: 22 },
+            { damage: 22, cooldownTicks: 28, critMult: 1.85, reach: 178, price: 44 },
+            { damage: 32, cooldownTicks: 26, critMult: 2, reach: 195, price: 82 },
+            { damage: 45, cooldownTicks: 24, critMult: 2.2, reach: 210, price: 154 },
+        ],
+        tier3Unlock: '强化传动', tier4Unlock: '满载输出',
+    },
+    rivet_line: {
+        id: 'rivet_line', name: '铆索发射器', tags: ['ballistic', 'control'],
+        torqueScale: 1.05, voltageScale: 0, baseCritChance: 10, roleText: '把铆索打进机壳，拖慢索上的追兵。',
+        tiers: [
+            { damage: 18, cooldownTicks: 30, critMult: 1.7, reach: 156, price: 22 },
+            { damage: 26, cooldownTicks: 28, critMult: 1.85, reach: 166, price: 44 },
+            { damage: 36, cooldownTicks: 25, critMult: 2, reach: 180, price: 82 },
+            { damage: 52, cooldownTicks: 22, critMult: 2.2, reach: 195, price: 154 },
+        ],
+        tier3Unlock: '强化传动', tier4Unlock: '满载输出',
+    },
+    echo_horn: {
+        id: 'echo_horn', name: '回声发生器', tags: ['control', 'arc'],
+        torqueScale: 0.2, voltageScale: 0.85, baseCritChance: 6, roleText: '向目标发出一圈声波，击中波前经过的敌机。',
+        tiers: [
+            { damage: 16, cooldownTicks: 30, critMult: 1.7, reach: 128, price: 22 },
+            { damage: 23, cooldownTicks: 28, critMult: 1.85, reach: 138, price: 44 },
+            { damage: 32, cooldownTicks: 26, critMult: 2, reach: 150, price: 82 },
+            { damage: 45, cooldownTicks: 24, critMult: 2.2, reach: 162, price: 154 },
+        ],
+        tier3Unlock: '强化传动', tier4Unlock: '满载输出',
+    },
+    breaker_stake: {
+        id: 'breaker_stake', name: '断路地桩', tags: ['arc', 'control'],
+        torqueScale: 0.1, voltageScale: 0.95, baseCritChance: 6, roleText: '在目标脚下打入地桩，周期性电击周围的敌机。',
+        tiers: [
+            { damage: 10, cooldownTicks: 40, critMult: 1.7, reach: 125, price: 22 },
+            { damage: 14, cooldownTicks: 38, critMult: 1.85, reach: 135, price: 44 },
+            { damage: 20, cooldownTicks: 35, critMult: 2, reach: 145, price: 82 },
+            { damage: 28, cooldownTicks: 32, critMult: 2.2, reach: 155, price: 154 },
+        ],
+        tier3Unlock: '强化传动', tier4Unlock: '满载输出',
+    },
+    patrol_welder: {
+        id: 'patrol_welder', name: '巡检焊机', tags: ['thermal'],
+        torqueScale: 0.15, voltageScale: 0.95, baseCritChance: 8, roleText: '放出巡检焊头，沿着目标移动并灼烧附近敌机。',
+        tiers: [
+            { damage: 10, cooldownTicks: 36, critMult: 1.7, reach: 134, price: 22 },
+            { damage: 15, cooldownTicks: 34, critMult: 1.85, reach: 146, price: 44 },
+            { damage: 21, cooldownTicks: 32, critMult: 2, reach: 156, price: 82 },
+            { damage: 30, cooldownTicks: 30, critMult: 2.2, reach: 170, price: 154 },
+        ],
+        tier3Unlock: '强化传动', tier4Unlock: '满载输出',
+    },
 };
 
 export const ALL_TOOL_IDS = Object.keys(WEAPON_CATALOG) as ToolId[];
@@ -276,12 +331,12 @@ export const RIG_CATALOG: Readonly<Record<RigId, RigSpec>> = {
     duty_standard: {
         id: 'duty_standard',
         name: '江岸值班服',
-        title: '均衡',
+        title: '混搭补击',
         starterWeapon: 'wrench',
         stats: { maxHp: 10, armor: 2, torque: 2, voltage: 2, salvage: 5, luck: 5 },
         wantedTags: ['melee', 'arc'],
-        summary: '这套蓝工装穿了三年，什么武器都能装。',
-        tradeoff: '没有额外限制。',
+        summary: '两种不同系的武器接连打中同一台敌机，会再补一下。',
+        tradeoff: '单一武器系无法打出补击。',
     },
     high_voltage: {
         id: 'high_voltage',
@@ -329,6 +384,11 @@ export const RIG_CATALOG: Readonly<Record<RigId, RigSpec>> = {
         bagKeepRate: 1.0,
         summary: '口袋里装着调拨单。商店打八五折，漏捡的铜件全部结转。',
         tradeoff: '伤害较低，敌机多 25%',
+    },
+    surveyor: {
+        id: 'surveyor', name: '测绘员的标线服', title: '移动布线', starterWeapon: 'breaker_stake',
+        stats: { moveSpeed: 14, pickupRadius: 8, torque: -3, armor: -2 }, wantedTags: ['control', 'arc'],
+        summary: '移动会留下标钉，追兵穿过连线就会受伤。', tradeoff: '站在原地无法布线，护甲较薄。',
     },
 };
 

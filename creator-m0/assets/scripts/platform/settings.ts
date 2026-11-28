@@ -17,7 +17,7 @@ export interface CampaignPreferences {
 
 export const CAMPAIGN_SETTINGS_NAMESPACE = 'night-shift.campaign.settings';
 export const DEFAULT_CAMPAIGN_PREFERENCES: CampaignPreferences = Object.freeze({
-    stickPlacement: 'right',
+    stickPlacement: 'center',
     sideMargin: 32,
     bottomMargin: 56,
     music: true,

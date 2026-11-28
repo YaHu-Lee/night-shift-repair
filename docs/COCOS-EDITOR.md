@@ -19,6 +19,18 @@
 
 Creator 会在打开工程或构建时自动重建 `creator-m0/library/` 和 `creator-m0/temp/`，无需提交缓存目录。
 
+### 微信预览模拟广告
+
+先构建当前代码的微信发布包。再运行以下命令，从发布包生成一份独立的模拟广告预览包。重复生成时，第二个参数可指定一个新的输出目录。
+
+```powershell
+node scripts/prepare-wechat-preview.mjs
+```
+
+在微信开发者工具导入 `creator-m0/build/wechatgame-campaign-preview`，点「预览」并扫新二维码。首轮清波后可在升级页点「看视频多选一项」，也可在商店点「看视频领 20 铜件」。弹窗支持模拟看完、提前关闭和加载失败。
+
+正式提审使用 `wechatgame-campaign-release`。发布包校验会拦截含有模拟广告开关的包。审核通过后再为正式包配置真实激励视频广告位。
+
 ## 本地体验与移动回归
 
 Web 调试包的首页可进入武器架、装备柜和工坊。用 `?patrolDebug=arc` 查看同一次电击的两个实际溅射段，用 `?autoMove=1` 从首页开局体验内部自动位移。开关仅在 Web 调试构建读取。玩家仍自行选择升级和购买装备。

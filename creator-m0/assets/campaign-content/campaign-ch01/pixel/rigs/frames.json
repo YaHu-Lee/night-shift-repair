@@ -1,0 +1,722 @@
+{
+  "duty_standard:1:front": [
+    3,
+    2,
+    25,
+    28
+  ],
+  "duty_standard:2:front": [
+    36,
+    2,
+    24,
+    28
+  ],
+  "duty_standard:3:front": [
+    66,
+    2,
+    27,
+    28
+  ],
+  "duty_standard:4:front": [
+    98,
+    2,
+    28,
+    28
+  ],
+  "heavy_fitter:1:front": [
+    2,
+    39,
+    28,
+    18
+  ],
+  "heavy_fitter:2:front": [
+    34,
+    39,
+    28,
+    17
+  ],
+  "heavy_fitter:3:front": [
+    66,
+    39,
+    28,
+    17
+  ],
+  "heavy_fitter:4:front": [
+    98,
+    38,
+    28,
+    19
+  ],
+  "high_voltage:1:front": [
+    2,
+    66,
+    27,
+    28
+  ],
+  "high_voltage:2:front": [
+    34,
+    67,
+    28,
+    25
+  ],
+  "high_voltage:3:front": [
+    66,
+    68,
+    28,
+    24
+  ],
+  "high_voltage:4:front": [
+    98,
+    68,
+    28,
+    23
+  ],
+  "thermal_welder:1:front": [
+    4,
+    98,
+    24,
+    28
+  ],
+  "thermal_welder:2:front": [
+    34,
+    98,
+    28,
+    27
+  ],
+  "thermal_welder:3:front": [
+    67,
+    98,
+    25,
+    28
+  ],
+  "thermal_welder:4:front": [
+    99,
+    98,
+    26,
+    28
+  ],
+  "scrap_auditor:1:front": [
+    2,
+    135,
+    28,
+    18
+  ],
+  "scrap_auditor:2:front": [
+    34,
+    134,
+    28,
+    19
+  ],
+  "scrap_auditor:3:front": [
+    66,
+    134,
+    28,
+    20
+  ],
+  "scrap_auditor:4:front": [
+    98,
+    134,
+    28,
+    19
+  ],
+  "surveyor:1:front": [
+    2,
+    162,
+    27,
+    28
+  ],
+  "surveyor:2:front": [
+    36,
+    162,
+    24,
+    28
+  ],
+  "surveyor:3:front": [
+    68,
+    162,
+    23,
+    28
+  ],
+  "surveyor:4:front": [
+    98,
+    162,
+    28,
+    28
+  ],
+  "duty_standard:1:back": [
+    3,
+    194,
+    26,
+    28
+  ],
+  "duty_standard:2:back": [
+    35,
+    194,
+    25,
+    28
+  ],
+  "duty_standard:3:back": [
+    66,
+    194,
+    27,
+    28
+  ],
+  "duty_standard:4:back": [
+    98,
+    194,
+    28,
+    28
+  ],
+  "heavy_fitter:1:back": [
+    2,
+    230,
+    28,
+    19
+  ],
+  "heavy_fitter:2:back": [
+    34,
+    231,
+    28,
+    17
+  ],
+  "heavy_fitter:3:back": [
+    66,
+    231,
+    28,
+    17
+  ],
+  "heavy_fitter:4:back": [
+    98,
+    230,
+    28,
+    19
+  ],
+  "high_voltage:1:back": [
+    2,
+    258,
+    27,
+    28
+  ],
+  "high_voltage:2:back": [
+    34,
+    259,
+    28,
+    25
+  ],
+  "high_voltage:3:back": [
+    66,
+    260,
+    28,
+    24
+  ],
+  "high_voltage:4:back": [
+    98,
+    260,
+    28,
+    23
+  ],
+  "thermal_welder:1:back": [
+    3,
+    290,
+    25,
+    28
+  ],
+  "thermal_welder:2:back": [
+    34,
+    291,
+    28,
+    26
+  ],
+  "thermal_welder:3:back": [
+    67,
+    290,
+    26,
+    28
+  ],
+  "thermal_welder:4:back": [
+    98,
+    290,
+    28,
+    28
+  ],
+  "scrap_auditor:1:back": [
+    2,
+    326,
+    28,
+    19
+  ],
+  "scrap_auditor:2:back": [
+    34,
+    326,
+    28,
+    19
+  ],
+  "scrap_auditor:3:back": [
+    66,
+    326,
+    28,
+    20
+  ],
+  "scrap_auditor:4:back": [
+    98,
+    326,
+    28,
+    19
+  ],
+  "surveyor:1:back": [
+    2,
+    354,
+    28,
+    28
+  ],
+  "surveyor:2:back": [
+    36,
+    354,
+    24,
+    28
+  ],
+  "surveyor:3:back": [
+    68,
+    354,
+    23,
+    28
+  ],
+  "surveyor:4:back": [
+    98,
+    354,
+    28,
+    28
+  ],
+  "duty_standard:1:side": [
+    11,
+    386,
+    9,
+    28
+  ],
+  "duty_standard:2:side": [
+    42,
+    386,
+    11,
+    28
+  ],
+  "duty_standard:3:side": [
+    74,
+    386,
+    11,
+    28
+  ],
+  "duty_standard:4:side": [
+    106,
+    386,
+    11,
+    28
+  ],
+  "heavy_fitter:1:side": [
+    8,
+    418,
+    16,
+    28
+  ],
+  "heavy_fitter:2:side": [
+    39,
+    418,
+    18,
+    28
+  ],
+  "heavy_fitter:3:side": [
+    71,
+    418,
+    17,
+    28
+  ],
+  "heavy_fitter:4:side": [
+    104,
+    418,
+    15,
+    28
+  ],
+  "high_voltage:1:side": [
+    8,
+    450,
+    15,
+    28
+  ],
+  "high_voltage:2:side": [
+    40,
+    450,
+    16,
+    28
+  ],
+  "high_voltage:3:side": [
+    72,
+    450,
+    15,
+    28
+  ],
+  "high_voltage:4:side": [
+    103,
+    450,
+    18,
+    28
+  ],
+  "thermal_welder:1:side": [
+    6,
+    482,
+    19,
+    28
+  ],
+  "thermal_welder:2:side": [
+    38,
+    482,
+    20,
+    28
+  ],
+  "thermal_welder:3:side": [
+    69,
+    482,
+    21,
+    28
+  ],
+  "thermal_welder:4:side": [
+    102,
+    482,
+    20,
+    28
+  ],
+  "scrap_auditor:1:side": [
+    2,
+    517,
+    28,
+    22
+  ],
+  "scrap_auditor:2:side": [
+    34,
+    516,
+    28,
+    23
+  ],
+  "scrap_auditor:3:side": [
+    66,
+    514,
+    28,
+    27
+  ],
+  "scrap_auditor:4:side": [
+    98,
+    514,
+    27,
+    28
+  ],
+  "surveyor:1:side": [
+    11,
+    546,
+    9,
+    28
+  ],
+  "surveyor:2:side": [
+    43,
+    546,
+    9,
+    28
+  ],
+  "surveyor:3:side": [
+    75,
+    546,
+    10,
+    28
+  ],
+  "surveyor:4:side": [
+    106,
+    546,
+    11,
+    28
+  ],
+  "duty_standard:1:ne": [
+    6,
+    578,
+    19,
+    28
+  ],
+  "duty_standard:2:ne": [
+    38,
+    578,
+    19,
+    28
+  ],
+  "duty_standard:3:ne": [
+    70,
+    578,
+    20,
+    28
+  ],
+  "duty_standard:4:ne": [
+    102,
+    578,
+    20,
+    28
+  ],
+  "heavy_fitter:1:ne": [
+    3,
+    610,
+    26,
+    28
+  ],
+  "heavy_fitter:2:ne": [
+    34,
+    610,
+    27,
+    28
+  ],
+  "heavy_fitter:3:ne": [
+    66,
+    610,
+    27,
+    28
+  ],
+  "heavy_fitter:4:ne": [
+    99,
+    610,
+    26,
+    28
+  ],
+  "high_voltage:1:ne": [
+    5,
+    642,
+    22,
+    28
+  ],
+  "high_voltage:2:ne": [
+    36,
+    642,
+    23,
+    28
+  ],
+  "high_voltage:3:ne": [
+    68,
+    642,
+    23,
+    28
+  ],
+  "high_voltage:4:ne": [
+    100,
+    642,
+    24,
+    28
+  ],
+  "thermal_welder:1:ne": [
+    3,
+    674,
+    25,
+    28
+  ],
+  "thermal_welder:2:ne": [
+    36,
+    674,
+    24,
+    28
+  ],
+  "thermal_welder:3:ne": [
+    68,
+    674,
+    24,
+    28
+  ],
+  "thermal_welder:4:ne": [
+    100,
+    674,
+    23,
+    28
+  ],
+  "scrap_auditor:1:ne": [
+    2,
+    708,
+    28,
+    24
+  ],
+  "scrap_auditor:2:ne": [
+    34,
+    708,
+    28,
+    24
+  ],
+  "scrap_auditor:3:ne": [
+    66,
+    708,
+    28,
+    24
+  ],
+  "scrap_auditor:4:ne": [
+    98,
+    707,
+    28,
+    25
+  ],
+  "surveyor:1:ne": [
+    4,
+    738,
+    24,
+    28
+  ],
+  "surveyor:2:ne": [
+    37,
+    738,
+    22,
+    28
+  ],
+  "surveyor:3:ne": [
+    69,
+    738,
+    21,
+    28
+  ],
+  "surveyor:4:ne": [
+    102,
+    738,
+    20,
+    28
+  ],
+  "duty_standard:1:se": [
+    7,
+    770,
+    17,
+    28
+  ],
+  "duty_standard:2:se": [
+    39,
+    770,
+    18,
+    28
+  ],
+  "duty_standard:3:se": [
+    70,
+    770,
+    19,
+    28
+  ],
+  "duty_standard:4:se": [
+    103,
+    770,
+    18,
+    28
+  ],
+  "heavy_fitter:1:se": [
+    5,
+    802,
+    21,
+    28
+  ],
+  "heavy_fitter:2:se": [
+    38,
+    802,
+    20,
+    28
+  ],
+  "heavy_fitter:3:se": [
+    71,
+    802,
+    18,
+    28
+  ],
+  "heavy_fitter:4:se": [
+    103,
+    802,
+    18,
+    28
+  ],
+  "high_voltage:1:se": [
+    6,
+    834,
+    20,
+    28
+  ],
+  "high_voltage:2:se": [
+    38,
+    834,
+    20,
+    28
+  ],
+  "high_voltage:3:se": [
+    70,
+    834,
+    20,
+    28
+  ],
+  "high_voltage:4:se": [
+    102,
+    834,
+    20,
+    28
+  ],
+  "thermal_welder:1:se": [
+    5,
+    866,
+    21,
+    28
+  ],
+  "thermal_welder:2:se": [
+    37,
+    866,
+    21,
+    28
+  ],
+  "thermal_welder:3:se": [
+    69,
+    866,
+    21,
+    28
+  ],
+  "thermal_welder:4:se": [
+    101,
+    866,
+    21,
+    28
+  ],
+  "scrap_auditor:1:se": [
+    2,
+    898,
+    28,
+    27
+  ],
+  "scrap_auditor:2:se": [
+    34,
+    898,
+    28,
+    27
+  ],
+  "scrap_auditor:3:se": [
+    66,
+    898,
+    28,
+    28
+  ],
+  "scrap_auditor:4:se": [
+    98,
+    898,
+    28,
+    28
+  ],
+  "surveyor:1:se": [
+    7,
+    930,
+    17,
+    28
+  ],
+  "surveyor:2:se": [
+    39,
+    930,
+    17,
+    28
+  ],
+  "surveyor:3:se": [
+    72,
+    930,
+    16,
+    28
+  ],
+  "surveyor:4:se": [
+    103,
+    930,
+    18,
+    28
+  ]
+}

@@ -19,10 +19,13 @@ import {
     shopStoryBeatHint,
 } from '../roguelite/narrative';
 import { PatrolStorage } from '../roguelite/persistence';
+import { RogueliteBattle } from '../roguelite/battle';
 import {
     CHAPTER_CLEAR_BONUS,
     DANGER_LEVELS,
     DANGER_RULE_TEXT,
+    computeRunUnlocks, MILESTONES, RANK_LABEL, RIG_RANK_EFFECTS, WEAPON_MODS,
+    milestoneLabels, milestoneSource, rigRank, unlockedMods, unlockedWeaponsForProfile,
     PRE_RUN_SUPPLIES,
     PRE_RUN_SUPPLY_ORDER,
     bonusBanSlotsForProfile,
@@ -63,6 +66,7 @@ import {
     todayDateKey,
 } from '../roguelite/engagement';
 import type { MiniGameEngage } from '../platform/miniGameEngage';
+import type { MockRewardedVideoPrompt } from '../platform/mockRewardedVideo';
 import type {
     ChapterDefinition,
     CombatBounds,
@@ -75,10 +79,11 @@ import type {
     StatKey,
     Tier,
     ToolId,
+    WeaponTag,
     WorkshopProfile,
 } from '../roguelite/types';
 import { BENCH, benchLock, benchPlate, benchScrew } from './WorkshopBench';
-import { drawCreditTicket, drawDispatchHandle, drawLobbyScrim } from './CampaignLobbyView';
+import { drawCreditTicket, drawDispatchHandle, drawLobbyDial, drawLobbyScrim } from './CampaignLobbyView';
 import { drawBossVolleyCue, drawCampaignEncounter, drawPixelEnemyAim, drawPixelEnemyShells, drawPixelSpawn, drawPlayerHit } from './CampaignCombatView';
 import { drawSkillEffects } from './SkillEffectsView';
 import { FLOATING_WEAPON_ART } from './FloatingWeaponArt';
@@ -177,14 +182,27 @@ export interface PatrolHost {
     readonly syncMusic: (battle: boolean) => void;
     readonly onBattleStopped: () => void;
     readonly engage?: MiniGameEngage | null;
+    readonly mockRewardPrompt?: MockRewardedVideoPrompt | null;
     readonly isLowEndDevice?: boolean;
     readonly invalidateUi?: () => void;
     readonly triggerGC?: () => void;
 }
 
 type PatrolPage = 'home' | 'weapons' | 'equipment' | 'duty' | 'prep' | 'workshop' | 'log' | 'settings' | 'battle' | 'revive' | 'shop' | 'result';
+interface RouteReward {
+    name: string;
+    kind: string;
+    milestoneDanger?: DangerLevel;
+    detail: string;
+    source: string;
+    icon: string;
+    rig?: RigId;
+    rank?: Tier;
+}
+
+type ShelfAttribute = 'all' | 'special' | StatKey | WeaponTag;
 type PrepMode = 'story' | 'daily' | 'endless';
-const RIG_ORDER: readonly RigId[] = ['duty_standard', 'heavy_fitter', 'high_voltage', 'thermal_welder', 'scrap_auditor'];
+const RIG_ORDER: readonly RigId[] = ['duty_standard', 'heavy_fitter', 'high_voltage', 'thermal_welder', 'scrap_auditor', 'surveyor'];
 
 // Plain, self-explanatory Chinese stat names (NO cryptic 1-character jargon!)
 const CARD_STAT: Readonly<Record<StatKey, string>> = {
@@ -230,6 +248,7 @@ const SHORT_WEAPON: Readonly<Record<ToolId, string>> = {
     wrench: '扳手', bypass_wrench: '撬棍', arc_gun: '电弧枪', riveter: '铆枪',
     hydraulic_nailer: '钉枪', torch: '焊枪', pulse_nozzle: '吹灰枪',
     induction: '线圈', traction_coil: '抓钩', split_probe: '电击针',
+    rebound_saw: '锯盘', rivet_line: '铆索', echo_horn: '回声', breaker_stake: '地桩', patrol_welder: '焊机',
 };
 
 // Distinct 1-to-1 pixel workshop icons for all 32 modules (no duplicate icons on adjacent shop cards!)
@@ -306,7 +325,12 @@ export class PatrolCampaignUi {
     private workshopTab: 'talents' | 'bans' = 'talents';
     private logTab: 'archive' | 'records' = 'archive';
     private shelfPage = 0;
+    private shelfAttribute: ShelfAttribute = 'all';
+    private pickingAttribute = false;
+    private routeReward: number | null = null;
+    private routeRewardPage: number | null = null;
     private shelfFromShop = false;
+    private shelfFromPrep = false;
     private shelfItem: number | null = null;
     private prepLoadout = false;
     private rigDetails = false;
@@ -324,6 +348,12 @@ export class PatrolCampaignUi {
     private adBusy = false;
     private resultDoubledRunId: string | null = null;
     private showResultUnlocks = false;
+    private victoryOpen = false;
+    private victoryAge = 0;
+    private rewardIndex = 0;
+    private trial: RogueliteBattle | null = null;
+    private trialTime = 0;
+    private trialReturn: 'weapons' | 'result' | 'prep' = 'result';
     private tutorialSkipped = false;
     private movedTicksInWave = 0;
     private saving = false;
@@ -369,6 +399,14 @@ export class PatrolCampaignUi {
             return;
         }
         this.session = this.storage.loadActiveRun(this.profile);
+        if (!this.session && this.storage.pendingVictory) {
+            const victory = this.storage.pendingVictory;
+            this.result = victory;
+            this.chapterIdx = CHAPTER_CATALOG.findIndex(c => c.id === victory.chapterId);
+            this.rigIdx = RIG_ORDER.indexOf(victory.rigId);
+            this.danger = victory.danger;
+            this.page = 'result'; this.victoryOpen = true; this.victoryAge = 0; this.rewardIndex = 0; return;
+        }
         if (this.session) {
             this.chapterIdx = this.session.chapter.index;
             this.rigIdx = Math.max(0, RIG_ORDER.indexOf(this.session.rigId));
@@ -624,6 +662,8 @@ export class PatrolCampaignUi {
             if (!profile) return false;
             this.profile = profile;
             this.result = session.settle(preProfile);
+            this.victoryOpen = !!this.result.firstClearMilestones.length;
+            this.victoryAge = 0; this.rewardIndex = 0;
             this.showResultUnlocks = false;
             this.showDamage = false;
             this.page = 'result';
@@ -745,7 +785,7 @@ export class PatrolCampaignUi {
     }
 
     draw(): void {
-        const battle = !this.retrySave && (this.page === 'battle' || this.page === 'revive') ? this.session?.battle : undefined;
+        const battle = this.trial ?? (!this.retrySave && (this.page === 'battle' || this.page === 'revive') ? this.session?.battle : undefined);
         const skin = this.host.skin;
         if (battle) skin?.prepareBattle(battle.chapter.stations[battle.waveDef.stationIndex].id, battle.arena);
         const loading = !!battle && !!skin && !skin.isBattleArtReady(battle.arena);
@@ -759,7 +799,7 @@ export class PatrolCampaignUi {
         this.host.setScenery(this.page === 'home' ? 'night-depot' : null);
 
         if (isBattle) {
-            this.drawBattleWorld();
+            this.drawBattleWorld(battle!);
             if (this.renderedBattle !== battle) {
                 this.renderedBattle = battle;
                 this.host.syncMusic(this.page === 'battle');
@@ -772,7 +812,9 @@ export class PatrolCampaignUi {
             return;
         }
         if (this.saving || this.adBusy) {
-            this.host.text(this.adBusy ? '正在载入视频…' : '正在保存进度…', 180, 320, { width: 236, size: 16, color: BENCH.paper });
+            const prompt = this.adBusy ? this.host.mockRewardPrompt : null;
+            if (prompt) this.drawMockRewardVideo(prompt);
+            else this.host.text(this.adBusy ? '正在载入视频…' : '正在保存进度…', 180, 320, { width: 236, size: 16, color: BENCH.paper });
             this.host.skin?.endUi();
             return;
         }
@@ -786,6 +828,11 @@ export class PatrolCampaignUi {
             this.pixelBtn(reload ? '读取存档' : '重试保存', 180, 254, 236, 50, this.retrySave, true);
             this.host.skin?.endUi();
             return;
+        }
+        if (this.trial) {
+            this.host.text('工坊试用 · ' + WEAPON_CATALOG[this.trial.runtimes[0].instance.id].name, 180, this.host.top - 40, { width: 270, color: GOLD, size: 17, bold: true });
+            this.pixelBtn('结束试用', 180, this.host.footer + 38, 156, 38, () => this.endTrial());
+            this.host.skin?.endUi(); return;
         }
         switch (this.page) {
             case 'home': this.drawHome(); break;
@@ -807,6 +854,18 @@ export class PatrolCampaignUi {
             this.host.text(this.toastText, 180, ty, { width: 298, size: 11, bold: true, color: GOLD });
         }
         this.host.skin?.endUi();
+    }
+
+    private drawMockRewardVideo(prompt: MockRewardedVideoPrompt): void {
+        this.backdrop();
+        benchPlate(this.host.ui, 44, 190, 272, 260, BENCH.steel, BENCH.edge, 8);
+        this.host.text('模拟激励视频', 180, 419, { width: 232, size: 19, bold: true });
+        this.host.text(prompt.ready ? '模拟播放完成' : '模拟播放中…', 180, 380, { width: 232, size: 14, color: BENCH.muted });
+        if (prompt.ready) {
+            this.pixelBtn('看完并返回', 180, 332, 220, 38, prompt.claim, true);
+        }
+        this.pixelBtn('提前关闭', 180, 279, 220, 38, prompt.close);
+        this.pixelBtn('模拟加载失败', 180, 226, 220, 38, prompt.fail);
     }
 
     private drawLoadingScreen(skin: BattleSkinView): void {
@@ -896,8 +955,7 @@ export class PatrolCampaignUi {
 
     // ─────────────────────────── BATTLE WORLD ───────────────────────────
 
-    private drawBattleWorld(): void {
-        const battle = this.session!.battle!;
+    private drawBattleWorld(battle: RogueliteBattle): void {
         const skin = this.host.skin;
         skin?.drawPixelFloor(battle.field);
 
@@ -1020,11 +1078,6 @@ export class PatrolCampaignUi {
                 { left: true, width: seals === 4 ? 98 : 66, size: 11, bold: true, color: GOLD });
         }
 
-        // FIXED: Settings button now sits on an opaque pixel dark plate so it never bleeds into the pixel roof art.
-        this.pixelBtn(UI_COPY.home.settingsTab, 314, Math.min(topY - 24, this.host.capsuleCeiling - 24), 60, 34, () => {
-            this.page = 'settings';
-        });
-
         const bottom = Math.max(this.host.footer + 40, 70);
         const hasActive = !!this.session && (this.session.phase === 'battle' || this.session.phase === 'shop');
         const canUpgrade = WORKSHOP_TALENTS.some(t => {
@@ -1034,20 +1087,24 @@ export class PatrolCampaignUi {
         const links = [
             ['weapons', '武器', 'arc_gun/signature'], ['equipment', '装备', 'gear/guard'],
             ['workshop', '工坊', 'wrench/flywheel'], ['log', '日志', 'ui/receipt'], ['duty', '值班簿', 'ui/radio'],
+            ['settings', UI_COPY.home.settingsTab, null],
         ] as const;
-        benchPlate(g, 55, bottom - 21, 250, 42, HUD_GLASS, BENCH.edge, 5);
+        const tabWidth = 50, barLeft = (WIDTH - links.length * tabWidth) / 2;
+        benchPlate(g, barLeft, bottom - 21, links.length * tabWidth, 42, HUD_GLASS, BENCH.edge, 5);
         links.forEach(([page, label, icon], i) => {
-            const x = 80 + i * 50, y = bottom;
-            const down = this.host.addTouch(x, y, 50, 44, page, () => {
+            const x = barLeft + (i + 0.5) * tabWidth, y = bottom;
+            const down = this.host.addTouch(x, y, tabWidth, 44, page === 'settings' ? label : page, () => {
                 this.homeNotice = '';
                 this.shelfItem = null;
                 this.shelfFromShop = false;
-                this.shelfPage = 0;
+                this.shelfFromPrep = false;
+                this.resetShelfFilter();
                 if (page === 'workshop') this.openWorkshop('home');
                 else this.page = page;
             });
             if (down) this.host.block(x - 23, y - 19, 46, 38, BENCH.steel);
-            this.host.skin?.uiIcon(icon, x, y + 6, 22);
+            if (icon) this.host.skin?.uiIcon(icon, x, y + 6, 22);
+            else drawLobbyDial(g, x, y + 7, 'settings', down);
             this.host.text(label, x, y - 11, { size: 11, width: 46, color: BENCH.paper });
             if (page === 'workshop' && canUpgrade) this.host.block(x + 10, y + 10, 5, 5, GOLD);
         });
@@ -1071,8 +1128,8 @@ export class PatrolCampaignUi {
             ? `${activeRun.intermission?.pendingLevelUps ? '继续升级' : '继续整备'}\n第 ${activeRun.waveIndex + 2} 波`
             : activeRun
                 ? `继续战斗\n第 ${activeRun.waveIndex + 1} 波`
-                : isFirstTimePlayer(this.profile) ? UI_COPY.home.startCta : '出发准备';
-        this.host.text(cta, 160, dispatchY - (held ? 3 : 0), {
+                : isFirstTimePlayer(this.profile) ? UI_COPY.home.startCta : '出发';
+        this.host.text(cta, 180, dispatchY - (held ? 3 : 0), {
             size: hasActive ? 14 : 23, height: hasActive ? 40 : 29, bold: true, color: BENCH.ink, width: 108,
         });
 
@@ -1150,13 +1207,34 @@ export class PatrolCampaignUi {
 
     }
 
+    private resetShelfFilter(): void {
+        this.shelfAttribute = 'all';
+        this.pickingAttribute = false;
+        this.shelfPage = 0;
+    }
+
     private drawShelf(): void {
         this.backdrop();
         const weapons = this.page === 'weapons';
         const tools = Object.values(WEAPON_CATALOG);
         const items = weapons ? tools : MODULE_CATALOG;
-        const title = weapons ? '武器架' : '装备柜';
-        const top = this.header(title, this.shelfFromShop ? '‹ 整备' : this.shelfItem === null ? '‹ 值班室' : '‹ 列表', () => {
+        const owned = unlockedWeaponsForProfile(this.profile);
+        const title = weapons ? '武器架 · ' + owned.length + '/' + tools.length : '装备柜';
+        const filters: [ShelfAttribute, string][] = weapons
+            ? [['all', '全部流派'], ...Object.entries(TAG_LABELS) as [WeaponTag, string][]]
+            : [['all', '全部属性'], ...(Object.keys(STAT_LABELS) as StatKey[]).map((key): [StatKey, string] => [key, STAT_LABELS[key].name]), ['special', '特殊效果']];
+        if (this.pickingAttribute && this.shelfItem === null) {
+            const top = this.header(weapons ? '按流派筛选' : '按加成属性筛选', '‹ 列表', () => { this.pickingAttribute = false; });
+            filters.forEach(([key, label], i) => {
+                this.pixelBtn(label, 68 + (i % 3) * 112, top - 34 - Math.floor(i / 3) * 51, 104, 42, () => {
+                    this.shelfAttribute = key;
+                    this.shelfPage = 0;
+                    this.pickingAttribute = false;
+                }, key === this.shelfAttribute);
+            });
+            return;
+        }
+        const top = this.header(title, this.shelfFromShop ? '‹ 整备' : this.shelfItem === null ? (this.shelfFromPrep ? '‹ 出发准备' : '‹ 值班室') : '‹ 列表', () => {
             if (this.shelfFromShop) {
                 this.page = 'shop';
                 this.shelfFromShop = false;
@@ -1164,7 +1242,7 @@ export class PatrolCampaignUi {
                 return;
             }
             if (this.shelfItem !== null) this.shelfItem = null;
-            else this.page = 'home';
+            else { this.page = this.shelfFromPrep ? 'prep' : 'home'; this.shelfFromPrep = false; }
         });
         const icon = (id: string) => weapons ? id : MODULE_ICON[id] ?? 'gear/guard';
         if (this.shelfItem !== null) {
@@ -1175,22 +1253,80 @@ export class PatrolCampaignUi {
                 ? [item.roleText, ...item.tiers.map((tier, i) => TIER_ROMAN[(i + 1) as Tier] + '   伤害 ' + tier.damage + (tier.perkText ? ' · ' + tier.perkText : ''))]
                 : [item.flavor, formatStatPreview(item.stats, 8), item.special ? SPECIAL_DESC[item.special] : '',
                     isModuleUnlocked(this.profile, item.id) ? '已加入商店货架' : '解锁难度 ' + moduleRequiredDanger(item.id)];
-            let y = top - 203;
+            if ('tiers' in item) {
+                const tool = item.id;
+                const unlocked = owned.includes(tool);
+                const source = milestoneSource(m => m.weapon === tool);
+                const rig = RIG_CATALOG[RIG_ORDER[this.rigIdx]];
+                const available = !rig.bannedTags?.some(tag => item.tags.includes(tag));
+                const status = !unlocked ? '未解锁 · ' + source?.hint
+                    : !available ? '已入库 · 当前工装禁用'
+                    : '已入库 · 商店可买 · ' + (rig.starterWeapon === tool || hasCustomStarterUnlock(this.profile) ? '可选起手' : '第四章后可选起手');
+                this.host.text(status, 180, top - 174, { width: 314, size: 12, bold: true, color: unlocked ? GREEN : GOLD });
+                if (source && !unlocked && !this.shelfFromShop) {
+                    this.pixelBtn('前往挑战', 180, this.host.footer + 32, 186, 36, () => {
+                        const reachable = CHAPTER_CATALOG.filter(c => isChapterUnlocked(this.profile, c.id));
+                        this.chapterIdx = Math.min(reachable[reachable.length - 1].index, CHAPTER_CATALOG.findIndex(c => c.id === source.chapter));
+                        this.danger = this.chapterIdx + 1 === Number(source.chapter) ? Math.min(source.danger, maxUnlockedDanger(this.profile)) as DangerLevel : 0;
+                        this.shelfFromPrep = false;
+                        this.page = 'prep'; this.prepMode = 'story'; this.prepLoadout = false;
+                    });
+                }
+                const mods = unlockedMods(this.profile, tool);
+                if (mods.length && !this.shelfFromShop) {
+                    const selected = this.profile.weaponMods?.[tool];
+                    this.pixelBtn('改装 · ' + (selected ? WEAPON_MODS[selected][1] : '原装'), 180, this.host.footer + 32, 252, 36, () => {
+                        const index = selected ? mods.indexOf(selected) : -1;
+                        const choices = { ...this.profile.weaponMods };
+                        if (index + 1 < mods.length) choices[tool] = mods[index + 1];
+                        else delete choices[tool];
+                        this.saveWorkshop({ ...this.profile, weaponMods: choices });
+                    });
+                }
+            }
+            if ('tiers' in item && !this.shelfFromShop) {
+                this.pixelBtn('试用', 180, this.host.footer + 76, 112, 30, () => this.startTrial(item.id, 'weapons'));
+            }
+            let y = top - 205;
             for (const line of lines.filter(Boolean)) {
                 this.host.text(line, 180, y, { height: 44, width: 296, size: 14, color: BENCH.paper });
-                y -= 53;
+                y -= 37;
             }
             return;
         }
-        const size = 6;
-        items.slice(this.shelfPage * size, (this.shelfPage + 1) * size).forEach((item, i) => {
-            const x = 95 + 170 * (i % 2), y = top - 62 - Math.floor(i / 2) * 112;
-            const down = this.host.addTouch(x, y, 154, 98, item.id, () => { this.shelfItem = this.shelfPage * size + i; });
-            benchPlate(this.host.ui, x - 77, y - 49, 154, 98, down ? BENCH.edge : BENCH.steel, BENCH.edge, 8);
-            this.host.skin?.uiIcon(icon(item.id), x, y + 13, 46);
-            this.host.text(item.name, x, y - 26, { width: 144, size: 14, color: BENCH.paper });
+        const attribute = this.shelfAttribute;
+        const filtered = Array.from(items as readonly (ModuleSpec | typeof tools[number])[])
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => {
+                if (attribute === 'all') return true;
+                if ('tiers' in item) return item.tags.includes(attribute as WeaponTag);
+                return attribute === 'special' ? !!item.special : (item.stats[attribute as StatKey] ?? 0) > 0;
+            });
+        const selected = filters.find(([key]) => key === attribute)!;
+        this.pixelBtn(selected[1] + ' ▾', 82, top - 24, 132, 34, () => { this.pickingAttribute = true; });
+        this.host.text(filtered.length + (weapons ? ' 把武器' : ' 件装备'), 292, top - 24, { width: 100, size: 12, color: BENCH.muted });
+
+        const size = 12, pages = Math.max(1, Math.ceil(filtered.length / size));
+        filtered.slice(this.shelfPage * size, (this.shelfPage + 1) * size).forEach(({ item, index }, i) => {
+            const x = 68 + 112 * (i % 3), y = top - 88 - Math.floor(i / 3) * 77;
+            const down = this.host.addTouch(x, y, 104, 70, item.id, () => { this.shelfItem = index; });
+            const weapon = 'tiers' in item;
+            const locked = weapon ? !owned.includes(item.id) : !isModuleUnlocked(this.profile, item.id);
+            benchPlate(this.host.ui, x - 52, y - 35, 104, 70, down ? BENCH.edge : locked ? BENCH.recess : BENCH.steel, BENCH.edge, 5);
+            this.host.skin?.uiIcon(icon(item.id), x, y + 15, 32, undefined, locked ? BENCH.muted : Color.WHITE);
+            if (locked) benchLock(this.host.ui, x + 39, y + 22, GOLD);
+            this.host.text(item.name, x, y - 7, { width: 100, size: 12, bold: true, color: locked ? BENCH.muted : BENCH.paper });
+            let hint: string;
+            if (weapon) {
+                const source = locked && milestoneSource(m => m.weapon === item.id);
+                hint = source ? '第' + '一二三四'[Number(source.chapter) - 1] + '章 · 难度 ' + source.danger : item.tags.map(tag => TAG_LABELS[tag]).join(' · ');
+            } else if (locked) hint = '难度 ' + moduleRequiredDanger(item.id) + ' 解锁';
+            else if (attribute === 'special') hint = SPECIAL_SHORT[item.special!];
+            else if (attribute !== 'all') hint = formatStatPreview({ [attribute]: item.stats[attribute as StatKey] });
+            else hint = formatStatPreview(item.stats, 1);
+            this.host.text(hint, x, y - 24, { width: 99, size: 10, color: locked ? GOLD : CYAN });
         });
-        const pages = Math.ceil(items.length / size), y = Math.max(54, this.host.footer + 22);
+        const y = Math.max(54, this.host.footer + 22);
         if (this.shelfPage > 0) this.pixelBtn('上一页', 76, y, 112, 42, () => { this.shelfPage--; });
         if (this.shelfPage + 1 < pages) this.pixelBtn('下一页', 284, y, 112, 42, () => { this.shelfPage++; });
         this.host.text((this.shelfPage + 1) + ' / ' + pages, 180, y, { size: 13, color: BENCH.muted });
@@ -1198,12 +1334,142 @@ export class PatrolCampaignUi {
 
     // ─────────────────────────── PAGE 2: PREP / CHAPTER & RIG (FIXED) ───────────────────────────
 
+    private routeRewards(chapter: ChapterDefinition, danger: DangerLevel): RouteReward[] {
+        const rewards: RouteReward[] = [];
+        const currency = (name: string, detail: string, source: string) => {
+            rewards.push({ name, detail, source, kind: '维修凭证', icon: 'ui/receipt' });
+        };
+        if (this.prepMode === 'endless') {
+            currency('每波 2 凭证', '每完成一波获得 2 张维修凭证。完成第 12 波后，本局结算再加 ' + CHAPTER_CLEAR_BONUS['04'] + ' 张。', '按本局完成的波数结算');
+            return rewards;
+        }
+        const previous = this.profile.maxDangerCleared[chapter.id] ?? -1;
+        const covered = DANGER_LEVELS.filter(d => d <= danger && d > previous).reverse();
+        const milestoneText = new Set<string>();
+        for (const d of covered) {
+            const grant = MILESTONES[chapter.id][d];
+            milestoneLabels(grant).forEach(label => milestoneText.add(label));
+            const source = chapter.title + ' · 难度 ' + d + (d === danger ? ' · 首次通关' : ' · 本次一并领取');
+            if (grant.weapon) {
+                const tool = WEAPON_CATALOG[grant.weapon];
+                rewards.push({ name: tool.name, kind: '新武器', milestoneDanger: d, icon: tool.id, source,
+                    detail: tool.roleText + '\n解锁后可在商店购买。' });
+            }
+            if (grant.mod) {
+                const [id, name, effect] = WEAPON_MODS[grant.mod];
+                rewards.push({ name, kind: '武器改装', milestoneDanger: d, icon: id, source,
+                    detail: effect + '\n可在武器架为' + WEAPON_CATALOG[id].name + '装配。' });
+            }
+            for (const [id, rank] of grant.rigs ?? []) {
+                rewards.push({ name: RIG_CATALOG[id].name, kind: rank === 1 ? '新工装' : '工装升级',
+                    rig: id, rank, milestoneDanger: d, icon: RIG_CATALOG[id].starterWeapon, source,
+                    detail: RANK_LABEL[rank] + ' 阶效果：' + RIG_RANK_EFFECTS[id][rank - 1] + '。' });
+            }
+        }
+        if (covered.length) {
+            const projected = { ...this.profile, clearedChapters: [...new Set([...this.profile.clearedChapters, chapter.id])],
+                maxDangerCleared: { ...this.profile.maxDangerCleared, [chapter.id]: danger } };
+            const extras = computeRunUnlocks(this.profile, projected, chapter.id, danger).filter(line => !milestoneText.has(line));
+            if (extras.length) rewards.push({ name: '进度解锁', kind: '通关进度', icon: 'ui/medal',
+                source: chapter.title + ' · 难度 ' + danger, detail: extras.join('\n') });
+            const bonus = unclaimedFirstClearBonus(this.profile, chapter.id, danger);
+            currency('+' + bonus + ' 凭证',
+                covered.length > 1 ? '本次包含难度 ' + covered[covered.length - 1] + ' 至 ' + danger + ' 尚未领过的全部首通凭证。' : '首次通关这档难度可额外领取一次。',
+                '首通加奖');
+        }
+        const base = chapter.waves.length * 2 + CHAPTER_CLEAR_BONUS[chapter.id] + DANGER_MULTIPLIERS[danger].creditBonus;
+        currency('+' + base + ' 凭证', '通关本章 ' + chapter.waves.length + ' 波的基础收入，包含章节和难度加成。重复通关也可领取。', '每次通关');
+        if (this.prepMode === 'daily') {
+            const date = todayDateKey();
+            currency('+' + getDailyShift(date).bonusCredits + ' 凭证', '完成今天的指定委托可额外领取一次。', isDailyShiftClearedToday(this.profile, date) ? '今日委托 · 已领取' : '今日委托');
+        }
+        return rewards;
+    }
+
+    private routeRewardArt(reward: RouteReward, x: number, y: number, size: number): void {
+        if (reward.rig && reward.rank) this.host.skin?.rigPortrait(reward.rig, reward.rank, x, y, size);
+        else this.host.skin?.uiIcon(reward.icon, x, y, size);
+    }
+
+    private drawRouteRewardCards(rewards: RouteReward[], top: number, danger: DangerLevel): void {
+        this.host.text(this.prepMode === 'endless' ? '波次奖励' : '首通奖励', 64, top - 15, { width: 94, size: 17, bold: true, color: GOLD });
+        this.pixelBtn('全部 ' + rewards.length + ' 项 ›', 290, top - 15, 108, 29, () => { this.routeRewardPage = 0; });
+        const picks = rewards.filter(reward => reward.milestoneDanger === danger);
+        if (!picks.length) picks.push(rewards[0]);
+        const w = 336 / picks.length;
+        picks.forEach((reward, i) => {
+            const x = 12 + w * (i + 0.5), y = top - 78;
+            const held = this.host.addTouch(x, y, w - 8, 85, 'reward-' + i, () => { this.routeReward = rewards.indexOf(reward); });
+            benchPlate(this.host.ui, x - w / 2 + 4, y - 42, w - 8, 85, held ? BENCH.edge : BENCH.steel, GOLD, 6);
+            this.routeRewardArt(reward, x, y + 8, 43);
+            this.host.text(reward.kind, x, y + 31, { width: w - 16, size: 10, color: GOLD });
+            this.host.text(reward.name + (reward.rank ? ' ' + RANK_LABEL[reward.rank] : ''), x, y - 26, { width: w - 14, size: 12, bold: true, color: BENCH.paper });
+        });
+    }
+
+    private drawRouteRewards(rewards: RouteReward[], top: number, danger: DangerLevel, claimed: boolean): void {
+        if (claimed) {
+            const g = this.host.ui;
+            benchPlate(g, 16, top - 52, 328, 50, BENCH.recess, BENCH.edge, 5);
+            this.host.text('首通奖励', 67, top - 27, { width: 90, size: 16, bold: true, color: BENCH.muted });
+            // Double ink border makes the receipt visibly stamped even at phone scale.
+            benchPlate(g, 236, top - 44, 94, 35, RED, RED, 4);
+            benchPlate(g, 238, top - 42, 90, 31, BENCH.recess, undefined, 3);
+            benchPlate(g, 240, top - 40, 86, 27, BENCH.recess, RED, 2);
+            this.host.text('已领取', 283, top - 26, { width: 80, size: 17, bold: true, color: RED });
+        } else {
+            this.drawRouteRewardCards(rewards, top, danger);
+        }
+        if (this.prepMode === 'endless') return;
+        const credits = rewards.filter(r => r.kind === '维修凭证');
+        const width = 336 / credits.length;
+        credits.forEach((reward, i) => {
+            const x = 12 + width * (i + 0.5), y = top - (claimed ? 76 : 144);
+            const held = this.host.addTouch(x, y, width - 8, 35, 'credit-' + i, () => { this.routeReward = rewards.indexOf(reward); });
+            benchPlate(this.host.ui, x - width / 2 + 4, y - 17, width - 8, 35, held ? BENCH.steel : BENCH.recess, BENCH.edge, 4);
+            this.host.text(reward.source, x, y + 7, { width: width - 12, size: 10, color: BENCH.muted });
+            this.host.text(reward.name, x, y - 8, { width: width - 12, size: 12, bold: true, color: BENCH.paper });
+        });
+    }
+
+    private drawRouteRewardList(rewards: RouteReward[]): void {
+        const top = this.header('全部奖励', '‹ 路线', () => { this.routeRewardPage = null; });
+        const size = 6, page = this.routeRewardPage ?? 0;
+        rewards.slice(page * size, (page + 1) * size).forEach((reward, i) => {
+            const y = top - 38 - i * 56, index = page * size + i;
+            const held = this.host.addTouch(180, y, 328, 50, 'reward-row-' + index, () => { this.routeReward = index; });
+            benchPlate(this.host.ui, 16, y - 25, 328, 50, held ? BENCH.edge : BENCH.steel, BENCH.edge, 5);
+            this.routeRewardArt(reward, 46, y, 36);
+            const name = reward.name + (reward.rank ? ' ' + RANK_LABEL[reward.rank] : '');
+            this.host.text(name, 181, y + 9, { width: 218, left: true, size: 14, bold: true, color: BENCH.paper });
+            this.host.text(reward.source, 181, y - 12, { width: 218, left: true, size: 10, color: BENCH.muted });
+            this.host.text('›', 321, y, { width: 20, size: 18, color: GOLD });
+        });
+        const foot = Math.max(this.host.footer + 24, 58), pages = Math.ceil(rewards.length / size);
+        if (page > 0) this.pixelBtn('上一页', 73, foot, 112, 42, () => { this.routeRewardPage = page - 1; });
+        if (page + 1 < pages) this.pixelBtn('下一页', 287, foot, 112, 42, () => { this.routeRewardPage = page + 1; });
+        this.host.text((page + 1) + ' / ' + pages, 180, foot, { width: 80, size: 13, color: BENCH.muted });
+    }
+
+    private drawRouteRewardDetail(rewards: RouteReward[]): void {
+        const index = Math.min(this.routeReward ?? 0, rewards.length - 1);
+        const reward = rewards[index];
+        const top = this.header('奖励详情', this.routeRewardPage !== null ? '‹ 奖励' : '‹ 路线', () => { this.routeReward = null; });
+        const foot = Math.max(this.host.footer + 24, 58);
+        benchPlate(this.host.ui, 22, foot + 40, 316, top - foot - 55, BENCH.steel, BENCH.edge);
+        this.host.text(reward.source, 180, top - 44, { width: 286, size: 12, color: BENCH.muted });
+        this.routeRewardArt(reward, 180, top - 110, 80);
+        this.host.text(reward.kind || '维修凭证', 180, top - 166, { width: 280, size: 12, color: CYAN });
+        this.host.text(reward.name + (reward.rank ? ' ' + RANK_LABEL[reward.rank] : ''), 180, top - 195, { width: 284, size: 21, bold: true, color: GOLD });
+        const bodyTop = top - 220, bodyBottom = Math.max(foot + 50, bodyTop - 20 * reward.detail.split('\n').length - 42);
+        this.host.text(reward.detail, 180, (bodyTop + bodyBottom) / 2, { width: 278, height: bodyTop - bodyBottom, size: 14, color: BENCH.paper });
+        if (index > 0) this.pixelBtn('上一项', 73, foot, 112, 42, () => { this.routeReward = index - 1; });
+        if (index + 1 < rewards.length) this.pixelBtn('下一项', 287, foot, 112, 42, () => { this.routeReward = index + 1; });
+        this.host.text((index + 1) + ' / ' + rewards.length, 180, foot, { width: 80, size: 13, color: BENCH.muted });
+    }
+
     private drawPrep(): void {
         this.backdrop();
-        const top = this.header(this.prepLoadout ? '工装与补给' : '选择路线', this.prepLoadout ? '‹ 路线' : '‹ 值班室', () => {
-            if (this.prepLoadout) this.prepLoadout = false;
-            else this.page = 'home';
-        }, '工坊', () => this.openWorkshop('prep'));
         const g = this.host.ui;
         const dateKey = todayDateKey();
         const daily = getDailyShift(dateKey);
@@ -1223,6 +1489,18 @@ export class PatrolCampaignUi {
         const narrative = CHAPTER_NARRATIVES[chapter.id];
         const activeDanger: DangerLevel = isDaily ? daily.danger : this.danger;
 
+        if (this.routeReward !== null) {
+            this.drawRouteRewardDetail(this.routeRewards(chapter, activeDanger));
+            return;
+        }
+        if (this.routeRewardPage !== null) {
+            this.drawRouteRewardList(this.routeRewards(chapter, activeDanger));
+            return;
+        }
+        const top = this.header(this.prepLoadout ? '工装与补给' : '', this.prepLoadout ? '‹ 路线' : '‹ 值班室', () => {
+            if (this.prepLoadout) this.prepLoadout = false;
+            else this.page = 'home';
+        }, '工坊', () => this.openWorkshop('prep'));
         const chUnlocked = isDaily ? true : isEndless ? endlessReady : isChapterUnlocked(this.profile, chapter.id);
         const dangerUnlocked = isDaily ? true : isDangerUnlocked(this.profile, activeDanger);
         const rigUnlocked = isDaily ? true : isRigUnlocked(this.profile, rigId);
@@ -1248,7 +1526,7 @@ export class PatrolCampaignUi {
             });
 
             const chTop = top - 34;
-            const chH = 126;
+            const chH = this.prepMode === 'story' ? 96 : 126;
             const chBot = chTop - chH;
             const chEdge = isDaily ? CYAN : isEndless ? GOLD : (chUnlocked ? BENCH.edge : BENCH.steel);
             benchPlate(g, 16, chBot, 328, chH, chUnlocked ? BENCH.steel : BENCH.recess, chEdge, 8);
@@ -1287,22 +1565,17 @@ export class PatrolCampaignUi {
                 this.host.text(chapter.title, 180, chTop - 38, { width: 244, size: 20, bold: true, color: chUnlocked ? BENCH.paper : BENCH.muted });
 
                 if (chUnlocked) {
-                    const stationNames = chapter.stations.map(s => s.name).join(' › ');
-                    this.host.text(stationNames, 180, chTop - 59, { width: 304, size: 10, color: CYAN });
-                } else {
-                    this.host.text(chapterUnlockHint(chapter.id), 180, chTop - 59, { width: 304, size: 11, bold: true, color: GOLD });
-                }
-
-                if (chUnlocked) {
                     this.host.text(`${narrative.opener.speaker}：${narrative.opener.line}`,
-                        180, chTop - 83, { width: 304, height: 30, left: true, size: 10, color: BENCH.muted });
+                        180, chTop - 70, { width: 304, height: 34, left: true, size: 10, color: BENCH.muted });
+                } else {
+                    this.host.text(chapterUnlockHint(chapter.id), 180, chTop - 66, { width: 304, size: 11, bold: true, color: GOLD });
                 }
             }
-            if (!chUnlocked) return;
+
 
             // Section B: Danger level selector (D0-D4) with rule twist + first-clear bonus
             const dTop = chBot - 8;
-            const dH = 92;
+            const dH = 78;
             const dBot = dTop - dH;
             benchPlate(g, 16, dBot, 328, dH, BENCH.recess, dangerUnlocked ? BENCH.edge : BENCH.steel, 6);
             const dm = DANGER_MULTIPLIERS[activeDanger];
@@ -1314,38 +1587,23 @@ export class PatrolCampaignUi {
                         d === activeDanger ? null : () => { this.danger = d; }, d === activeDanger);
                 }
             }
-            const baseWinCredits = 24 + CHAPTER_CLEAR_BONUS[chapter.id] + dm.creditBonus;
-            const firstBonus = !isDaily && !isEndless && dangerUnlocked ? unclaimedFirstClearBonus(this.profile, chapter.id, activeDanger) : 0;
-            const dangerHead = isDaily ? `固定难度 ${activeDanger} · ${dm.label}`
-                : !dangerUnlocked ? `难度 ${activeDanger} · ${dm.label} · 未解锁`
-                    : isEndless ? `难度 ${activeDanger} · ${dm.label}`
-                        : `${dm.label} · 通关得 ${baseWinCredits} 凭证`;
-            this.host.text(dangerHead, 180, dBot + 36, {
-                width: 244, size: 12, bold: true,
-                color: !dangerUnlocked ? RED : DANGER_COLOR[activeDanger],
-            });
-            const dangerSub = !dangerUnlocked
-                ? dangerUnlockHint(activeDanger)
-                : isDaily
-                    ? '今天的委托对所有玩家使用相同的关卡和随机配置。'
-                    : isEndless
-                        ? `${DANGER_RULE_TEXT[activeDanger]} 完成的波次越多，获得的凭证越多。`
-                        : `${DANGER_RULE_TEXT[activeDanger]} ${firstBonus > 0 ? `首通另得 ${firstBonus} 凭证` : '此难度已通关'}`;
-            this.host.text(dangerSub, 180, dBot + 13, {
-                width: 310, height: 24, size: 10,
-                color: !dangerUnlocked ? GOLD : firstBonus > 0 ? CYAN : GREEN,
-            });
-
-            if (dangerUnlocked) this.pixelBtn('选择工装 ›', 180, Math.max(this.host.footer + 24, 58), 328, 48,
+            const dangerHead = (isDaily ? '固定难度 ' + activeDanger + ' · ' : '') + dm.label;
+            this.host.text(dangerHead, 180, dBot + 32, { width: 310, size: 12, bold: true, color: DANGER_COLOR[activeDanger] });
+            const rule = !dangerUnlocked ? dangerUnlockHint(activeDanger) : DANGER_RULE_TEXT[activeDanger];
+            this.host.text(rule, 180, dBot + 13, { width: 316, size: 10, color: BENCH.muted });
+            const rewards = this.routeRewards(chapter, activeDanger);
+            const claimed = !isEndless && maxChDanger !== undefined && activeDanger <= maxChDanger;
+            this.drawRouteRewards(rewards, dBot - 9, activeDanger, claimed);
+            if (chUnlocked && dangerUnlocked) this.pixelBtn('选择工装 ›', 180, Math.max(this.host.footer + 24, 58), 328, 48,
                 () => { this.prepLoadout = true; this.rigDetails = false; }, true);
             return;
         }
         // Section C: 5 Mechanic Rigs selector (with lock & best-danger stamp!)
         const tabY = top - 32;
-        const tabW = 62;
+        const tabW = 52;
         if (isDaily) this.host.text('本次委托指定工装，可免费使用', 180, tabY, { width: 328, size: 11, color: CYAN });
         else RIG_ORDER.forEach((id, idx) => {
-            const tx = 16 + idx * 66.5 + tabW / 2;
+            const tx = 16 + idx * 55 + tabW / 2;
             const active = idx === this.rigIdx;
             const unlocked = isRigUnlocked(this.profile, id);
             const label = unlocked ? RIG_CATALOG[id].name.slice(0, 2) : `${RIG_CATALOG[id].name.slice(0, 2)} · 锁定`;
@@ -1367,17 +1625,27 @@ export class PatrolCampaignUi {
 
         benchPlate(g, 16, cardBot, 328, cardH, rigUnlocked ? BENCH.steel : BENCH.recess, rigUnlocked ? GOLD : BENCH.edge, 8);
         const canSwapStarter = !isDaily && rigUnlocked && hasCustomStarterUnlock(this.profile) && legalStarters.length > 1;
-        this.host.skin?.uiIcon(activeStarter, 69, cardTop - 66, 72);
+        const ownedRank = isDaily ? 1 : rigRank(this.profile, rigId);
+        const shownRank = this.rigDetails ? Math.min(4, ownedRank + 1) as Tier : ownedRank || 1;
+        this.host.skin?.rigPortrait(rigId, shownRank, 69, cardTop - 63, 89);
         this.host.text(rig.name, 220, cardTop - 34, { left: true, width: 200, size: 21, bold: true, color: BENCH.paper });
-        this.host.text(rig.title, 220, cardTop - 63, { left: true, width: 200, size: 14, color: GOLD });
+        const rank = ownedRank;
+        this.host.text(rig.title + ' · ' + RANK_LABEL[rank], 220, cardTop - 63, { left: true, width: 200, size: 14, color: GOLD });
         this.host.text('初始武器 · ' + WEAPON_CATALOG[activeStarter].name, 220, cardTop - 89,
             { left: true, width: 200, size: 12, color: CYAN });
         this.host.block(32, cardTop - 111, 296, 1, BENCH.edge);
-        const headline = rigUnlocked ? rig.summary : rigUnlockHint(rigId);
-        const details = formatStatPreview(rig.stats, 8) + '\n' + rig.tradeoff;
+        const nextRank = milestoneSource(m => !!m.rigs?.some(([id, tier]) => id === rigId && tier === rank + 1));
+        const headline = rank ? RIG_RANK_EFFECTS[rigId][rank - 1] + '\n' + rig.tradeoff : rigUnlockHint(rigId);
+        const details = nextRank && rank < 4 ? RANK_LABEL[shownRank] + ' 阶 · ' + nextRank.hint + ' · ' + RIG_RANK_EFFECTS[rigId][Number(rank)] : formatStatPreview(rig.stats, 8);
         this.host.text(this.rigDetails ? details : headline, 180, cardTop - 137,
             { width: 296, height: 48, size: 12, color: rigUnlocked ? BENCH.paper : GOLD });
-        this.pixelBtn(this.rigDetails ? '工装简介' : '查看属性', 86, cardTop - 177, 110, 32, () => { this.rigDetails = !this.rigDetails; });
+        this.pixelBtn(this.rigDetails ? '当前效果' : nextRank ? '下阶效果' : '查看属性', 86, cardTop - 177, 110, 32, () => { this.rigDetails = !this.rigDetails; });
+        this.pixelBtn('试穿', 180, cardTop - 177, 66, 32, () => this.startTrial(activeStarter, 'prep', rigId, shownRank));
+        if (!isDaily && Object.values(WEAPON_CATALOG).some(w => unlockedMods(this.profile, w.id).length)) {
+            this.pixelBtn('武器改装', 277, cardTop - 100, 82, 21, () => {
+                this.shelfFromPrep = true; this.shelfFromShop = false; this.resetShelfFilter(); this.shelfItem = null; this.page = 'weapons';
+            });
+        }
         if (canSwapStarter) this.pixelBtn('换武器', 271, cardTop - 177, 110, 32, () => {
             const cur = legalStarters.indexOf(activeStarter);
             this.starterByRig[rigId] = legalStarters[(cur + 1) % legalStarters.length];
@@ -1867,11 +2135,15 @@ export class PatrolCampaignUi {
         }
 
         // Bottom Actions: Reroll (escalating/free) + Next Wave primary CTA
-        const rerollLabel = UI_COPY.shop.reroll(view.nextRerollCost);
+        const selectedForOrder = view.weapons[this.inspectWeaponSlot ?? 0];
+        const canOrder = session.intermission?.recoveryOrder && selectedForOrder && hasRefreshableShopSlots(view.slots);
+        const rerollLabel = canOrder ? '调货 · ' + SHORT_WEAPON[selectedForOrder.id] : UI_COPY.shop.reroll(view.nextRerollCost);
         const refreshable = hasRefreshableShopSlots(view.slots);
         const canReroll = refreshable && (view.freeRerollsLeft > 0 || view.parts >= view.nextRerollCost);
-        if (canReroll) this.pixelBtn(rerollLabel, 88, botY, 144, 48, () => {
-            if (session.reroll()) {
+        if (canReroll || canOrder) this.pixelBtn(rerollLabel, 88, botY, 144, 48, () => {
+            if (canOrder && session.orderWeapon(selectedForOrder.uid)) {
+                this.shopFeedback = '同款武器已到货。'; this.saveRun(session);
+            } else if (!canOrder && session.reroll()) {
                 this.shopFeedback = '商品已刷新。';
                 this.saveRun(session);
             }
@@ -2228,10 +2500,130 @@ export class PatrolCampaignUi {
 
     // ─────────────────────────── PAGE 8: RESULT WITH WEAPON DPS CHART ───────────────────────────
 
+    private startTrial(tool: ToolId, from: 'weapons' | 'result' | 'prep', rig: RigId = 'duty_standard',
+        rank: Tier = rigRank(this.profile, rig) || 1, mod = this.profile.weaponMods?.[tool]): void {
+        this.trialReturn = from;
+        this.trialTime = 0;
+        const weapons: { uid: number; id: ToolId; tier: Tier }[] = [{ uid: 1, id: tool, tier: 2 }];
+        if (rig === 'duty_standard') {
+            const families = new Set([WEAPON_CATALOG[tool].tags[0]]);
+            for (const partner of ['wrench','arc_gun','torch'] as const) {
+                const family = WEAPON_CATALOG[partner].tags[0];
+                if (families.has(family)) continue;
+                weapons.push({ uid: weapons.length + 1, id: partner, tier: 1 });
+                families.add(family);
+                if (families.size >= (rank >= 3 ? 3 : 2)) break;
+            }
+        } else if (tool === 'traction_coil') {
+            weapons.push({ uid: 2, id: 'wrench', tier: 1 });
+        }
+        this.trial = new RogueliteBattle({ chapter: CHAPTER_CATALOG[0], waveIndex: 0, seed: 47, danger: 0,
+            rigId: rig, rigRank: rank, weapons, weaponMods: mod ? { [tool]: mod } : {}, startHp: 100, level: 0,
+            levelStats: {}, modules: [], carriedBagParts: 0 });
+        for (const [dx, dy] of [[65, 0], [85, 20], [-54, 13], [32, -50]]) {
+            this.trial.warnings.push({ kind: 'crawler', x: this.trial.player.x + dx, y: this.trial.player.y + dy, at: 1 });
+        }
+        this.guardTouches(200); this.host.invalidateUi?.();
+    }
+
+    moveTrial(x: number, y: number): boolean {
+        if (!this.trial) return false;
+        this.trial.moveTo(x, y); return true;
+    }
+
+    private endTrial(): void {
+        this.trial = null; this.renderedBattle = undefined;
+        this.page = this.trialReturn; this.guardTouches(240); this.host.invalidateUi?.();
+    }
+
+    tickRewardPreview(dt: number): void {
+        if (this.trial) {
+            if (this.renderedBattle !== this.trial) return;
+            this.trialTime += dt;
+            while (this.trialTime >= 1/30) {
+                this.trialTime -= 1/30;
+                const angle = this.trial.tick / 27;
+                if (this.trial.destination) this.trial.step(0, 0);
+                else this.trial.step(Math.cos(angle) * .55, Math.sin(angle) * .55);
+                if (this.trial.tick >= 240 || this.trial.finished) { this.endTrial(); return; }
+            }
+            this.host.invalidateUi?.();
+        } else if (this.victoryOpen && this.page === 'result' && this.victoryAge < 2) {
+            const lastFrame = Math.floor(this.victoryAge * 15);
+            this.victoryAge += dt;
+            if (Math.floor(this.victoryAge * 15) !== lastFrame) this.host.invalidateUi?.();
+        }
+    }
+
+    private closeVictory(action: () => void): void {
+        this.persist(() => {
+            if (!this.storage.dismissVictory()) return false;
+            this.victoryOpen = false;
+            this.guardTouches(240);
+            action();
+            this.host.invalidateUi?.();
+            return true;
+        });
+    }
+
+    private drawVictory(res: PatrolResult): void {
+        const grants = [...res.firstClearMilestones].reverse();
+        const cards = grants.flatMap(grant => {
+            const tool = grant.weapon ?? (grant.mod && WEAPON_MODS[grant.mod][0]);
+            const cards: { name: string; detail: string; tool: ToolId; rig?: RigId; rank?: Tier; mod?: typeof grant.mod }[] = [];
+            if (tool) cards.push({ name: grant.mod ? WEAPON_MODS[grant.mod][1] : WEAPON_CATALOG[tool].name,
+                detail: grant.mod ? '永久改装 · 可在武器架装配' : '永久武器 · 已加入商店', tool, mod: grant.mod });
+            for (const [rig, rank] of grant.rigs ?? []) cards.push({ name: RIG_CATALOG[rig].name + ' ' + RANK_LABEL[rank],
+                detail: RIG_RANK_EFFECTS[rig][rank - 1], tool: RIG_CATALOG[rig].starterWeapon, rig, rank });
+            return cards;
+        });
+        const card = cards[this.rewardIndex % cards.length];
+        const top = this.header(['江岸恢复供电', '急救电池已送达', '广播恢复播报', '全城重新亮灯'][Number(res.chapterId)-1], '', undefined);
+        const foot = this.host.footer + 35;
+        const cy = (top + foot) / 2 + 28;
+        const g = this.host.ui;
+        for (let i = 0; i < 12; i++) {
+            const x = 28 + i * 26;
+            this.host.block(x, cy + 35, 16, 22 + (i % 3) * 7, BENCH.steel);
+            this.host.block(x + 4, cy + 45, 6, 6, this.victoryAge > i * .065 ? GOLD : BENCH.edge);
+        }
+        if (res.chapterId === '01' && card.tool === 'traction_coil' && !card.rig) {
+            const t = Math.min(1, Math.max(0, (this.victoryAge - .45) / .78));
+            const wreckX = 274 - Math.round(t * 115);
+            const deckY = cy + 93;
+            this.host.block(62, deckY - 15, 236, 3, BENCH.edge);
+            this.host.skin?.rigPortrait('duty_standard', 2, 106, deckY + 4, 67);
+            this.host.skin?.uiIcon('wrench', 136, deckY + 5, 42);
+            this.host.block(148, deckY + 3, Math.max(2, wreckX - 148), 2, CYAN);
+            this.host.skin?.uiIcon('pixel-enemy:crawler:idle:w', wreckX, deckY + 9, 50);
+        }
+        const rise = Math.max(0, 1 - this.victoryAge / 0.85);
+        benchPlate(g, 28, cy - 105, 304, 124, BENCH.recess, GOLD, 7);
+        if (card.rig) this.host.skin?.rigPortrait(card.rig, card.rank!, 180, cy - 10 - rise * 12, 65);
+        else this.host.skin?.uiIcon(card.tool, 180, cy - 10 - rise * 12, 65);
+        this.host.text(card.name, 180, cy - 59, { width: 282, size: 22, bold: true, color: GOLD });
+        this.host.text(card.detail, 180, cy - 86, { width: 278, size: 12, color: BENCH.paper });
+        if (cards.length > 1) {
+            this.pixelBtn('‹', 52, cy - 43, 30, 40, () => { this.rewardIndex = (this.rewardIndex + cards.length - 1) % cards.length; });
+            this.pixelBtn('›', 308, cy - 43, 30, 40, () => { this.rewardIndex = (this.rewardIndex + 1) % cards.length; });
+        }
+        this.host.text(cards.length <= 3 ? cards.map(c => c.name).join(' · ') : '本次获得 ' + cards.length + ' 件 · ' + (this.rewardIndex + 1) + '/' + cards.length,
+            180, cy - 122, { width: 314, height: 30, size: 11, color: CYAN });
+        this.pixelBtn('试用' + card.name, 180, foot + 56, 300, 44, () => this.startTrial(card.tool, 'result', card.rig, card.rank, card.mod), true);
+        this.pixelBtn('查看战报', 95, foot, 144, 38, () => this.closeVictory(() => {}));
+        const idx = Number(res.chapterId) - 1;
+        this.pixelBtn(idx < 3 ? '前往下一章' : '继续挑战', 255, foot, 144, 38, () => this.closeVictory(() => {
+            this.chapterIdx = Math.min(3, idx + 1);
+            this.danger = idx < 3 ? 0 : maxUnlockedDanger(this.profile);
+            this.prepMode = 'story'; this.prepLoadout = false; this.page = 'prep';
+        }));
+    }
+
     private drawResult(): void {
         const res = this.result;
         if (!res) return;
         this.backdrop();
+        if (this.victoryOpen && res.firstClearMilestones.length) { this.drawVictory(res); return; }
         if (this.showResultUnlocks) {
             const top = this.header('本局解锁', '‹ 回结算', () => { this.showResultUnlocks = false; });
             const rowH = Math.min(38, Math.floor((top - this.host.footer - 16) / Math.max(1, res.unlocks.length)));
@@ -2435,7 +2827,7 @@ export class PatrolCampaignUi {
     private header(title: string, leftLabel: string, onLeft?: () => void, rightLabel?: string, onRight?: () => void): number {
         const y = Math.min(this.host.top - 4, this.host.capsuleCeiling - 24);
         if (leftLabel && onLeft) this.pixelBtn(leftLabel, 58, y, 84, 34, onLeft);
-        this.host.text(title, 180, y, { width: 164, size: 18, bold: true, color: BENCH.paper });
+        if (title) this.host.text(title, 180, y, { width: 164, size: 18, bold: true, color: BENCH.paper });
         if (rightLabel) {
             if (onRight) this.pixelBtn(rightLabel, 302, y, 84, 34, onRight);
             else {

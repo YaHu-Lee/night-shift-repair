@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { state, tap, screen } from './canvas.mjs';
+import { state, tap, screen, openReport } from './canvas.mjs';
 import { readSave, checkpoint, installCheckpoint } from './campaign-fixtures.mjs';
 import { PatrolSession, createDefaultProfile } from '../../.m0-build/roguelite/session.js';
 
@@ -60,6 +60,7 @@ test('AD-05、AD-06 模拟出发补给和结算追加凭证', async ({ page }) =
     await expect.poll(async () => (await readSave(page))?.profile.daily.adPrepUsed).toBe(1);
     expect((await readSave(page)).run).toMatchObject({supply:'spare_parts',parts:35});
     await page.goto('/?patrolDebug=result&mockAd=1');
+    await openReport(page);
     await page.waitForFunction(() => globalThis.__nightShiftCampaignState?.().hitAreas.some(a => a.key.includes('看视频再领')));
     const before = await state(page);
     const key = before.hitAreas.find(a => a.key.includes('看视频再领')).key;
@@ -87,6 +88,7 @@ test('AD-01 默认 Web 的准备、升级、商店和结算隐藏视频入口', 
             const s = globalThis.__nightShiftCampaignState?.();
             return s?.page === (stage === 'levelup' ? 'shop' : stage) && s.hitAreas.length > 0;
         }, target);
+        if (target === 'result') await openReport(page);
         expect((await state(page)).hitAreas.some(a => a.key.includes('看视频'))).toBe(false);
     }
 });
@@ -129,3 +131,28 @@ for (const wave of [2,12]) {
         expect((await readSave(page)).run).toBeNull();
     });
 }
+test('微信预览使用的画布模拟广告验证取消、失败和发奖', async ({ page }, info) => {
+    await page.goto('/?patrolDebug=shop&mockAd=canvas');
+    const entry = 'shop:看视频领 20 铜件';
+    await page.waitForFunction(key => globalThis.__nightShiftCampaignState?.().hitAreas.some(area => area.key === key), entry);
+    await expect.poll(async () => (await readSave(page))?.run?.phase).toBe('shop');
+    const before = await readSave(page);
+    for (const [action, notice] of [
+        ['提前关闭', '看完视频才能领取奖励。'],
+        ['模拟加载失败', '视频暂时播不了，请稍后再试。'],
+    ]) {
+        await tap(page, entry);
+        await expect.poll(async () => (await state(page)).labels).toContain('模拟激励视频');
+        expect((await state(page)).hitAreas.some(area => area.key === entry)).toBe(false);
+        await tap(page, 'shop:' + action);
+        await expect.poll(async () => (await state(page)).labels).toContain(notice);
+        expect(await readSave(page)).toEqual(before);
+    }
+    await tap(page, entry);
+    await screen(page, info, 'mini-game-mock-ad');
+    await tap(page, 'shop:看完并返回');
+    await expect.poll(async () => (await readSave(page)).run.parts).toBe(before.run.parts + 20);
+    const after = await readSave(page);
+    expect(after.run.shop.freeRerollsLeft).toBe(before.run.shop.freeRerollsLeft + 1);
+    expect((await state(page)).labels).not.toContain('模拟激励视频');
+});

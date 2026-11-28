@@ -3,7 +3,7 @@ import { CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WEAPON_CATALOG, WORKSHOP_TA
 import type { ShopCheckpoint } from './shop';
 import { STAT_KEYS } from './formulas';
 import { DAILY_SHIFT_MODIFIERS } from './engagement';
-import { PRE_RUN_SUPPLIES, unlockedRigsForProfile } from './progression';
+import { PRE_RUN_SUPPLIES, WEAPON_MODS, unlockedRigsForProfile } from './progression';
 import { createDefaultProfile, createPatrolId, PatrolSession } from './session';
 import type {
     BattleWaveSummary,
@@ -33,9 +33,12 @@ export interface PatrolLocalSave {
     readonly profile: WorkshopProfile;
     readonly run: PatrolSnapshot | null;
     readonly lastSettledRunId: string | null;
+    readonly pendingVictory?: import('./session').PatrolResult;
 }
 
 export interface PatrolSnapshot {
+    readonly rigRank?: import('./types').Tier;
+    readonly weaponMods?: WorkshopProfile['weaponMods'];
     readonly version: 3 | 4;
     readonly runId?: string;
     readonly shop?: ShopCheckpoint;
@@ -92,6 +95,7 @@ export function validWorkshopProfile(value: unknown): value is WorkshopProfile {
             return false;
         }
     }
+    if (!validModLoadout(p.weaponMods)) return false;
     if (p.onboardingDone !== undefined && typeof p.onboardingDone !== 'boolean') return false;
     if (p.adFreePass !== undefined && typeof p.adFreePass !== 'boolean') return false;
     if (p.bestEndlessWave !== undefined && !natural(p.bestEndlessWave)) return false;
@@ -105,6 +109,12 @@ export function validWorkshopProfile(value: unknown): value is WorkshopProfile {
         if (d.adPrepUsed !== undefined && !natural(d.adPrepUsed)) return false;
     }
     return true;
+}
+
+function validModLoadout(value: WorkshopProfile['weaponMods']): boolean {
+    if (value === undefined) return true;
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+        && Object.entries(value).every(([tool, mod]) => !!mod && owns(WEAPON_MODS, mod) && WEAPON_MODS[mod][0] === tool);
 }
 
 function owns(table: object, key: string): boolean {
@@ -137,6 +147,7 @@ export function validPatrolSnapshot(value: unknown): value is PatrolSnapshot {
     const s = value as PatrolSnapshot;
     if ((s.version !== 3 && s.version !== 4) || !VALID_CHAPTERS.has(s.chapterId) || !VALID_RIGS.has(s.rigId)) return false;
     if (![0, 1, 2, 3, 4].includes(s.danger)) return false;
+    if (s.rigRank !== undefined && ![1,2,3,4].includes(s.rigRank) || !validModLoadout(s.weaponMods)) return false;
     if (s.supply !== undefined && !owns(PRE_RUN_SUPPLIES, s.supply)) return false;
     if (s.starterWeapon !== undefined && !owns(WEAPON_CATALOG, s.starterWeapon)) return false;
     if (s.dailyShiftKey !== undefined && typeof s.dailyShiftKey !== 'string') return false;
@@ -271,6 +282,15 @@ export class PatrolStorage {
         return this.commit({ ...this.current, profile, run: session.snapshot(), revision: this.current.revision + 1 });
     }
 
+    get pendingVictory() { return this.current?.pendingVictory; }
+
+    dismissVictory(): boolean {
+        const current = this.current;
+        if (!current?.pendingVictory) return true;
+        const { pendingVictory, ...rest } = current;
+        return this.commit({ ...rest, revision: current.revision + 1 });
+    }
+
     settleRun(session: PatrolSession): WorkshopProfile | null {
         if (!this.current || (session.phase !== 'lost' && session.phase !== 'won')) return null;
         if (this.current.lastSettledRunId === session.runId) return this.current.profile;
@@ -278,8 +298,9 @@ export class PatrolStorage {
         if (!run || run.runId !== session.runId) return null;
         // Persist the outcome before crediting it so a cold launch can finish an interrupted settlement.
         if (run.phase !== session.phase && !this.saveActiveRun(session)) return null;
+        const result = session.settle(this.current.profile);
         const profile = session.applySettlementToProfile(this.current.profile);
         return this.commit({ ...this.current, revision: this.current.revision + 1, profile,
-            run: null, lastSettledRunId: session.runId }) ? profile : null;
+            run: null, lastSettledRunId: session.runId, pendingVictory: result.firstClearMilestones.length ? result : undefined }) ? profile : null;
     }
 }

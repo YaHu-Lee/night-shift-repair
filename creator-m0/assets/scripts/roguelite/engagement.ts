@@ -71,7 +71,7 @@ const RIG_LIST: readonly RigId[] = [
     'heavy_fitter',
     'high_voltage',
     'thermal_welder',
-    'scrap_auditor',
+    'scrap_auditor', 'surveyor',
 ];
 
 export function todayDateKey(now: Date = new Date()): string {

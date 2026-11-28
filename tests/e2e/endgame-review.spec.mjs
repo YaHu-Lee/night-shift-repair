@@ -1,9 +1,9 @@
 import {expect,test} from '@playwright/test';
 import {createDefaultProfile,PatrolSession} from '../../.m0-build/roguelite/session.js';
 import {getDailyShift,todayDateKey} from '../../.m0-build/roguelite/engagement.js';
-import {chapterCheckpoints,checkpoint,installCheckpoint,readSave} from './campaign-fixtures.mjs';
+import {chapterCheckpoints,checkpoint,installCheckpoint,playWave,readSave} from './campaign-fixtures.mjs';
 import {holdCombat,finishWave} from './combat-clock.mjs';
-import {state,tap,screen} from './canvas.mjs';
+import { state, tap, screen, openReport } from './canvas.mjs';
 
 function finalWave(profile,chapterId,options={}) {
     const fresh=new PatrolSession({profile,chapterId,rigId:'high_voltage',danger:4,seed:5,...options});
@@ -41,11 +41,14 @@ test('RUN-11、RUN-12 四章金章依次入账并重打同档',async ({page},inf
         const run=finalWave(profile,chapter,{runId:'gold-'+i});
         if(!i){ await installCheckpoint(page,checkpoint(profile,run)); await resume(page); }
         else await nextRun(page,profile,run);
-        await finishWave(page);
+        const inputs=[];
+        if (chapter==='04') { playWave(run,true,inputs); expect(run.phase).toBe('won'); }
+        await finishWave(page,inputs);
         await page.waitForFunction(()=>globalThis.__nightShiftCampaignState().page==='result');
         const saved=await readSave(page);
         expect(saved.run).toBeNull();
         expect(saved.profile.maxDangerCleared[chapter]).toBe(4);
+        await openReport(page);
         const bonus=(await state(page)).labels.filter(l=>l.includes('首通额外'));
         if(i<4) expect(bonus).toEqual(['首通额外 +40 凭证']);
         else expect(bonus).toEqual([]);
@@ -72,6 +75,7 @@ test('RET-02、AD-06 委托首通和同日重打，三次翻倍后入口关闭',
         const settled=await readSave(page);
         expect(settled.profile.daily.dailyShiftCleared).toBe(true);
         const award=await page.evaluate(()=>window.combatQA.boot.patrol.result);
+        await openReport(page);
         expect(award.unlocks.includes('完成今日委托，额外获得 35 凭证')).toBe(i===0);
         expect(settled.profile.credits-profile.credits).toBe(award.baseCreditsForDouble+award.firstClearBonus+(i===0?35:0));
         const key=(await state(page)).hitAreas.find(a=>a.key.includes('看视频再领'))?.key;
@@ -120,7 +124,7 @@ test('RUN-11 同首领两档的警告节拍和弱点窗口，总闸铜手柄仅�
             return {rings,open:end-opened,cycle:warnings[1]-warnings[0],cooldowns};
         });
         expect(result.rings).toBe(1);
-        expect(result.open).toBe(danger?44:56);
+        expect(result.open).toBe(danger?60:72);
         expect(result.cooldowns[0].length).toBeGreaterThan(0);
         expect(Math.max(...result.cooldowns[0])).toBeLessThan(Math.min(...result.cooldowns[1]));
         cycles.push(result.cycle);

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { tap, state } from './canvas.mjs';
+import { tap, state, openReport } from './canvas.mjs';
 import { checkpoint, installCheckpoint, readSave } from './campaign-fixtures.mjs';
 import { createDefaultProfile } from '../../.m0-build/roguelite/session.js';
 import { consumeDailyAdUse, getDailyShift, todayDateKey } from '../../.m0-build/roguelite/engagement.js';
@@ -85,6 +85,7 @@ test('RET-03 模拟分享面板收到实际战报文案并返回值班室', asyn
         };
     });
     await page.goto('/?patrolDebug=result');
+    await openReport(page);
     await expect(async () => {
         await tap(page,'result:分享战报');
         expect(await page.evaluate(() => window.shareCalls.length)).toBe(1);

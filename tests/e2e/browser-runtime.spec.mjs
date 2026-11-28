@@ -4,7 +4,7 @@ import {PATROL_PROFILE_NAMESPACE,PATROL_RUN_NAMESPACE} from '../../.m0-build/rog
 import {createDefaultProfile,PatrolSession} from '../../.m0-build/roguelite/session.js';
 import {checkpoint,installCheckpoint,playWave,readSave} from './campaign-fixtures.mjs';
 import {finishWave,holdCombat} from './combat-clock.mjs';
-import {point,state,tap,screen} from './canvas.mjs';
+import { point, state, tap, screen, openReport } from './canvas.mjs';
 
 async function mockDevice(page) {
     await page.addInitScript(()=>{
@@ -42,13 +42,18 @@ test('DEV-07/08 页面入口中心能命中对应按钮，带胶囊与手势区'
         await inspect(stage);
         if(stage==='home'){
             expect((await state(page)).labels.find(l=>l.includes('抵制不良游戏'))?.split('\n')).toHaveLength(2);
-            const [x,y]=await point(page,'home:设置');
-            expect(y).toBeGreaterThan(68);expect(x).toBeGreaterThan(180);
+            const tabs=['weapons','equipment','workshop','log','duty','设置'];
+            const centers=await Promise.all(tabs.map(tab=>point(page,'home:'+tab)));
+            expect(new Set(centers.map(([, y])=>y)).size).toBe(1);
+            for(let i=1;i<centers.length;i++) expect(centers[i][0]).toBeGreaterThan(centers[i-1][0]);
+            expect(centers[0][1]).toBeGreaterThan((await point(page,'home:dispatch'))[1]);
             await tap(page,'home:设置');await inspect('settings');
         }
         if(stage==='prep'){await tap(page,'prep:选择工装 ›');await inspect('loadout');}
         if(stage==='shop'){await tap(page,'shop:属性与羁绊');await inspect('synergies');}
         if(stage==='result'){
+            await openReport(page);
+            await inspect('report');
             await tap(page,(await state(page)).hitAreas.find(a=>a.key.startsWith('result:解锁')).key);
             await inspect('unlocks');
         }
@@ -112,7 +117,8 @@ test('DEV-06 战斗与模拟视频中断，恢复后单轨播放与额度不变'
 });
 
 test('DEV-04/08 安全区、摇杆边距上限下限和点按战场',async ({page},info)=>{
-    await mockDevice(page);await page.goto('/?patrolDebug=home');await tap(page,'home:设置');await tap(page,'settings:居中');
+    await mockDevice(page);await page.goto('/?patrolDebug=home');await tap(page,'home:设置');
+    expect((await state(page)).settings.stickPlacement).toBe('center');
     expect((await state(page)).hitAreas.filter(a=>a.key==='settings:＋')).toHaveLength(1);
     await tap(page,'settings:靠左');
     for(const [key,bottom,side] of [['−',8,8],['＋',104,80]]){

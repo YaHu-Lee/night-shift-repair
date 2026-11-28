@@ -15,6 +15,9 @@ import {
     PRE_RUN_SUPPLIES,
     STARTER_RIGS,
     computeRunUnlocks,
+    rigRank,
+    unlockedMods,
+    MILESTONES,
     legalStarterWeaponsForRig,
     totalBanSlots,
     unclaimedFirstClearBonus,
@@ -29,6 +32,7 @@ import {
     pickLevelUp,
     rerollLevelUp,
     rerollShop,
+    orderRecoveredWeapon,
     sellOwnedWeapon,
     shopViewModel,
     toggleLockSlot,
@@ -111,6 +115,7 @@ export interface PatrolResult {
     readonly creditsEarned: number;
     readonly baseCreditsForDouble: number;
     readonly firstClearBonus: number;
+    readonly firstClearMilestones: readonly import('./progression').Milestone[];
     readonly unlocks: readonly string[];
     readonly endlessMode?: boolean;
     readonly dailyShiftKey?: string;
@@ -126,6 +131,8 @@ export class PatrolSession {
     readonly danger: DangerLevel;
     readonly supply: PreRunSupplyId;
     readonly starterWeapon: ToolId;
+    readonly rigRank: import('./types').Tier;
+    readonly weaponMods: NonNullable<WorkshopProfile['weaponMods']>;
     readonly dailyShiftKey?: string;
     readonly dailyMod?: DailyShiftModifierId;
     readonly endlessMode: boolean;
@@ -166,6 +173,8 @@ export class PatrolSession {
         readonly dailyMod?: DailyShiftModifierId;
         readonly endlessMode?: boolean;
         readonly trialRig?: boolean;
+        readonly rigRank?: import('./types').Tier;
+        readonly weaponMods?: WorkshopProfile['weaponMods'];
         readonly seed: number;
         readonly profile?: WorkshopProfile;
         readonly runId?: string;
@@ -181,6 +190,10 @@ export class PatrolSession {
         this.seed = params.seed >>> 0;
         this.runId = params.runId ?? createPatrolId();
         this.profile = params.profile ?? createDefaultProfile();
+        this.rigRank = params.rigRank ?? (this.dailyShiftKey || this.trialRig ? 1 : rigRank(this.profile, this.rigId) || 1);
+        const chosen = params.weaponMods ?? this.profile.weaponMods ?? {};
+        this.weaponMods = Object.fromEntries(Object.entries(chosen).filter(([tool, mod]) =>
+            unlockedMods(this.profile, tool as ToolId).includes(mod!)));
         const rig = RIG_CATALOG[params.rigId];
         const legalStarters = legalStarterWeaponsForRig(params.rigId, this.profile);
         this.starterWeapon = params.starterWeapon && legalStarters.includes(params.starterWeapon)
@@ -200,6 +213,8 @@ export class PatrolSession {
         const session = new PatrolSession({
             chapterId: snap.chapterId,
             rigId: snap.rigId,
+            rigRank: snap.rigRank,
+            weaponMods: snap.weaponMods,
             danger: snap.danger,
             supply: snap.supply ?? 'none',
             starterWeapon: snap.starterWeapon,
@@ -258,12 +273,14 @@ export class PatrolSession {
         return {
             version: 4,
             runId: this.runId,
+            rigRank: this.rigRank,
+            weaponMods: this.weaponMods,
             ...(shop ? { shop: {
                 slots: shop.slots.map(slot => ({ ...slot })),
                 levelUpOptions: shop.levelUpOptions.map(option => ({ ...option })),
                 levelUpRerolls: shop.levelUpRerolls, paidRerolls: shop.paidRerolls,
                 freeRerollsLeft: shop.freeRerollsLeft, buyoutBonusUsed: shop.buyoutBonusUsed,
-                rollSerial: shop.rollSerial,
+                rollSerial: shop.rollSerial, recoveryOrder: shop.recoveryOrder, recoveryLock: shop.recoveryLock,
             } } : {}),
             chapterId: this.chapter.id,
             rigId: this.rigId,
@@ -385,6 +402,8 @@ export class PatrolSession {
             chapter: this.chapter,
             waveIndex: Math.min(this.waveIndex, this.chapter.waves.length - 1),
             waveDefOverride: waveDef,
+            rigRank: this.rigRank,
+            weaponMods: this.weaponMods,
             seed: this.seed,
             danger: this.danger,
             rigId: this.rigId,
@@ -458,6 +477,7 @@ export class PatrolSession {
             parts: this.parts,
             level: this.level,
             pendingLevelUps: gainedLevels,
+            recoveryRank: this.rigId === 'scrap_auditor' && report.partsCollected - report.bagRedeemed >= 20 ? this.rigRank : undefined,
             levelStats: this.levelStats,
             weapons: this.weapons,
             modules: this.modules,
@@ -482,6 +502,10 @@ export class PatrolSession {
     buySlot(slotIndex: number) {
         if (!this.intermission) return { ok: false, reason: '当前无法购买，请先进入商店。' };
         return buyShopSlot(this.intermission, slotIndex, this.profile);
+    }
+
+    orderWeapon(uid: number): boolean {
+        return !!this.intermission && orderRecoveredWeapon(this.intermission, uid, this.profile);
     }
 
     toggleLock(slotIndex: number): boolean {
@@ -628,6 +652,7 @@ export class PatrolSession {
             creditsEarned,
             baseCreditsForDouble,
             firstClearBonus,
+            firstClearMilestones: firstClearBonus ? MILESTONES[this.chapter.id].slice((targetProfile.maxDangerCleared[this.chapter.id] ?? -1) + 1, this.danger + 1) : [],
             unlocks,
             ...(this.endlessMode ? { endlessMode: true } : {}),
             ...(this.dailyShiftKey ? { dailyShiftKey: this.dailyShiftKey } : {}),

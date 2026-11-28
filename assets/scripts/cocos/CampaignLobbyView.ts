@@ -13,7 +13,6 @@ const STEEL_TEXT = new Color(218, 220, 197);
 const SCRIM_BOT = new Color(9, 17, 20, 226);
 const SCRIM_TOP = new Color(11, 20, 23, 167);
 const TICKET_BG = new Color(9, 16, 19, 219);
-const HANDLE_BG = new Color(63, 43, 26);
 
 export type LobbyShortcut = 'equipment' | 'role' | 'settings';
 
@@ -84,19 +83,10 @@ export function drawDispatchHandle(g: Graphics, x: number, y: number, held: bool
     g.lineTo(right - 26, y - 19 + depth);
     g.stroke();
 
-        g.fillColor = HANDLE_BG;
-    g.roundRect(x + 39, y - 12 + depth, 28, 25, 4);
-    g.fill();
-    g.strokeColor = GOLD_EDGE;
-    g.lineWidth = 2;
-    g.moveTo(x + 50, y + 5 + depth);
-    g.lineTo(x + 56, y + depth);
-    g.lineTo(x + 50, y - 5 + depth);
-    g.stroke();
 }
 
 export function drawLobbyDial(g: Graphics, x: number, y: number, icon: LobbyShortcut, held: boolean, glyph = true): void {
-    const radius = icon === 'settings' ? 15 : 20;
+    const radius = icon === 'settings' ? 9 : 20;
     const faceY = y - (held ? 2 : 0);
     g.fillColor = BLACK;
     g.circle(x, y - 2, radius + 3);

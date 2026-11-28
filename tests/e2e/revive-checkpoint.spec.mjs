@@ -43,7 +43,7 @@ test('AD-05 并列的凭证和视频补给单独结算，试用工装结算后�
     expect(before.hitAreas.some(a=>a.key.includes('凭证出发'))).toBe(true);
     await tap(page,'prep:看视频领补给出发');
     await page.getByRole('button',{name:'看完并返回'}).click();
-    await expect.poll(async ()=>(await readSave(page)).profile.daily.adPrepUsed).toBe(1);
+    await expect.poll(async ()=>(await readSave(page))?.profile.daily?.adPrepUsed).toBe(1);
     const paidByAd=await readSave(page);
     expect(paidByAd.profile.credits).toBe(50);expect(paidByAd.run.supply).toBe(before.supply);
     // Open the preparation fixture on the same journal. Choose an unowned rig

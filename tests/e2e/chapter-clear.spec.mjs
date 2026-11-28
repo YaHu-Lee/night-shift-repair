@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { state, tap, screen } from './canvas.mjs';
+import {holdCombat, finishWave} from './combat-clock.mjs';
+import { state, tap, screen, openReport } from './canvas.mjs';
 import { chapterCheckpoints, installCheckpoint, readSave } from './campaign-fixtures.mjs';
 import { legalStarterWeaponsForRig } from '../../.m0-build/roguelite/progression.js';
 import { RIG_CATALOG, WEAPON_CATALOG } from '../../.m0-build/roguelite/catalog.js';
@@ -16,11 +17,16 @@ for (const [index, chapter] of ['01', '02', '03', '04'].entries()) {
         page.on('pageerror', error => errors.push(error.message));
         await installCheckpoint(page, sample.entries);
         await page.goto('/');
+        await holdCombat(page);
         await tap(page, 'home:dispatch');
         await page.waitForFunction(() => globalThis.__nightShiftCampaignState().boss);
         expect((await state(page)).wave).toBe(12);
         await screen(page, info, 'boss-' + chapter);
-        await page.waitForFunction(() => globalThis.__nightShiftCampaignState().page === 'result', null, { timeout: 190000 });
+        await finishWave(page, sample.inputs);
+        await expect.poll(async ()=>(await state(page)).page).toBe('result');
+        await expect.poll(async ()=>(await state(page)).hitAreas.map(a=>a.key)).toContain('result:查看战报');
+        await screen(page, info, 'first-clear-rewards');
+        await openReport(page);
         const settled = await state(page);
         expect(settled.credits).toBe(sample.profileAfter.credits);
         expect(settled.clearedChapters).toEqual(sample.profileAfter.clearedChapters);

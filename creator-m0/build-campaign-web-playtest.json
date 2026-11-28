@@ -4,6 +4,7 @@
   "outputName": "campaign-web-playtest",
   "buildPath": "project://build",
   "debug": false,
+  "useSplashScreen": false,
   "startScene": "7f373326-3951-44b0-9397-ba9d08626070",
   "scenes": [
     {

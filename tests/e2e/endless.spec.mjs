@@ -2,17 +2,19 @@ import { test, expect } from '@playwright/test';
 import { PatrolSession } from '../../.m0-build/roguelite/session.js';
 import { playShop } from '../../scripts/sim-shop.mjs';
 import { playWave, chapterCheckpoints, checkpoint, installCheckpoint, readSave } from './campaign-fixtures.mjs';
+import { holdCombat, finishWave } from './combat-clock.mjs';
 import { tap, state, screen } from './canvas.mjs';
 
 let profile;
 const waves = new Map();
+const inputs = [];
 test.beforeAll(() => {
     profile = chapterCheckpoints().at(-1).profileAfter;
-    const session = new PatrolSession({chapterId:'04',rigId:'duty_standard',endlessMode:true,seed:76,profile});
+    const session = new PatrolSession({chapterId:'04',rigId:'duty_standard',endlessMode:true,seed:1,profile});
     while (session.phase === 'battle' && session.waveIndex < 15) {
         const boss = [11,14].includes(session.waveIndex);
         if (boss) waves.set(session.waveIndex + 1,checkpoint(profile,session));
-        playWave(session,!boss);
+        playWave(session,session.waveIndex !== 14,session.waveIndex === 11 ? inputs : undefined);
         if (session.phase === 'shop') { playShop(session); session.startNextWave(); }
     }
     expect(session.phase).toBe('lost');
@@ -23,9 +25,11 @@ test('RUN-07 港区打过第十二波后实进第十三波', async ({page}) => {
     test.setTimeout(120000);
     await installCheckpoint(page,waves.get(12));
     await page.goto('/');
+    await holdCombat(page);
     await tap(page,'home:dispatch');
     await page.waitForFunction(() => globalThis.__nightShiftCampaignState().boss);
-    await page.waitForFunction(() => globalThis.__nightShiftCampaignState().page === 'shop',null,{timeout:90000});
+    await finishWave(page,inputs);
+    expect((await state(page)).page).toBe('shop');
     while ((await state(page)).pendingLevelUps > 0) await tap(page,'shop:选择');
     await expect(async () => {
         if ((await state(page)).page === 'shop') await tap(page,'shop:开始第 13 波');

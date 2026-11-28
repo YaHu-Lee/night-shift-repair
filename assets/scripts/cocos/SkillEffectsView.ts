@@ -491,6 +491,7 @@ function drawPixelDischarge(g: Graphics, cast: WeaponCast, muzzle: WeaponMuzzle,
     if (effect === 'pull' || effect === 'coil') {
         g.fillColor = scratchColor(...tint, alpha);
         pxRing(g, muzzle.x, muzzle.y, 4 + 10 * (1 - t), 2, t * 3, Math.PI * 2, 4);
+        g.rect(snap2(muzzle.x) - 2, snap2(muzzle.y) - 2, 4, 4);
         g.fill();
         return;
     }

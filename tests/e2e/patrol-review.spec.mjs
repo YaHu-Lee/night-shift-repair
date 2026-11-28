@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-import { state, tap, screen } from './canvas.mjs';
+import { state, tap, screen, openReport } from './canvas.mjs';
 
 test('值班室入口、图鉴、暂停设置与摇杆位置', async ({ page }, info) => {
     const errors = [];
@@ -56,7 +56,10 @@ test('路线与工装分步、整备详情、结算统计', async ({ page }, inf
     expect((await state(page)).labels).toContain('工装与补给');
     await screen(page, info, 'loadout');
     await tap(page, 'prep:‹ 路线');
-    expect((await state(page)).labels).toContain('选择路线');
+    const chapterLabels = (await state(page)).labels;
+    expect(chapterLabels).toContain('点亮江岸');
+    expect(chapterLabels).not.toContain('选择路线');
+    expect(chapterLabels.some(label => label.includes(' › '))).toBe(false);
     await page.goto('/?patrolDebug=shop');
     await tap(page, 'shop:属性与羁绊');
     const { labels } = await state(page);
@@ -71,6 +74,7 @@ test('路线与工装分步、整备详情、结算统计', async ({ page }, inf
     expect(['weapons', 'equipment']).toContain(shelf);
     await tap(page, shelf + ':‹ 整备');
     await page.goto('/?patrolDebug=result');
+    await openReport(page);
     await page.waitForFunction(() => globalThis.__nightShiftCampaignState?.().hitAreas.some(a => a.key === 'result:查看武器伤害'));
     // Result transitions briefly guard against accidental purchases or navigation.
     await expect(async () => {

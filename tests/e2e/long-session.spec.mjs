@@ -4,7 +4,7 @@ import {createDefaultProfile,PatrolSession} from '../../.m0-build/roguelite/sess
 import {UI_COPY} from '../../.m0-build/roguelite/narrative.js';
 import {checkpoint,installCheckpoint} from './campaign-fixtures.mjs';
 import {holdCombat} from './combat-clock.mjs';
-import {tap,state} from './canvas.mjs';
+import { tap, state, openReport } from './canvas.mjs';
 
 test('DEV-10 同页面连续两局十二波，再进无尽第十五波',async ({page,context},info)=>{
     test.setTimeout(360000);
@@ -24,6 +24,7 @@ test('DEV-10 同页面连续两局十二波，再进无尽第十五波',async ({
     page.on('pageerror',e=>errors.push(e.message));
     for(const [i,run] of sessions.entries()){
         if(i){
+            await openReport(page);
             await tap(page,'result:返回值班室');
             await page.evaluate(snap=>{
                 const {boot}=window.combatQA;
@@ -43,7 +44,12 @@ test('DEV-10 同页面连续两局十二波，再进无尽第十五波',async ({
                 window.soakSession=p.session.constructor;
                 let maxEnemies=0,maxBullets=0,frame=0;
                 while(p.inBattle && frame++<16000){
-                    p.update(1/30,0,0);
+                    const pad = b.bossView?.devices.find(d => d.kind==='switch' && d.active);
+                    const goal = pad ?? (b.bossView?.vulnerable ? b.boss : null);
+                    const dx = goal ? goal.x-b.player.x : 0, dy = goal ? goal.y-b.player.y : 0;
+                    const distance = Math.hypot(dx,dy);
+                    const moving = distance > (pad ? 10 : 44);
+                    p.update(1/30,moving ? dx/distance : 0,moving ? dy/distance : 0);
                     maxEnemies=Math.max(maxEnemies,b.enemies.length);maxBullets=Math.max(maxBullets,b.bullets.length);
                     if(frame%10===0)boot.draw();
                 }

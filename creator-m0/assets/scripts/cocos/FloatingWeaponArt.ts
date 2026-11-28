@@ -34,6 +34,11 @@ export function sampleGunPose(frames: readonly GunFrame[], age: number) {
 }
 
 export const FLOATING_WEAPON_ART: Readonly<Record<ToolId, WeaponArt>> = {
+    rebound_saw: { folder: 'rebound-saw', effect: 'rivet', motion: [[1,-4,0,8,1.1],[5,1,0,-4,1],[9,0,0,0,1]], tint: [255,173,67] },
+    rivet_line: { folder: 'rivet-line', effect: 'pull', motion: [[1,5,0,0,1.1],[4,-5,0,-7,1],[9,0,0,0,1]], tint: [230,150,75] },
+    echo_horn: { folder: 'echo-horn', effect: 'coil', motion: [[2,0,0,3,1.24],[6,0,0,-3,.95],[9,0,0,0,1]], tint: [205,153,255] },
+    breaker_stake: { folder: 'breaker-stake', effect: 'arc', motion: [[2,5,0,0,1],[5,-3,0,0,1],[9,0,0,0,1]], tint: [124,238,244] },
+    patrol_welder: { folder: 'patrol-welder', effect: 'jet', motion: [[1,2,2,7,1.08],[5,-1,-2,-8,1],[10,0,0,0,1]], tint: [255,169,78] },
     wrench: { folder: 'arc-wrench', effect: 'contact', motion: [], tint: [255, 177, 89] },
     bypass_wrench: { folder: 'bypass-wrench', effect: 'contact', motion: [], tint: [255, 138, 98] },
     arc_gun: { folder: 'arc-gun', effect: 'arc', motion: [[1,-6,2,-14,1.15],[3,3,-1,9,1.04],[7,0,0,0,1]], tint: [110, 230, 251] },

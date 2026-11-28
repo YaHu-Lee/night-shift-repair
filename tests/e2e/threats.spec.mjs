@@ -45,7 +45,7 @@ test('WPN-12 环绕首领和普通敌机时实际选用的八向帧',async ({pag
     await info.attach('actor-frames',{body:JSON.stringify(frames),contentType:'application/json'});
 });
 
-for(const chapter of ['01','02','03','04']){
+for(const chapter of ['01','02','04']){
     test('WPN-12 首领预警内外实伤与弱点 '+chapter,async ({page},info)=>{
         await enter(page,chapter,11);
         const hazard=await page.evaluate(()=>{
@@ -69,7 +69,7 @@ for(const chapter of ['01','02','03','04']){
             }
             window.cuePoints={inside,outside};return h.shape;
         });
-        expect(hazard).toBe(({ '01':'rect','02':'tether','03':'sector','04':'sector'})[chapter]);
+        expect(hazard).toBe(({ '01':'rect','02':'tether','04':'rect'})[chapter]);
         await screen(page,info,'warning');
         const result=await page.evaluate(()=>{
             const {boot}=window.combatQA,b=boot.patrol.session.battle,boss=b.bossUnit;
@@ -87,6 +87,12 @@ for(const chapter of ['01','02','03','04']){
             const misses=causes.filter(c=>c.reason==='boss_skill').length;
             Object.assign(b.player,inside);
             while(boss.state==='dash')boot.patrol.update(1/30,0,0);
+            Object.assign(b.player,{x:b.field.left+20,y:b.field.bottom+65});
+            for(let i=0;i<320 && boss.hp>0 && boss.state!=='open';i++){
+                const pad=b.bossView.devices.find(d=>d.kind==='switch' && d.active);
+                if(pad) Object.assign(b.player,{x:pad.x,y:pad.y});
+                boot.patrol.update(1/30,0,0);
+            }
             boot.draw();
             return {misses,hits:causes.filter(c=>c.reason==='boss_skill'),open:b.bossView.vulnerable,instruction:b.bossView.instruction};
         });
@@ -96,6 +102,32 @@ for(const chapter of ['01','02','03','04']){
         await screen(page,info,'weak');
     });
 }
+
+test('WPN-12 静默阵列的开口可穿过，击毁发射器中断攻击',async ({page},info)=>{
+    await enter(page,'03',11);
+    const sample=await page.evaluate(()=>{
+        const {boot}=window.combatQA,b=boot.patrol.session.battle;
+        const step=()=>{const t=b.tick;while(b.tick===t)boot.patrol.update(1/30,0,0);};
+        for(let i=0;i<180 && !b.bossView.pulses.length;i++)step();
+        const emitter=b.bossDevices.find(d=>d.active);
+        if(!emitter) throw Error('发射器未亮起');
+        const ring=b.bossView.pulses[0],hp=b.player.hp;
+        Object.assign(b.player,{x:ring.x+Math.cos(ring.gap)*(ring.radius+4),y:ring.y+Math.sin(ring.gap)*(ring.radius+4)});
+        step();const gapDamage=hp-b.player.hp;
+        const r=b.bossView.pulses[0];
+        Object.assign(b.player,{x:r.x-Math.cos(r.gap)*(r.radius+4),y:r.y-Math.sin(r.gap)*(r.radius+4)});
+        step();const damage=hp-b.player.hp-gapDamage;
+        Object.assign(b.player,{x:emitter.x+16,y:emitter.y});
+        const targets=b.runtimes.map(rt=>b.toRenderBridge().rangedAimTarget(rt.slot)?.id);
+        for(let i=0;i<160 && emitter.unit.hp>0;i++)step();
+        boot.draw();
+        return {targets,id:emitter.unit.id,gapDamage,damage,remaining:emitter.unit.hp,devices:b.bossView.devices.length};
+    });
+    expect(sample.gapDamage).toBe(0);expect(sample.damage).toBeGreaterThan(0);
+    expect(sample.targets).toContain(sample.id);expect(sample.remaining).toBeLessThanOrEqual(0);
+    expect(sample.devices).toBeLessThan(3);
+    await screen(page,info,'relay-disabled');
+});
 
 for(const kind of ['charger','ambusher','reclaimer','jammer']){
     test('WPN-12 普通敌机预警与实际攻击 '+kind,async ({page},info)=>{

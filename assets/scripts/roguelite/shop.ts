@@ -80,12 +80,14 @@ export interface IntermissionState {
     paidRerolls: number;
     freeRerollsLeft: number;
     buyoutBonusUsed: boolean;
+    recoveryLock: boolean;
+    recoveryOrder: boolean;
     nextWeaponUid: number;
     rollSerial: number;
 }
 
 export type ShopCheckpoint = Pick<IntermissionState, 'slots' | 'levelUpOptions' | 'levelUpRerolls'
-    | 'paidRerolls' | 'freeRerollsLeft' | 'buyoutBonusUsed' | 'rollSerial'>;
+    | 'paidRerolls' | 'freeRerollsLeft' | 'buyoutBonusUsed' | 'rollSerial' | 'recoveryLock' | 'recoveryOrder'>;
 
 export interface ShopViewModel {
     readonly wave: number;
@@ -110,7 +112,7 @@ export interface ShopViewModel {
 function legalToolsForRig(rigId: RigId, profile?: ShopProfileSlice): ToolId[] {
     const rig = RIG_CATALOG[rigId];
     const banned = new Set(rig.bannedTags ?? []);
-    const unlocked = profile?.clearedChapters ? unlockedWeaponsForProfile({ clearedChapters: profile.clearedChapters }) : ALL_TOOL_IDS;
+    const unlocked = profile?.clearedChapters ? unlockedWeaponsForProfile(profile) : ALL_TOOL_IDS;
     const tools = unlocked.filter(id => !WEAPON_CATALOG[id].tags.some(t => banned.has(t)));
     if (!tools.includes(rig.starterWeapon)) tools.unshift(rig.starterWeapon);
     return tools;
@@ -327,6 +329,7 @@ export function createIntermission(
         readonly weapons: readonly WeaponInstance[];
         readonly modules: readonly string[];
         readonly carryLockedSlots?: readonly ShopSlot[];
+        readonly recoveryRank?: Tier;
         readonly nextWeaponUid: number;
     },
     profile?: ShopProfileSlice,
@@ -354,6 +357,8 @@ export function createIntermission(
         slots: (params.carryLockedSlots ?? []).map(s => ({ ...s })),
         paidRerolls: 0,
         freeRerollsLeft: build.freeRerollsPerShop + supplyFreeReroll,
+        recoveryLock: (params.recoveryRank ?? 1) >= 3,
+        recoveryOrder: params.recoveryRank === 4,
         buyoutBonusUsed: false,
         nextWeaponUid: params.nextWeaponUid,
         rollSerial: 0,
@@ -367,6 +372,8 @@ export function createIntermission(
             paidRerolls: checkpoint.paidRerolls,
             freeRerollsLeft: checkpoint.freeRerollsLeft,
             buyoutBonusUsed: checkpoint.buyoutBonusUsed,
+            recoveryOrder: checkpoint.recoveryOrder === true,
+            recoveryLock: checkpoint.recoveryLock === true,
             rollSerial: checkpoint.rollSerial,
         };
     }
@@ -426,7 +433,7 @@ export function toggleLockSlot(
     }
     const build = resolveBuild(state.rigId, state.level, state.levelStats, state.weapons, state.modules, profile, state.danger ?? 0, state.supply ?? 'none', state.dailyMod);
     const currentLocks = state.slots.filter(s => s.locked && !s.sold).length;
-    if (currentLocks >= build.maxLocks) return false;
+    if (currentLocks >= build.maxLocks + Number(state.recoveryLock)) return false;
     state.slots[slotIndex] = { ...slot, locked: true };
     return true;
 }
@@ -507,6 +514,19 @@ export function sellOwnedWeapon(
     return refund;
 }
 
+export function orderRecoveredWeapon(state: IntermissionState, uid: number, profile: ShopProfileSlice): boolean {
+    if (!state.recoveryOrder || state.pendingLevelUps > 0) return false;
+    const item = state.weapons.find(w => w.uid === uid);
+    const index = state.slots.findIndex(slot => !slot.locked || slot.sold);
+    if (!item || index < 0 || !legalToolsForRig(state.rigId, profile).includes(item.id)) return false;
+    const build = shopViewModel(state, profile).build;
+    state.slots[index] = { kind: 'weapon', itemId: item.id, tier: item.tier, slotIndex: index, sold: false, locked: false,
+        price: shopOfferPrice(WEAPON_CATALOG[item.id].tiers[item.tier - 1].price, state.wave, build.shopPriceScale),
+        canAutoMerge: willAutoMergeOnBuy(state.weapons, item.id, item.tier) };
+    state.recoveryOrder = false;
+    return true;
+}
+
 export function hasRefreshableShopSlots(slots: readonly ShopSlot[]): boolean {
     return slots.some(slot => slot.sold || !slot.locked);
 }
@@ -557,7 +577,7 @@ export function shopViewModel(
         nextRerollCost: state.freeRerollsLeft > 0 ? 0 : rerollPrice(state.wave, state.paidRerolls),
         freeRerollsLeft: state.freeRerollsLeft,
         lockCount: state.slots.filter(s => s.locked && !s.sold).length,
-        maxLocks: build.maxLocks,
+        maxLocks: build.maxLocks + Number(state.recoveryLock),
     };
 }
 

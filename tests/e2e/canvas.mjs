@@ -20,6 +20,12 @@ export async function tap(page, key, index = 0) {
     await page.touchscreen.tap(...await point(page, key, index));
 }
 
+export async function openReport(page) {
+    await page.waitForFunction(() => globalThis.__nightShiftCampaignState?.().hitAreas.some(a => a.key === "result:查看战报" || a.key === "result:返回值班室"));
+    if ((await state(page)).hitAreas.some(a => a.key === "result:查看战报")) await tap(page, "result:查看战报");
+    await point(page, "result:返回值班室");
+}
+
 export async function screen(page, info, name) {
     await page.locator('#GameCanvas').screenshot({ path: info.outputPath(name + '.png') });
 }

@@ -3,14 +3,15 @@ import { state, tap, screen } from './canvas.mjs';
 import { readSave } from './campaign-fixtures.mjs';
 
 for (const [label, image] of [
+    ['工装图集', '**/campaign-ch01/native/**/b96e7a3d-6c1b-58fe-b02b-49b728210b74*.png'],
     ['最后一页敌机贴图', '**/campaign-ch01/native/**/586718d0-6f85-4d7f-a66f-07df0e5a377e*.png'],
     ['战斗界面图集', '**/resources/native/**/58fb5f6d-4f6b-4594-909f-5bcd3d7230a5*.png'],
 ]) {
     test('NEW-01 首访等待' + label + '，加载期间不计时', async ({ page }, info) => {
-        let pending;
-        await page.route(image, route => { pending = route; });
+        const intercepted = Promise.withResolvers();
+        await page.route(image, route => { intercepted.resolve(route); });
         await page.goto('/', { waitUntil:'domcontentloaded' });
-        await expect.poll(() => !!pending).toBe(true);
+        const pending = await intercepted.promise;
         await expect.poll(async () => (await state(page))?.labels).toContain('正在加载战斗资源…');
         expect(await state(page)).toMatchObject({battleArtReady:false,battleVisible:false,loadingAnimation:true,tick:0});
         expect((await state(page)).hitAreas).toHaveLength(0);
@@ -47,7 +48,7 @@ test('NEW-01 至 NEW-04 新档触控、升级、首店合成和续玩', async ({
     const start = await state(page);
     expect(start).toMatchObject({page:'battle', battleArtReady:true, wave:1});
     expect(start.hitAreas.some(area => area.key === 'home:dispatch')).toBe(false);
-    expect(start.stick.x).toBeGreaterThan(180);
+    expect(start.stick.x).toBe(180);
     expect(start.labels).toContain('拖动摇杆移动，武器会自动攻击。');
     const box = await page.locator('#GameCanvas').boundingBox();
     const scale = Math.min(box.width / 360, box.height / 640);
@@ -56,7 +57,10 @@ test('NEW-01 至 NEW-04 新档触控、升级、首店合成和续玩', async ({
     const input = await context.newCDPSession(page);
     await input.send('Input.dispatchTouchEvent', {type:'touchStart',touchPoints:[{x,y}]});
     await input.send('Input.dispatchTouchEvent', {type:'touchMove',touchPoints:[{x:x + 28 * scale,y}]});
-    await page.waitForFunction(tick => globalThis.__nightShiftCampaignState().tick >= tick + 30, start.tick);
+    await page.waitForFunction(x => {
+        const s = globalThis.__nightShiftCampaignState();
+        return s.page==='battle' && s.player.x > x + 10 && !s.labels.includes('拖动摇杆移动，武器会自动攻击。');
+    }, start.player.x);
     await input.send('Input.dispatchTouchEvent', {type:'touchEnd',touchPoints:[]});
     const after = await state(page);
     expect(after.player.x).toBeGreaterThan(start.player.x + 10);

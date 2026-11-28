@@ -49,6 +49,8 @@ import type {
     WeaponDamageStat,
     WeaponImpact,
     WeaponInstance,
+    Tier,
+    WeaponModLoadout,
     WorkshopProfile,
 } from './types';
 
@@ -63,6 +65,7 @@ type SkillKind = 'arc' | 'shot' | 'heat' | 'magnet' | 'induction';
 const WEAPON_ATTACK_CUES: Record<ToolId, SkillKind> = {
     wrench: 'arc', arc_gun: 'arc', bypass_wrench: 'arc', riveter: 'shot', hydraulic_nailer: 'shot', split_probe: 'shot',
     torch: 'heat', pulse_nozzle: 'heat', induction: 'induction', traction_coil: 'magnet',
+    rebound_saw: 'shot', rivet_line: 'shot', echo_horn: 'induction', breaker_stake: 'arc', patrol_welder: 'heat',
 };
 
 export interface FloatingText {
@@ -85,6 +88,7 @@ export interface RogueliteEnemy extends Position {
     parts: number;
     xp: number;
     isElite?: boolean;
+    relay?: boolean;
     state: 'walk' | 'warn' | 'dash' | 'recover' | 'stealth' | 'open';
     next: number;
     vx: number;
@@ -99,12 +103,14 @@ export interface RogueliteEnemy extends Position {
     contactAt?: number;
     revealedAt?: number;
     shockedUntil: number;
+    conductorUntil?: number;
     vulnerableUntil: number;
     vulnerableBonus: number;
     burnStacks: number;
     burnDamage: number;
     burnUntil: number;
     slowUntil: number;
+    pinnedUntil?: number;
     nextShift: number;
     bossCycle: number;
     bossStage: number;
@@ -149,6 +155,21 @@ interface WeaponRuntime {
     crits: number;
 }
 
+interface FieldTool extends Position {
+    kind: 'disc' | 'cable' | 'echo' | 'stake' | 'welder' | 'scorch';
+    rt: WeaponRuntime;
+    cast: WeaponCast;
+    born: number;
+    until: number;
+    vx: number;
+    vy: number;
+    radius: number;
+    origin: Position;
+    hit: Set<number>;
+    returning?: boolean;
+    forked?: boolean;
+}
+
 interface ActiveMeleeSwing {
     readonly runtime: WeaponRuntime;
     readonly cast: WeaponCast & { readonly melee: MeleeMotion; readonly tool: MeleeTool };
@@ -161,6 +182,8 @@ interface ActiveMeleeSwing {
 }
 
 export interface BattleInit {
+    readonly rigRank?: Tier;
+    readonly weaponMods?: WeaponModLoadout;
     readonly chapter: ChapterDefinition;
     readonly waveIndex: number; // 0..11 (or higher in endless mode)
     readonly waveDefOverride?: WaveDefinition;
@@ -190,6 +213,8 @@ export class RogueliteBattle {
     readonly danger: DangerLevel;
     readonly dailyMod?: DailyShiftModifierId;
     readonly durationTicks: number;
+    readonly rigRank: Tier;
+    readonly weaponMods: WeaponModLoadout;
 
     readonly player: Position & { hp: number; maxHp: number; invulnerableUntil: number; hurtAt?: number };
     destination: Position | null = null;
@@ -239,8 +264,24 @@ export class RogueliteBattle {
     private nextSpawnTick = 1;
     private regenCarry = 0;
     private controlHits = 0;
+    private readonly fieldTools: FieldTool[] = [];
+    private readonly comboTargets = new WeakMap<RogueliteEnemy, { tools: ToolId[]; last: number; ready: number }>();
+    private readonly facing = { x: 0, y: -1 };
+    private guardCharge = 0;
+    private counterReady = false;
+    private nextHeatPatch = 0;
+    private pickupChain = 0;
+    private lastPickup = -90;
+    private readonly surveyPins: Position[] = [];
+    private readonly wireContacts = new Set<number>();
+    private nextSurveySlow = true;
     private bossUnit: RogueliteEnemy | null = null;
     private bossDefeated = false;
+    private railCenter = START.x;
+    private railStep = 56;
+    private switchTicks = 0;
+    private disabledCircuit = -1;
+    private readonly bossDevices: (Position & { kind: 'wreck' | 'relay' | 'switch'; active: boolean; unit?: RogueliteEnemy })[] = [];
 
     constructor(init: BattleInit) {
         this.chapter = init.chapter;
@@ -250,6 +291,8 @@ export class RogueliteBattle {
         this.arena = station.arena;
         this.field = init.field ?? CAMPAIGN_FIELD;
         this.rigId = init.rigId;
+        this.rigRank = init.rigRank ?? 1;
+        this.weaponMods = init.weaponMods ?? {};
         this.danger = init.danger;
         this.dailyMod = init.dailyMod;
         this.build = resolveBuild(
@@ -352,8 +395,16 @@ export class RogueliteBattle {
         else if (hazard?.shape === 'sector') instruction = UI_COPY.bossHints.sector;
         else if (hazard?.shape === 'tether') instruction = UI_COPY.bossHints.tether;
         else if (volley) instruction = volley.pattern === 'fan' ? UI_COPY.bossHints.fan : UI_COPY.bossHints.ring;
+        if (b.state !== 'open') {
+            instruction = { '01': '离开亮轨，等最后一锤落下。', '02': '站到废机后，引绞索勾住废机。', '03': '穿过声波缺口，靠近亮起的发射器。', '04': '站进亮起的断路器，直到装甲打开。' }[this.chapter.id];
+        }
+        const emitter = this.bossDevices.find(d => d.kind === 'relay' && d.active && d.unit && d.unit.hp > 0);
         return {
             kind,
+            nextRail: this.chapter.id === '01' && !!this.waveDef.bossWave && b.bossStage === 2 && hazard?.shape === 'rect' && b.bossCycle % 3 !== 0
+                ? this.railCenter + (b.bossCycle % 3 === 1 ? this.railStep : -this.railStep) : undefined,
+            devices: this.bossDevices.filter(d => !d.unit || d.unit.hp > 0),
+            pulses: emitter && b.state === 'dash' ? this.soundPulses(b, emitter, this.tick - b.bossPhaseStartedAt) : [],
             title: this.waveDef.bossWave ? this.chapter.bossName : this.chapter.midBossName,
             hp: b.hp,
             maxHp: b.maxHp,
@@ -419,6 +470,7 @@ export class RogueliteBattle {
         const bossMapped = bossUnit ? mappedEnemies.find(e => e.id === bossUnit.id) : undefined;
         return {
             field: this.field,
+            rigId: this.rigId, rigRank: this.rigRank,
             player: this.player,
             tick: this.tick,
             tools: this.runtimes.map(rt => ({ id: rt.instance.id, mods: [] })),
@@ -490,6 +542,11 @@ export class RogueliteBattle {
         // 2. Move player
         const prevPlayer = { x: this.player.x, y: this.player.y };
         this.movePlayer(inputX, inputY);
+        const moved = distance(prevPlayer, this.player);
+        if (moved > 0) {
+            this.facing.x = (this.player.x - prevPlayer.x) / moved;
+            this.facing.y = (this.player.y - prevPlayer.y) / moved;
+        }
 
         // 3. Controlled dynamic wave spawning
         this.stepSpawner();
@@ -521,6 +578,8 @@ export class RogueliteBattle {
         // 6. Advance active melee sweeps & fire all 6 weapon slots
         if (priorEnemies) this.advanceMelees(priorEnemies, prevPlayer);
         for (const rt of this.runtimes) this.fireWeapon(rt);
+        this.stepFieldTools();
+        if (this.rigId === 'surveyor') this.stepSurveyPins();
 
         // 7. Collect drops
         this.stepDrops();
@@ -733,7 +792,7 @@ export class RogueliteBattle {
         const wasJammed = this.isJammed;
         this.isJammed = false;
         for (const enemy of this.enemies) {
-            if (enemy.hp <= 0) continue;
+            if (enemy.hp <= 0 || enemy.relay || (enemy.pinnedUntil ?? 0) > this.tick) continue;
             if (enemy.kind === 'boss') {
                 this.stepBoss(enemy);
                 continue;
@@ -935,95 +994,154 @@ export class RogueliteBattle {
         }
     }
 
-    private stepBoss(boss: RogueliteEnemy): void {
-        const dx = this.player.x - boss.x;
-        const dy = this.player.y - boss.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const ratio = boss.hp / boss.maxHp;
-        boss.bossStage = boss.bossKind === 'core' ? (ratio <= 0.35 ? 3 : ratio <= 0.7 ? 2 : 1) : ratio <= 0.5 ? 2 : 1;
+    private openBoss(b: RogueliteEnemy, duration: number): void {
+        b.state = 'open';
+        b.bossHazard = undefined;
+        b.bossPhaseStartedAt = this.tick;
+        b.next = this.tick + Math.max(24, duration - (this.danger === 4 ? 12 : 0));
+    }
 
-        if (boss.state === 'walk') {
-            boss.facingX = dx / dist;
-            boss.facingY = dy / dist;
-            if (dist > 90) {
-                const step = boss.speed / TICK_RATE;
-                boss.x = clamp(boss.x + boss.facingX * step, this.field.left + 22, this.field.right - 22);
-                boss.y = clamp(boss.y + boss.facingY * step, this.field.bottom + 22, this.field.top - 22);
+    private startBossAttack(b: RogueliteEnemy): void {
+        const p = this.player;
+        const chapter = this.chapter.id;
+        const dist = Math.max(1, distance(b, p));
+        b.facingX = (p.x - b.x) / dist; b.facingY = (p.y - b.y) / dist;
+        b.bossCycle++;
+        b.bossDamagedPlayer = false;
+        b.state = 'warn'; b.bossPhaseStartedAt = this.tick;
+        b.next = this.tick + (this.danger === 4 ? 28 : 36);
+        this.warningSerial++;
+        const full = !!this.waveDef.bossWave;
+        if (chapter === '01') {
+            // The three rails keep their locked coordinates even if the player moves.
+            const rail = (b.bossCycle - 1) % (full ? 3 : 1);
+            if (rail === 0) {
+                this.railCenter = clamp(p.x, this.field.left + 76, this.field.right - 76);
+                this.railStep = b.bossStage === 2 ? -56 : 56;
             }
-            if (this.tick >= boss.next) {
-                const cycle = boss.bossCycle++;
-                boss.bossDamagedPlayer = false;
-                boss.state = 'warn';
-                boss.bossPhaseStartedAt = this.tick;
-                const fastBoss = this.danger >= 4 || this.dailyMod === 'turbo_shift';
-                const warnBase = fastBoss ? 30 : 34;
-                boss.next = this.tick + Math.max(fastBoss ? 20 : 24, warnBase - boss.bossStage * 3);
-                this.warningKind = 'warning';
-                this.warningSerial++;
-                if (cycle % 2 === 1) {
-                    boss.bossVolley = boss.bossStage >= 2 || boss.bossKind === 'tow' || boss.bossKind === 'silence' ? 'ring' : 'fan';
-                    boss.bossHazard = undefined;
-                } else {
-                    boss.bossVolley = undefined;
-                    boss.bossHazard = this.createBossHazard(boss, dist, cycle);
+            const offset = [0, this.railStep, -this.railStep][rail];
+            const center = this.railCenter + offset;
+            b.bossHazard = { shape: 'rect', left: center - 25, right: center + 25, bottom: this.field.bottom, top: this.field.top, active: false };
+        } else if (chapter === '02') {
+            if (!this.bossDevices.length) {
+                const side = { x: -b.facingY, y: b.facingX };
+                for (const sign of [-1, 1]) this.bossDevices.push({ kind: 'wreck', active: true,
+                    x: clamp(p.x + side.x * sign * 64, this.field.left + 22, this.field.right - 22),
+                    y: clamp(p.y + side.y * sign * 64, this.field.bottom + 22, this.field.top - 22) });
+            }
+            b.bossHazard = { shape: 'tether', x: b.x, y: b.y, end: fieldRayEnd(b, b.facingX, b.facingY, Math.min(dist + 95, 325), this.field), width: 14, active: false };
+        } else if (chapter === '03') {
+            if (!this.bossDevices.length) {
+                for (let i = 0; i < (full ? 3 : 1); i++) {
+                    const angle = i * TAU / 3 - Math.PI / 2;
+                    const at = fieldRayEnd(b, Math.cos(angle), Math.sin(angle), 72, this.field);
+                    const relayHp = 65 + this.danger * 18 + b.bossStage * 8;
+                    const relay: RogueliteEnemy = { ...b, ...at, id: this.nextEnemyId++, kind: 'turret', relay: true,
+                        hp: relayHp, maxHp: relayHp, isElite: false, parts: 0, xp: 0, bossKind: undefined, radius: 12 };
+                    this.enemies.push(relay);
+                    this.bossDevices.push({ ...at, kind: 'relay', active: false, unit: relay });
                 }
             }
-        } else if (boss.state === 'warn' && this.tick >= boss.next) {
-            boss.state = 'dash';
-            boss.bossPhaseStartedAt = this.tick;
-            if (boss.bossVolley) {
-                boss.next = this.tick + 18;
-                this.fireBossVolley(boss, boss.bossVolley, false);
-            } else if (boss.bossHazard) {
-                boss.bossHazard.active = true;
-                boss.next = this.tick + 22;
-                this.enemyAttackCue = 'area';
-                this.enemyAttackSerial++;
+            const live = this.bossDevices.filter(d => d.unit && d.unit.hp > 0);
+            if (!live.length) { this.openBoss(b, 90); return; }
+            this.bossDevices.forEach(d => d.active = false);
+            live[(b.bossCycle - 1) % live.length].active = true;
+        } else {
+            if (!this.bossDevices.length) {
+                for (const sign of [-1, 1]) this.bossDevices.push({ kind: 'switch', active: false,
+                    x: clamp(b.x + sign * 85, this.field.left + 22, this.field.right - 22), y: clamp(b.y - 42, this.field.bottom + 22, this.field.top - 22) });
             }
-        } else if (boss.state === 'dash') {
-            if (boss.bossVolley && this.tick === boss.next - 8) {
-                this.fireBossVolley(boss, boss.bossVolley, true);
-            }
-            if (boss.bossHazard?.active && !boss.bossDamagedPlayer && this.inBossHazard(boss.bossHazard, this.player)) {
-                boss.bossDamagedPlayer = true;
-                this.hurtPlayer(Math.round(boss.damage * 1.25), 'boss_skill', boss);
-            }
-            if (this.tick >= boss.next) {
-                boss.bossHazard = undefined;
-                boss.bossVolley = undefined;
-                const fastBoss = this.danger >= 4 || this.dailyMod === 'turbo_shift';
-                boss.state = 'open';
-                boss.bossPhaseStartedAt = this.tick;
-                boss.next = this.tick + (fastBoss ? 44 : 56);
-            }
-        } else if (boss.state === 'open' && this.tick >= boss.next) {
-            const fastBoss = this.danger >= 4 || this.dailyMod === 'turbo_shift';
-            boss.state = 'walk';
-            boss.bossPhaseStartedAt = this.tick;
-            boss.next = this.tick + (fastBoss ? 15 : 22);
-        }
-
-        if (distance(boss, this.player) < boss.radius + 10) {
-            if (this.hurtPlayer(boss.damage, 'boss_contact', boss)) boss.contactAt = this.tick;
+            this.bossDevices.forEach((d, i) => d.active = b.bossStage === 3 || i === (b.bossCycle - 1) % 2);
+            this.switchTicks = 0;
+            b.bossHazard = { shape: 'rect', left: p.x - 18, right: p.x + 18, bottom: this.field.bottom, top: this.field.top, active: false };
         }
     }
 
-    private createBossHazard(boss: RogueliteEnemy, dist: number, cycle: number): NonNullable<RogueliteEnemy['bossHazard']> {
-        const angle = Math.atan2(boss.facingY, boss.facingX);
-        if (boss.bossKind === 'tow' || (boss.bossKind === 'core' && boss.bossStage === 2)) {
-            const end = fieldRayEnd(boss, Math.cos(angle), Math.sin(angle), Math.min(260, dist + 55), this.field);
-            return { shape: 'tether', x: boss.x, y: boss.y, end, width: 16, active: false };
+    private stepBoss(b: RogueliteEnemy): void {
+        const chapter = this.chapter.id;
+        const ratio = b.hp / b.maxHp;
+        const full = !!this.waveDef.bossWave;
+        b.bossStage = !full ? 1 : chapter === '04' ? (ratio < .35 ? 3 : ratio < .7 ? 2 : 1) : ratio < .5 ? 2 : 1;
+        if (b.state === 'open') {
+            if (this.tick >= b.next) {
+                b.state = 'walk'; b.next = this.tick + 16;
+                if (chapter === '03' && this.bossDevices.every(d => !d.unit || d.unit.hp <= 0)) this.bossDevices.length = 0;
+            }
+            return;
         }
-        if (boss.bossKind === 'silence' || (boss.bossKind === 'core' && boss.bossStage === 1)) {
-            const sweep = (2 * TAU) / 3;
-            const shift = (cycle % 2 ? -1 : 1) * (Math.PI / 6);
-            return { shape: 'sector', x: boss.x, y: boss.y, radius: 220, from: angle + shift - sweep / 2, sweep, active: false };
+        if (b.state === 'walk') {
+            const dist = distance(b, this.player);
+            if (dist > 0) { b.facingX = (this.player.x - b.x) / dist; b.facingY = (this.player.y - b.y) / dist; }
+            if (dist > 90 && (chapter === '01' || chapter === '02')) {
+                b.x += b.facingX * b.speed / TICK_RATE; b.y += b.facingY * b.speed / TICK_RATE;
+            }
+            if (this.tick >= b.next) this.startBossAttack(b);
+            return;
         }
-        const horizontal = Math.abs(boss.facingX) > Math.abs(boss.facingY);
-        const half = boss.bossKind === 'gatekeeper' ? 42 : 28;
-        return horizontal
-            ? { shape: 'rect', left: this.field.left, right: this.field.right, bottom: this.player.y - half, top: this.player.y + half, active: false }
-            : { shape: 'rect', left: this.player.x - half, right: this.player.x + half, bottom: this.field.bottom, top: this.field.top, active: false };
+        if (chapter === '04') {
+            const control = this.bossDevices.find(d => d.active && distance(d, this.player) <= 24);
+            this.switchTicks = control ? this.switchTicks + 1 : 0;
+            if (control && this.switchTicks >= 8) {
+                this.disabledCircuit = this.bossDevices.indexOf(control);
+                this.bossDevices.forEach(d => d.active = false);
+                this.openBoss(b, 88); return;
+            }
+        }
+        if (b.state === 'warn' && this.tick >= b.next) {
+            b.state = 'dash'; b.bossPhaseStartedAt = this.tick;
+            b.next = this.tick + (chapter === '03' ? 60 : chapter === '04' ? 45 : 16);
+            if (b.bossHazard) b.bossHazard.active = true;
+            this.enemyAttackSerial++; this.enemyAttackCue = 'area';
+            if (chapter === '02' && b.bossHazard?.shape === 'tether') {
+                const hook = b.bossHazard;
+                const wreck = this.bossDevices.find(d => distanceToSegment(d, b, hook.end) <= 24);
+                if (wreck) {
+                    b.x += (wreck.x - b.x) * 0.48; b.y += (wreck.y - b.y) * 0.48;
+                    this.wire(b, wreck);
+                    this.openBoss(b, 95); return;
+                }
+            }
+            if (chapter === '04' && (this.disabledCircuit !== 1 || b.bossStage < 3)) this.fireBossVolley(b, 'fan', false);
+            if (chapter === '04' && b.bossStage === 3 && this.disabledCircuit === 0) b.bossHazard = undefined;
+        }
+        if (b.state !== 'dash') return;
+        if (chapter === '03') {
+            const emitter = this.bossDevices.find(d => d.active && d.unit && d.unit.hp > 0);
+            if (!emitter) { this.openBoss(b, 68); return; }
+            const age = this.tick - b.bossPhaseStartedAt;
+            const pulses = this.soundPulses(b, emitter, age);
+            for (const pulse of pulses) {
+                const angle = Math.atan2(this.player.y - pulse.y, this.player.x - pulse.x);
+                const delta = Math.atan2(Math.sin(angle - pulse.gap), Math.cos(angle - pulse.gap));
+                if (Math.abs(distance(pulse, this.player) - pulse.radius) <= 7 && Math.abs(delta) > pulse.halfGap) this.hurtPlayer(b.damage, 'boss_skill', b);
+            }
+        }
+        if (b.bossHazard?.active && !b.bossDamagedPlayer && this.inBossHazard(b.bossHazard, this.player)) {
+            b.bossDamagedPlayer = this.hurtPlayer(Math.round(b.damage * 1.25), 'boss_skill', b);
+        }
+        if (this.tick >= b.next) {
+            b.bossHazard = undefined;
+            if (chapter === '02' && b.bossStage === 2) {
+                const wreck = this.bossDevices[b.bossCycle % 2];
+                if (wreck && !b.sprintTicks) {
+                    b.sprintTicks = 1; b.state = 'warn'; b.next = this.tick + 30; b.bossPhaseStartedAt = this.tick;
+                    b.bossHazard = { shape: 'sector', x: b.x, y: b.y, radius: distance(b, wreck), from: Math.atan2(wreck.y-b.y,wreck.x-b.x) - 1, sweep: 2, active: false };
+                    return;
+                }
+                b.sprintTicks = 0;
+            }
+            if ((chapter === '01' && full && b.bossCycle % 3 !== 0) || chapter === '03' || chapter === '04') {
+                b.state = 'walk'; b.next = this.tick + (chapter === '01' ? 4 : 18); return;
+            }
+            this.openBoss(b, chapter === '02' ? 27 : 72);
+        }
+        if (distance(b, this.player) < b.radius + 10) this.hurtPlayer(b.damage, 'boss_contact', b);
+    }
+
+    private soundPulses(b: RogueliteEnemy, emitter: Position, age: number) {
+        const dead = this.bossDevices.filter(d => d.unit && d.unit.hp <= 0).length;
+        const gap = Math.atan2(b.facingY, b.facingX) + Math.min(1.3, age * 0.025) * (b.bossStage === 2 ? -1 : 1);
+        return [age, age - 18].filter(t => t >= 0).map(t => ({ x: emitter.x, y: emitter.y, radius: 8 + t * 3.8, gap, halfGap: 0.62 + dead * .28 }));
     }
 
     private inBossHazard(h: NonNullable<RogueliteEnemy['bossHazard']>, p: Readonly<Position>): boolean {
@@ -1059,16 +1177,22 @@ export class RogueliteBattle {
             b.x += b.vx;
             b.y += b.vy;
             const hit = distance(b, this.player) < 11;
-            if (hit) this.hurtPlayer(b.damage, b.source);
+            if (hit) this.hurtPlayer(b.damage, b.source, undefined, { x: b.x - b.vx, y: b.y - b.vy });
             if (hit || b.x < this.field.left || b.x > this.field.right || b.y < this.field.bottom || b.y > this.field.top) {
                 this.bullets.splice(i, 1);
             }
         }
     }
 
-    private hurtPlayer(rawDamage: number, source: DamageSource, attacker?: RogueliteEnemy): boolean {
+    private hurtPlayer(rawDamage: number, source: DamageSource, attacker?: RogueliteEnemy, origin: Position | undefined = attacker): boolean {
         if (this.tick < this.player.invulnerableUntil || this.player.hp <= 0) return false;
-        const dealt = incomingDamage(rawDamage, this.build.stats.armor);
+        const front = origin && (origin.x - this.player.x) * this.facing.x + (origin.y - this.player.y) * this.facing.y > 0;
+        const block = this.rigId === 'heavy_fitter' && this.guardCharge >= 3 && front && source !== 'boss_skill';
+        if (block) {
+            this.guardCharge = 0; this.counterReady = this.rigRank >= 3;
+            this.pushFloater(this.player.x, this.player.y + 18, '格挡', 'heal');
+        }
+        const dealt = incomingDamage(rawDamage * (block ? 0.45 : 1), this.build.stats.armor);
         this.player.invulnerableUntil = this.tick + PLAYER_HIT_GRACE;
         this.player.hurtAt = this.tick;
         this.playerHit = { x: this.player.x, y: this.player.y };
@@ -1099,7 +1223,17 @@ export class RogueliteBattle {
             if (this.tick > e.burnUntil) { e.burnStacks = 0; continue; }
             const tickDmg = Math.max(2, Math.round(e.burnDamage * e.burnStacks * welderMult * (thermalTier >= 4 ? 1.25 : 1.0)));
             const thermalRt = this.runtimes.find(r => WEAPON_CATALOG[r.instance.id].tags.includes('thermal')) ?? this.runtimes[0];
-            this.applyDamage(e, tickDmg, thermalRt, false, false);
+            if (this.rigId === 'thermal_welder' && this.rigRank >= 2 && this.tick >= this.nextHeatPatch) {
+                this.nextHeatPatch = this.tick + 15;
+                const cast: WeaponCast = { tool: thermalRt.instance.id, slot: thermalRt.slot, x: e.x, y: e.y, ux: 1, uy: 0, tick: this.tick, targetRange: 0 };
+                const last = this.fieldTools.find(f => f.kind === 'scorch' && distance(f, e) < 68);
+                const patch = this.placeTool('scorch', e, thermalRt, cast, 35, 21);
+                if (last && this.rigRank === 4) {
+                    const bridge = this.placeTool('cable', patch, thermalRt, cast, 23, 8);
+                    bridge.origin = { x: last.x, y: last.y };
+                }
+            }
+            this.applyDamage(e, tickDmg, thermalRt, false, this.rigId === 'thermal_welder' && this.rigRank >= 3);
         }
     }
 
@@ -1211,6 +1345,41 @@ export class RogueliteBattle {
         };
         this.weaponCasts.push(cast);
 
+        if (id === 'rebound_saw' || id === 'rivet_line' || id === 'echo_horn' || id === 'breaker_stake' || id === 'patrol_welder') {
+            const mod = this.weaponMods[id];
+            if (id === 'rebound_saw') {
+                this.placeTool('disc', this.player, rt, cast, 38, 7, ux * 12, uy * 12);
+            } else if (id === 'echo_horn') {
+                this.placeTool('echo', this.player, rt, cast, 12, reach);
+                if (mod === 'echo_repeat') this.placeTool('echo', this.player, rt, cast, 12, reach, 0, 0, 10);
+                if (mod === 'echo_twin') this.placeTool('echo', fieldRayEnd(target, ux, uy, 50, this.field), rt, cast, 12, reach * 0.65);
+            } else if (id === 'rivet_line') {
+                const pin = mod === 'rivet_pin' ? fieldRayEnd(target, ux, uy, 64, this.field) : target;
+                if (mod === 'rivet_pin' && target.kind !== 'boss' && distance(pin, target) < 64) {
+                    target.x = pin.x; target.y = pin.y; target.pinnedUntil = this.tick + 60;
+                }
+                const line = this.placeTool('cable', pin, rt, cast, 29, 6);
+                const previous = this.fieldTools.find(t => t !== line && t.rt === rt && t.kind === 'cable');
+                if (mod === 'rivet_trip') {
+                    line.until = this.tick + cd * 2;
+                    if (previous) line.origin = { x: previous.x, y: previous.y };
+                }
+            } else if (id === 'breaker_stake') {
+                const stake = this.placeTool('stake', target, rt, cast, cd * 3 - 1, 34);
+                const prior = this.fieldTools.filter(t => t !== stake && t.rt === rt && t.kind === 'stake');
+                if (mod === 'stake_link' && prior.length) {
+                    const line = this.placeTool('cable', target, rt, cast, cd, 7);
+                    line.origin = { x: prior[prior.length - 1].x, y: prior[prior.length - 1].y };
+                }
+                if (mod === 'stake_loop' && prior.length >= 2) {
+                    this.pulseTriangle(prior[0], prior[1], stake, rt, cast);
+                }
+            } else {
+                this.placeTool('welder', this.player, rt, cast, 28, 25);
+            }
+            return;
+        }
+
         if (id === 'arc_gun') {
             this.strikeEnemy(target, rt, this.player, 1.0, false, cast);
             const baseHops = (tierSpec.hops ?? 2) + this.extraArcHops();
@@ -1239,7 +1408,7 @@ export class RogueliteBattle {
                 .slice(0, count);
             for (const e of hits) {
                 this.strikeEnemy(e, rt, this.player, 1.0, false, cast, true);
-                this.displaceEnemy(e, -24 - tier * 3);
+                this.collidingDisplacement(e, -24 - tier * 3, rt, cast, this.weaponMods[id] === 'hook_collision');
                 this.applyControlTag(e, rt, tier >= 3 ? 0.25 : 0.15, cast);
             }
             return;
@@ -1257,6 +1426,10 @@ export class RogueliteBattle {
                     ux: (e.x - this.player.x) / len, uy: (e.y - this.player.y) / len, length: len, halfWidth: 2, life: 7, sourceCast: cast,
                 });
                 this.strikeEnemy(e, rt, this.player, 1.0, false, cast);
+            }
+            if (this.weaponMods.split_probe === 'probe_net' && hits.length >= 2) {
+                const wire = this.placeTool('cable', hits[1], rt, cast, 16, 5);
+                wire.origin = { x: hits[0].x, y: hits[0].y };
             }
             if (tier >= 4 && hits.length === 1) this.strikeEnemy(hits[0], rt, this.player, 0.85, false, cast);
             return;
@@ -1334,6 +1507,122 @@ export class RogueliteBattle {
         }
     }
 
+    private placeTool(kind: FieldTool['kind'], p: Position, rt: WeaponRuntime, cast: WeaponCast,
+        life: number, radius: number, vx = 0, vy = 0, delay = 0): FieldTool {
+        const tool: FieldTool = { kind, x: p.x, y: p.y, origin: { x: cast.x, y: cast.y }, born: this.tick + delay,
+            until: this.tick + delay + life, rt, cast, vx, vy, radius, hit: new Set() };
+        this.fieldTools.push(tool);
+        return tool;
+    }
+
+    private areaRing(p: Position, radius: number, kind: 'magnet' | 'induction' = 'induction'): void {
+        this.effects.push({ x: p.x, y: p.y, shape: 'circle', kind, radius, life: 3 });
+    }
+
+    private wire(a: Position, b: Position): void {
+        this.effects.push({ x: b.x, y: b.y, from: { x: a.x, y: a.y }, shape: 'link', kind: 'arc', life: 3 });
+    }
+
+    private pulseTriangle(a: Position, b: Position, c: Position, rt: WeaponRuntime, cast?: WeaponCast): void {
+        this.wire(a, b); this.wire(b, c); this.wire(c, a);
+        const cross = (p: Position, q: Position, r: Position) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+        if (Math.abs(cross(a, b, c)) < 80) return;
+        for (const enemy of [...this.enemies]) {
+            const edges = [cross(a, b, enemy), cross(b, c, enemy), cross(c, a, enemy)];
+            if (edges.every(n => n >= 0) || edges.every(n => n <= 0)) this.strikeEnemy(enemy, rt, a, 1.6, false, cast);
+        }
+    }
+
+    private stepSurveyPins(): void {
+        const pins = this.surveyPins;
+        const p = this.player;
+        if (!pins.length) pins.push({ x: p.x, y: p.y });
+        if (distance(p, pins[pins.length - 1]) >= 54) {
+            if (this.rigRank === 4 && pins.length === 3 && distance(p, pins[0]) < 45) {
+                this.pulseTriangle(pins[0], pins[1], pins[2], this.runtimes[0]);
+                pins.length = 0;
+            }
+            pins.push({ x: p.x, y: p.y });
+            const limit = this.rigRank >= 3 ? 3 : 2;
+            if (pins.length > limit) pins.shift();
+            this.wireContacts.clear();
+            this.nextSurveySlow = true;
+        }
+        for (let i = 1; i < pins.length; i++) {
+            this.wire(pins[i - 1], pins[i]);
+            for (const enemy of [...this.enemies]) {
+                if (!this.canTarget(enemy) || this.wireContacts.has(enemy.id) || distanceToSegment(enemy, pins[i - 1], pins[i]) > enemy.radius + 3) continue;
+                this.wireContacts.add(enemy.id);
+                if (this.nextSurveySlow && this.rigRank >= 2) {
+                    enemy.slowUntil = this.tick + 25;
+                    this.nextSurveySlow = false;
+                }
+                this.applyDamage(enemy, 16 + this.build.stats.voltage, this.runtimes[0], false, false);
+            }
+        }
+    }
+
+    private stepFieldTools(): void {
+        for (let i = this.fieldTools.length - 1; i >= 0; i--) {
+            const f = this.fieldTools[i];
+            if (this.tick > f.until) { this.fieldTools.splice(i, 1); continue; }
+            const age = this.tick - f.born;
+            if (age < 0) continue;
+            const prev = { x: f.x, y: f.y };
+            const mod = this.weaponMods[f.rt.instance.id];
+            let radius = f.radius;
+            if (f.kind === 'disc') {
+                if (mod === 'saw_return' && age >= 18) {
+                    if (!f.returning) { f.returning = true; f.hit.clear(); }
+                    const len = distance(f, this.player);
+                    if (len <= 12) { f.until = this.tick; continue; }
+                    f.vx = (this.player.x - f.x) * 12 / len; f.vy = (this.player.y - f.y) * 12 / len;
+                }
+                f.x += f.vx; f.y += f.vy;
+                const x = clamp(f.x, this.field.left, this.field.right);
+                const y = clamp(f.y, this.field.bottom, this.field.top);
+                if (x !== f.x || y !== f.y) {
+                    if (x !== f.x) f.vx *= -1;
+                    if (y !== f.y) f.vy *= -1;
+                    f.x = x; f.y = y; f.hit.clear();
+                    if (mod === 'saw_fork' && !f.forked) {
+                        f.forked = true;
+                        this.placeTool('disc', f, f.rt, f.cast, 13, 5, f.vx * 0.8 - f.vy * 0.6, f.vx * 0.6 + f.vy * 0.8).forked = true;
+                    }
+                }
+                this.areaRing(f, radius, 'magnet');
+            } else if (f.kind === 'echo') {
+                radius *= (age + 1) / 13;
+                this.areaRing(f, radius);
+            } else if (f.kind === 'cable') {
+                this.wire(f.origin, f);
+            } else {
+                if (f.kind === 'welder') {
+                    const near = this.nearest(f, 240);
+                    if (near) {
+                        const len = Math.max(distance(f, near), 9);
+                        f.x += (near.x - f.x) * 9 / len; f.y += (near.y - f.y) * 9 / len;
+                    }
+                    if (mod === 'welder_trail' && age % 9 === 0) this.placeTool('scorch', f, f.rt, f.cast, 27, 22);
+                }
+                this.areaRing(f, radius, f.kind === 'stake' ? 'induction' : 'magnet');
+                if (age % 10) continue;
+                f.hit.clear();
+            }
+            for (const enemy of [...this.enemies]) {
+                if (!this.canTarget(enemy) || f.hit.has(enemy.id)) continue;
+                const d = distance(f, enemy);
+                const hit = f.kind === 'disc' ? distanceToSegment(enemy, prev, f) <= radius + enemy.radius
+                    : f.kind === 'cable' ? distanceToSegment(enemy, f.origin, f) <= radius + enemy.radius
+                    : f.kind === 'echo' ? Math.abs(d - radius) <= enemy.radius + f.radius / 13 : d <= radius + enemy.radius;
+                if (!hit) continue;
+                f.hit.add(enemy.id);
+                if (f.kind === 'cable') enemy.slowUntil = this.tick + 35;
+                this.strikeEnemy(enemy, f.rt, prev, f.kind === 'stake' ? 0.55 : 1, false, f.cast);
+            }
+        }
+    }
+
     private advanceMelees(priorEnemies: ReadonlyMap<RogueliteEnemy, Position>, priorPlayer: Readonly<Position>): void {
         for (let i = this.activeMelees.length - 1; i >= 0; i--) {
             const active = this.activeMelees[i];
@@ -1356,6 +1645,9 @@ export class RogueliteBattle {
                     active.struck.add(enemy);
                     active.landed++;
                     this.strikeEnemy(enemy, active.runtime, this.player, active.bonusMult, active.forceCrit, active.cast);
+                    if (active.cast.tool === 'bypass_wrench' && this.weaponMods.bypass_wrench === 'pry_collision') {
+                        this.collidingDisplacement(enemy, 38, active.runtime, active.cast, true);
+                    }
 
                     if (active.runtime.instance.id === 'wrench' && active.runtime.instance.tier >= 3 && active.landed === 2) {
                         active.runtime.wideSweepReady = true;
@@ -1414,7 +1706,10 @@ export class RogueliteBattle {
         }
 
         let targetMod = 1.0;
-        if (enemy.kind === 'boss' && enemy.state === 'open') targetMod *= 1.5;
+        if (enemy.kind === 'boss') {
+            if (enemy.state === 'open') targetMod *= 1.5;
+            else if (this.chapter.id === '04') targetMod *= 0.22;
+        }
         if (enemy.vulnerableUntil > this.tick) targetMod *= 1 + enemy.vulnerableBonus;
         if (arcTier >= 4 && enemy.shockedUntil > this.tick) targetMod *= 1.12;
 
@@ -1431,24 +1726,77 @@ export class RogueliteBattle {
         if (cast) this.emitHitEffect(enemy, cast, WEAPON_ATTACK_CUES[id], origin, lethal, isPull);
         this.applyDamage(enemy, hit.damage, rt, hit.isCrit, true);
 
+        if (this.rigId === 'duty_standard' && enemy.hp > 0) this.mixedFollowup(enemy, rt, hit.damage);
+        if (this.rigId === 'heavy_fitter' && this.rigRank >= 2 && spec.tags.includes('melee')) {
+            this.guardCharge = Math.min(3, this.guardCharge + 1);
+            if (this.counterReady) {
+                this.counterReady = false;
+                this.displaceEnemy(enemy, 34);
+                if (this.rigRank === 4) {
+                    const end = fieldRayEnd(this.player, cast?.ux ?? this.facing.x, cast?.uy ?? this.facing.y, 94, this.field);
+                    this.wire(this.player, end);
+                    for (const other of [...this.enemies]) {
+                        if (other !== enemy && distanceToSegment(other, this.player, end) <= 16 + other.radius) this.applyDamage(other, hit.damage, rt, false, false);
+                    }
+                }
+            }
+        }
         if (hit.isCrit && this.build.critHealChance > 0 && this.random() < this.build.critHealChance) {
             this.healPlayer(2, true);
         }
 
         if (this.isArcWeapon(id)) {
             enemy.shockedUntil = Math.max(enemy.shockedUntil, this.tick + 90);
-            if (id !== 'arc_gun' && arcTier >= 2 && !this.isJammed) {
-                this.chainArc(enemy, rt, this.extraArcHops(), 0.55, cast);
+            if (id !== 'arc_gun' && (arcTier >= 2 || this.rigId === 'high_voltage') && !this.isJammed) {
+                this.chainArc(enemy, rt, this.extraArcHops() + Number(this.rigId === 'high_voltage'), 0.55, cast);
             }
         }
 
-        if (spec.tags.includes('thermal') && (thermalTier >= 2 || id === 'torch' || (id === 'pulse_nozzle' && tier >= 4))) {
+        if (spec.tags.includes('thermal') && (this.rigId === 'thermal_welder' || thermalTier >= 2 || id === 'torch' || id === 'patrol_welder' || (id === 'pulse_nozzle' && tier >= 4))) {
             const maxStacks = thermalTier >= 4 ? 3 : 1;
             enemy.burnStacks = Math.min(maxStacks, enemy.burnStacks + 1);
             enemy.burnDamage = Math.max(enemy.burnDamage, Math.round(hit.damage * (id === 'torch' && tier >= 4 ? 0.45 : 0.25)));
             enemy.burnUntil = this.tick + 60;
         }
         return hit;
+    }
+
+    private mixedFollowup(enemy: RogueliteEnemy, rt: WeaponRuntime, damage: number): void {
+        let combo = this.comboTargets.get(enemy);
+        if (!combo || this.tick - combo.last > 56) {
+            combo = { tools: [], last: this.tick, ready: 0 };
+            this.comboTargets.set(enemy, combo);
+        }
+        const id = rt.instance.id;
+        const family = WEAPON_CATALOG[id].tags[0];
+        const previous = combo.tools[combo.tools.length - 1];
+        if (previous && WEAPON_CATALOG[previous].tags[0] === family) return;
+        combo.last = this.tick;
+        if (combo.tools.some(tool => WEAPON_CATALOG[tool].tags[0] === family)) combo.tools = previous ? [previous] : [];
+        combo.tools.push(id);
+        const third = combo.tools.length === 3 && this.rigRank >= 3;
+        if (combo.tools.length < 2 || (!third && this.tick < combo.ready)) return;
+        combo.ready = this.tick + 18;
+        const bonus = Math.max(3, Math.round(damage * 0.45));
+        this.applyDamage(enemy, bonus, rt, false, false);
+        this.areaRing(enemy, 15, 'magnet');
+        if (this.rigRank >= 2) this.displaceEnemy(enemy, 18);
+        if (third && this.rigRank === 4) {
+            const other = this.nearest(enemy, 90, new Set([enemy]));
+            if (other) { this.wire(enemy, other); this.applyDamage(other, bonus, rt, false, false); }
+        }
+        if (third || this.rigRank < 3) combo.tools = [id];
+    }
+
+    private collidingDisplacement(enemy: RogueliteEnemy, amount: number, rt: WeaponRuntime, cast: WeaponCast, collide: boolean): void {
+        const before = { x: enemy.x, y: enemy.y };
+        this.displaceEnemy(enemy, amount);
+        if (!collide || distance(before, enemy) < 1) return;
+        for (const other of [...this.enemies]) {
+            if (other !== enemy && distanceToSegment(other, before, enemy) <= enemy.radius + other.radius) {
+                this.strikeEnemy(other, rt, before, 0.72, false, cast);
+            }
+        }
     }
 
     private chainArc(first: RogueliteEnemy, rt: WeaponRuntime, hops: number, scale: number, cast?: WeaponCast): void {
@@ -1458,14 +1806,23 @@ export class RogueliteBattle {
         const visited = new Set<RogueliteEnemy>([first]);
         let origin: Position = first;
         for (let h = 0; h < hops; h++) {
-            const next = this.nearest(origin, hopRange, visited);
+            const marked = this.rigId === 'high_voltage' && this.rigRank >= 3 && ((origin as RogueliteEnemy).conductorUntil ?? 0) > this.tick;
+            const next = this.nearest(origin, hopRange + (marked ? 43 : 0), visited);
             if (!next) break;
             visited.add(next);
             const hit = computeWeaponHit(rt.instance.id, rt.instance.tier, this.build.stats, this.random, { bonusMultiplier: scale });
             if (cast) this.emitHitEffect(next, cast, 'arc', origin, next.hp <= hit.damage, false, h + 1);
             next.shockedUntil = Math.max(next.shockedUntil, this.tick + 90);
             this.applyDamage(next, hit.damage, rt, hit.isCrit, false);
+            if (this.rigId === 'high_voltage' && this.rigRank >= 2) next.conductorUntil = this.tick + 65;
             origin = next;
+        }
+        if (this.rigId === 'high_voltage' && this.rigRank === 4 && visited.size > 1) {
+            const marked = this.enemies.find(e => !visited.has(e) && (e.conductorUntil ?? 0) > this.tick && distance(e, origin) <= 135);
+            if (marked) {
+                this.wire(origin, marked);
+                this.applyDamage(marked, Math.max(4, this.build.stats.voltage + 5), rt, false, false);
+            }
         }
     }
 
@@ -1512,6 +1869,10 @@ export class RogueliteBattle {
         }
 
         if (enemy.hp > 0) return;
+        if (enemy.relay) {
+            this.enemies.splice(this.enemies.indexOf(enemy), 1);
+            this.areaRing(enemy, 24); return;
+        }
         rt.kills++;
         this.kills++;
         if (enemy.isElite) this.elitesKilled++;
@@ -1533,7 +1894,7 @@ export class RogueliteBattle {
                 }
             }
         }
-        if (allowDeathChain && this.build.hasBurnSpread && enemy.burnStacks > 0) {
+        if (allowDeathChain && (this.build.hasBurnSpread || this.rigId === 'thermal_welder' && this.rigRank >= 3) && enemy.burnStacks > 0) {
             for (const near of this.enemies) {
                 if (near !== enemy && this.canTarget(near) && distance(enemy, near) <= 72) {
                     near.burnStacks = Math.min(3, near.burnStacks + 1);
@@ -1560,7 +1921,8 @@ export class RogueliteBattle {
         for (let i = this.drops.length - 1; i >= 0; i--) {
             const drop = this.drops[i];
             const range = distance(drop, this.player);
-            if (range > radius) continue;
+            const chainPull = drop.kind === 'part' && this.rigId === 'scrap_auditor' && this.rigRank >= 2 && this.pickupChain >= 3 && this.tick - this.lastPickup <= 45;
+            if (range > radius * (chainPull ? 1.85 : 1)) continue;
             this.drops.splice(i, 1);
             if (drop.kind === 'heal') {
                 this.healPlayer(drop.value, true);
@@ -1568,6 +1930,8 @@ export class RogueliteBattle {
                 if (range > 4) this.partPickups.push({ x: drop.x, y: drop.y, tick: this.tick });
                 const doubled = this.build.doublePartChance > 0 && this.random() < this.build.doublePartChance ? 2 : 1;
                 const earned = drop.value * doubled;
+                this.pickupChain = range > radius || this.tick - this.lastPickup > 45 ? 1 : this.pickupChain + 1;
+                this.lastPickup = this.tick;
                 this.partsCollected += earned;
                 if (this.bagRemaining > 0) {
                     const redeem = Math.min(this.bagRemaining, earned);
@@ -1585,6 +1949,7 @@ export class RogueliteBattle {
         for (const e of this.enemies) {
             if (!this.canTarget(e) || excluded?.has(e)) continue;
             const d = distance(origin, e);
+            if (origin === this.player && d <= reach && e.relay && this.bossDevices.some(device => device.unit === e && device.active)) return e;
             if (d <= best) { best = d; picked = e; }
         }
         return picked;

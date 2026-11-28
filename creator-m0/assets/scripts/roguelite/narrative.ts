@@ -187,6 +187,7 @@ export const CHAPTER_NARRATIVES: Readonly<Record<ChapterId, ChapterNarrative>> =
 };
 
 export const RIG_FLAVOR: Readonly<Record<RigId, string>> = {
+    surveyor: '测绘员把标钉挂在肩上。绕着场地走一圈，给追上来的敌机留条线。',
     duty_standard: '蓝工装穿了三年，袖口已经磨毛了。各种武器都能装。',
     heavy_fitter: '锅炉房老周留下的钢衬围裙。穿着走得慢，遇上冲撞能多扛几下。',
     high_voltage: '阿阮调过的试车背心。武器能打出连锁电弧，生命上限较低。',

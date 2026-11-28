@@ -134,6 +134,29 @@ export function drawPixelSpawn(g: Graphics, x: number, y: number, untilSpawn: nu
 
 export function drawCampaignEncounter(g: Graphics, battle: Readonly<RenderBattleView>, threat: Graphics = g): void {
     const { chapterBoss: boss, tick, enemies } = battle;
+    for (const device of boss?.devices ?? []) {
+        const size = device.kind === 'switch' ? 24 : 13;
+        threat.fillColor = device.active ? scratchColor(99, 250, 213, 225) : scratchColor(174, 145, 91, 200);
+        pxRing(threat, device.x, device.y, size, device.active ? 3 : 2, 0, Math.PI * 2, 5);
+        if (device.kind === 'wreck') {
+            threat.rect(device.x - 8, device.y - 5, 16, 10); threat.rect(device.x - 4, device.y + 5, 7, 4);
+        } else if (device.kind === 'switch') {
+            pxLine(threat, device.x - 6, device.y - 5, device.x + 6, device.y + 5, 3);
+        }
+        threat.fill();
+    }
+    for (const pulse of boss?.pulses ?? []) {
+        threat.fillColor = scratchColor(250, 107, 175, 230);
+        pxRing(threat, pulse.x, pulse.y, pulse.radius, 4, pulse.gap + pulse.halfGap, Math.PI * 2 - pulse.halfGap * 2, 5);
+        threat.fill();
+    }
+    if (boss?.nextRail !== undefined && boss.hazard?.shape === 'rect') {
+        threat.fillColor = scratchColor(245, 185, 85, 170);
+        for (let y = boss.hazard.bottom; y < boss.hazard.top - 5; y += 18) {
+            threat.rect(boss.nextRail - 25, y, 2, 5); threat.rect(boss.nextRail + 23, y, 2, 5);
+        }
+        threat.fill();
+    }
     if (boss?.hazard) {
         drawBossHazard(g, boss.hazard, threat, tick, boss.kind, boss.phaseStartedAt);
     }

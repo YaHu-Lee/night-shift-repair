@@ -1,10 +1,8 @@
 import { ALL_TOOL_IDS, CHAPTER_CATALOG, MODULE_BY_ID, RIG_CATALOG, WEAPON_CATALOG } from './catalog';
-import type { ChapterId, DangerLevel, PreRunSupplyId, RigId, ToolId, WorkshopProfile } from './types';
+import type { ChapterId, DangerLevel, PreRunSupplyId, RigId, Tier, ToolId, WorkshopProfile } from './types';
 
 export interface ChapterUnlockGrant {
     readonly nextChapter?: ChapterId;
-    readonly rig?: RigId;
-    readonly weapon?: ToolId;
     readonly customStarter?: boolean;
 }
 
@@ -65,13 +63,126 @@ export const STARTER_WEAPONS: readonly ToolId[] = [
 ];
 
 export const CHAPTER_UNLOCKS: Readonly<Record<ChapterId, ChapterUnlockGrant>> = {
-    '01': { nextChapter: '02', rig: 'high_voltage', weapon: 'traction_coil' },
-    '02': { nextChapter: '03', rig: 'thermal_welder', weapon: 'split_probe' },
-    '03': { nextChapter: '04', rig: 'scrap_auditor', weapon: 'bypass_wrench' },
+    '01': { nextChapter: '02' },
+    '02': { nextChapter: '03' },
+    '03': { nextChapter: '04' },
     '04': { customStarter: true },
 };
 
-// Tier-4 unique capstone modules unlocked globally by clearing higher Danger tiers (zero junk dilution).
+export const WEAPON_MODS = {
+    saw_fork: ['rebound_saw', '锯盘撞墙分叉', '锯盘第一次撞墙时分出一枚小锯盘，沿另一条路线切过敌群。'],
+    hook_collision: ['traction_coil', '抓钩撞敌', '抓钩把目标拉近时，会撞伤拉扯路径上的其他敌机。'],
+    saw_return: ['rebound_saw', '锯盘回程再切', '锯盘飞出一段距离后折返，回程可以再次切中同一台敌机。'],
+    probe_net: ['split_probe', '双针电网', '电击针同时击中两台敌机时，会在它们之间拉起一段短暂的电网。'],
+    rivet_pin: ['rivet_line', '铆索钉墙', '把靠近场地边缘的普通敌机钉在墙上，暂时限制它的移动。'],
+    rivet_trip: ['rivet_line', '双索绊线', '铆索留在场上的时间更长。下一发会与上一发的落点相连，绊住穿过的敌机。'],
+    pry_collision: ['bypass_wrench', '撬棍撞伤后排', '用撬棍击退前排时，被撞到的后排敌机也会受伤。'],
+    echo_repeat: ['echo_horn', '声波延迟重响', '第一圈声波发出后，原地会再响一次。'],
+    echo_twin: ['echo_horn', '双机夹击', '发出声波的同时，在目标后方也激起一圈较小的声波。'],
+    stake_link: ['breaker_stake', '地桩持续通电', '新地桩与上一根地桩之间拉起电线，伤害穿线的敌机。'],
+    welder_trail: ['patrol_welder', '焊机沿路径留痕', '焊机追击时沿路留下灼热焊痕，伤害踏入的敌机。'],
+    stake_loop: ['breaker_stake', '地桩围成放电回路', '三根地桩围成三角时向区域内放电。'],
+} as const satisfies Record<string, readonly [ToolId, string, string]>;
+export type WeaponMod = keyof typeof WEAPON_MODS;
+
+export interface Milestone {
+    readonly weapon?: ToolId;
+    readonly mod?: WeaponMod;
+    readonly rigs?: readonly (readonly [RigId, Tier])[];
+}
+export const MILESTONES: Readonly<Record<ChapterId, readonly [Milestone, Milestone, Milestone, Milestone, Milestone]>> = {
+    '01': [
+        { weapon: 'traction_coil', rigs: [['high_voltage', 1], ['duty_standard', 2]] },
+        { weapon: 'rebound_saw', rigs: [['duty_standard', 3]] },
+        { mod: 'saw_fork', rigs: [['duty_standard', 4], ['high_voltage', 2]] },
+        { mod: 'hook_collision', rigs: [['high_voltage', 3]] },
+        { mod: 'saw_return', rigs: [['high_voltage', 4]] },
+    ],
+    '02': [
+        { weapon: 'split_probe', rigs: [['thermal_welder', 1], ['heavy_fitter', 2]] },
+        { weapon: 'rivet_line', rigs: [['heavy_fitter', 3]] },
+        { mod: 'probe_net', rigs: [['heavy_fitter', 4], ['thermal_welder', 2]] },
+        { mod: 'rivet_pin', rigs: [['thermal_welder', 3]] },
+        { mod: 'rivet_trip', rigs: [['thermal_welder', 4]] },
+    ],
+    '03': [
+        { weapon: 'bypass_wrench', rigs: [['scrap_auditor', 1]] },
+        { weapon: 'echo_horn', rigs: [['scrap_auditor', 2]] },
+        { mod: 'pry_collision', rigs: [['scrap_auditor', 3]] },
+        { mod: 'echo_repeat', rigs: [['scrap_auditor', 4]] }, { mod: 'echo_twin' },
+    ],
+    '04': [
+        { weapon: 'breaker_stake', rigs: [['surveyor', 1]] },
+        { weapon: 'patrol_welder', rigs: [['surveyor', 2]] },
+        { mod: 'stake_link', rigs: [['surveyor', 3]] },
+        { mod: 'welder_trail', rigs: [['surveyor', 4]] }, { mod: 'stake_loop' },
+    ],
+};
+
+export const RIG_RANK_EFFECTS: Record<RigId, readonly [string, string, string, string]> = {
+    duty_standard: ['不同系武器交替命中会补击', '补击推开目标', '第三种系能再补一次', '接续补击传给附近另一台敌机'],
+    heavy_fitter: ['护甲强化近战', '近战命中积攒正面护板', '格挡后近战重击击退', '格挡后重击穿过面前敌群'],
+    high_voltage: ['电弧向邻近目标续跳', '续跳留下导电标记', '导电标记扩大下一跳距离', '连锁终点与标记接成回路'],
+    thermal_welder: ['持续灼烧伤害提高', '灼烧留下热区', '烧毁敌机会点燃附近敌机', '相邻热区连成火带'],
+    scrap_auditor: ['商店打折，漏捡铜件可结转', '连续回收吸来远处散件', '回收达标可多留一格货', '达标可定向调货一次'],
+    surveyor: ['移动留下带电标线', '穿线首个目标减速', '转弯可续接第三枚标钉', '闭合三角放电'],
+};
+export const RANK_LABEL = ['未解锁', 'I', 'II', 'III', 'IV'] as const;
+type Progress = Partial<Pick<WorkshopProfile, 'maxDangerCleared' | 'clearedChapters'>>;
+
+function highestClear(profile: Progress, chapter: ChapterId): number {
+    return profile.maxDangerCleared?.[chapter] ?? (profile.clearedChapters?.includes(chapter) ? 0 : -1);
+}
+
+export function rigRank(profile: Progress, rig: RigId): 0 | Tier {
+    let rank: 0 | Tier = STARTER_RIGS.includes(rig) ? 1 : 0;
+    for (const chapter of CHAPTER_ORDER) {
+        const cleared = highestClear(profile, chapter);
+        for (const danger of DANGER_LEVELS) {
+            if (danger > cleared) break;
+            for (const [id, next] of MILESTONES[chapter][danger].rigs ?? []) {
+                if (rig === id && next > rank) rank = next;
+            }
+        }
+    }
+    return rank;
+}
+
+export function milestoneSource(match: (reward: Milestone) => boolean) {
+    for (const chapter of CHAPTER_ORDER) {
+        for (const danger of DANGER_LEVELS) {
+            if (match(MILESTONES[chapter][danger])) {
+                const title = CHAPTER_CATALOG.find(c => c.id === chapter)!.title;
+                return { chapter, danger, hint: '通关「' + title + '」' + (danger ? '难度 ' + danger : '') };
+            }
+        }
+    }
+    return null;
+}
+
+export function unlockedMods(profile: Progress, tool: ToolId): WeaponMod[] {
+    const mods: WeaponMod[] = [];
+    for (const chapter of CHAPTER_ORDER) {
+        for (const danger of DANGER_LEVELS) {
+            if (danger > highestClear(profile, chapter)) break;
+            const mod = MILESTONES[chapter][danger].mod;
+            if (mod && WEAPON_MODS[mod][0] === tool) mods.push(mod);
+        }
+    }
+    return mods;
+}
+
+export function milestoneLabels(m: Milestone): string[] {
+    const labels: string[] = [];
+    if (m.weapon) labels.push('解锁武器：' + WEAPON_CATALOG[m.weapon].name);
+    if (m.mod) labels.push('解锁改装：' + WEAPON_MODS[m.mod][1]);
+    for (const [rig, rank] of m.rigs ?? []) {
+        labels.push(rank === 1 ? '解锁工装：' + RIG_CATALOG[rig].name : RIG_CATALOG[rig].name + '升至 ' + RANK_LABEL[rank]);
+    }
+    return labels;
+}
+
+// Global danger capstones.
 export const DANGER_CAPSTONE_MODULES: Readonly<Record<Exclude<DangerLevel, 0>, string>> = {
     1: 'zero_line_tap',
     2: 'emergency_generator',
@@ -150,8 +261,7 @@ export function unlockedRigsForProfile(profile?: Pick<WorkshopProfile, 'clearedC
     }
     if (profile?.clearedChapters) {
         for (const ch of profile.clearedChapters) {
-            const grant = CHAPTER_UNLOCKS[ch]?.rig;
-            if (grant) set.add(grant);
+            for (const [rig, tier] of MILESTONES[ch][0].rigs ?? []) if (tier === 1) set.add(rig);
         }
     }
     return Array.from(set);
@@ -164,19 +274,22 @@ export function isRigUnlocked(profile: Pick<WorkshopProfile, 'clearedChapters' |
 export function rigUnlockHint(rigId: RigId): string {
     for (let i = 0; i < CHAPTER_ORDER.length; i++) {
         const id = CHAPTER_ORDER[i];
-        if (CHAPTER_UNLOCKS[id].rig === rigId) {
+        if (MILESTONES[id][0].rigs?.some(([rig, tier]) => rig === rigId && tier === 1)) {
             return `通关第 ${'一二三四'[i]} 章「${CHAPTER_CATALOG[i].title}」后解锁`;
         }
     }
     return '';
 }
 
-export function unlockedWeaponsForProfile(profile?: Pick<WorkshopProfile, 'clearedChapters'>): ToolId[] {
+export function unlockedWeaponsForProfile(profile?: Progress): ToolId[] {
     if (!profile) return [...ALL_TOOL_IDS];
     const set = new Set<ToolId>(STARTER_WEAPONS);
-    for (const ch of profile.clearedChapters) {
-        const w = CHAPTER_UNLOCKS[ch]?.weapon;
-        if (w) set.add(w);
+    for (const ch of CHAPTER_ORDER) {
+        for (const danger of DANGER_LEVELS) {
+            if (danger > highestClear(profile, ch)) break;
+            const w = MILESTONES[ch][danger].weapon;
+            if (w) set.add(w);
+        }
     }
     return Array.from(set);
 }
@@ -262,19 +375,19 @@ export function computeRunUnlocks(
 ): string[] {
     const list: string[] = [];
 
-    // 1. Chapter first-clear unlocks
+    for (const d of DANGER_LEVELS) {
+        if (d > highestClear(prev, chapterId) && d <= highestClear(next, chapterId)) {
+            list.push(...milestoneLabels(MILESTONES[chapterId][d]));
+        }
+    }
+    // Chapter route and loadout access
     if (!prev.clearedChapters.includes(chapterId) && next.clearedChapters.includes(chapterId)) {
         const grant = CHAPTER_UNLOCKS[chapterId];
         if (grant.nextChapter) {
             const nextCh = CHAPTER_CATALOG.find(c => c.id === grant.nextChapter);
             if (nextCh) list.push(`解锁第 ${'一二三四'[nextCh.index]} 章 · ${nextCh.title}`);
         }
-        if (grant.rig && !isRigUnlocked(prev, grant.rig)) {
-            list.push(`解锁工装：${RIG_CATALOG[grant.rig].name}`);
-        }
-        if (grant.weapon) {
-            list.push(`解锁武器：${WEAPON_CATALOG[grant.weapon].name}`);
-        }
+
         if (grant.customStarter) {
             list.push('出发前可以选择初始武器');
         }

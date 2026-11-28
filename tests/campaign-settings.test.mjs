@@ -19,6 +19,7 @@ test('campaign preferences default to joystick and preserve a chosen touch mode'
     const progress = makePlatform(host, 'night-shift.campaign');
     assert.equal(progress.writeCheckpoint(1, { stage: '02' }), true);
     const settings = new CampaignSettings(platform());
+    assert.equal(settings.current.stickPlacement, 'center');
     assert.deepEqual(settings.current, { ...DEFAULT_CAMPAIGN_PREFERENCES, music: true, sound: true, movement: 'joystick' });
     assert.equal(settings.update({ music: false, movement: 'touch' }), true);
     assert.deepEqual(new CampaignSettings(platform()).current, { ...DEFAULT_CAMPAIGN_PREFERENCES, music: false, sound: true, movement: 'touch' });
@@ -51,7 +52,7 @@ test('campaign settings preserve a different option saved by another instance', 
     assert.deepEqual(two.current, { ...DEFAULT_CAMPAIGN_PREFERENCES, music: false, sound: true, movement: 'touch' });
 });
 
-test('legacy settings acquire right-hand defaults and remember custom margins across placement changes', () => {
+test('legacy settings acquire centered defaults and remember custom margins across placement changes', () => {
     const { platform } = storageFixture();
     assert.ok(platform().writeCheckpoint(1, { music: false, sound: false, movement: 'touch' }));
     const settings = new CampaignSettings(platform());

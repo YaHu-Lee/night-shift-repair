@@ -33,11 +33,14 @@ export async function installCheckpoint(page, entries) {
     }, entries);
 }
 
-export function playWave(session, dodge = true) {
+export function playWave(session, dodge = true, inputs) {
     const battle = session.battle;
     let direction = [0, 0];
     while (session.phase === 'battle' && session.battle === battle) {
-        if (dodge && battle.tick % 6 === 0) direction = steerPatrol(battle);
+        if (dodge && battle.tick % 6 === 0) {
+            direction = steerPatrol(battle);
+            inputs?.push([battle.tick,...direction]);
+        }
         session.stepBattle(...direction);
     }
 }
@@ -45,16 +48,17 @@ export function playWave(session, dodge = true) {
 export function bossCheckpoint(profile, options) {
     const session = new PatrolSession({...options,profile});
     let entries;
+    const inputs = [];
     while (session.phase === 'battle') {
         if (session.waveIndex === 11) entries = checkpoint(profile,session);
-        playWave(session,session.waveIndex < 11);
+        playWave(session, session.waveIndex < 11 || session.chapter.id === '04' || session.danger >= 2, session.waveIndex === 11 ? inputs : undefined);
         if (session.phase === 'shop') {
             playShop(session);
             assert.ok(session.startNextWave());
         }
     }
     assert.equal(session.phase,'won','Boss fixture no longer clears: ' + JSON.stringify(options));
-    return {...options,entries,profileBefore:profile,profileAfter:session.applySettlementToProfile(profile),result:session.settle(profile)};
+    return {...options,entries,inputs,profileBefore:profile,profileAfter:session.applySettlementToProfile(profile),result:session.settle(profile)};
 }
 
 // Build legal wave-12 checkpoints by playing each preceding wave and buying at its real shop.

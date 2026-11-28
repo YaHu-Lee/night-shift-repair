@@ -295,8 +295,8 @@ test('patrol session runs a full wave, retains bag parts, grants level-ups, bans
     for (const rig of Object.values(RIG_CATALOG)) {
         assert.ok(rig.tradeoff.length <= 16, rig.tradeoff);
     }
-    assert.equal(Object.keys(WEAPON_CATALOG).length, 10);
-    assert.equal(Object.keys(RIG_CATALOG).length, 5);
+    assert.equal(Object.keys(WEAPON_CATALOG).length, 15);
+    assert.equal(Object.keys(RIG_CATALOG).length, 6);
     assert.equal(computeSynergies([{ uid: 1, id: 'wrench', tier: 1 }, { uid: 2, id: 'arc_gun', tier: 1 }], 'duty_standard').find(s => s.tag === 'arc')?.activeTier, 2);
 });
 
